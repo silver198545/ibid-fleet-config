@@ -1,0 +1,6 @@
+defaultNamespace: kube-system
+
+# Helm を使わず、純粋な YAML を適用する
+# （Traefik は RKE2 に組み込みなので Helm 管理しない）
+helm:
+  takeOwnership: false
