@@ -1,6 +1,8 @@
 defaultNamespace: longhorn-system
+targetNamespace: longhorn-system
 
 helm:
   chart: longhorn
   repo: https://charts.rancher.io
+  version: 109.3.1+up1.11.2
   values: {}
