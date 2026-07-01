@@ -1,0 +1,6 @@
+defaultNamespace: longhorn-system
+
+helm:
+  chart: longhorn
+  repo: https://charts.rancher.io
+  values: {}
