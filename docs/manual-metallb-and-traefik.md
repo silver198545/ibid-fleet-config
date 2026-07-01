@@ -1,41 +1,41 @@
-# Manual MetalLB and Traefik LB setup
+# MetalLB 手動導入と Traefik LB 化手順
 
-This procedure is for manually installing MetalLB first, then exposing Traefik with a fixed external IP.
+この手順では、まず MetalLB を手動で導入し、その後 Traefik を固定IP付きの LoadBalancer として公開します。
 
-## 1. Install MetalLB manually
+## 1. MetalLB を手動で導入する
 
 ```bash
 kubectl create namespace metallb-system
 kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.13.12/config/manifests/metallb.yaml
 ```
 
-## 2. Create IPAddressPool and L2Advertisement
+## 2. IPAddressPool と L2Advertisement を作成する
 
-Apply inline manifests:
+以下のマニフェストをそのまま適用します。
 
 ```bash
 cat <<'EOF' | kubectl apply -f -
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
-	name: default-pool
-	namespace: metallb-system
+  name: default-pool
+  namespace: metallb-system
 spec:
-	addresses:
-		- 192.168.1.150-192.168.1.200
+  addresses:
+    - 192.168.1.150-192.168.1.200
 ---
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
 metadata:
-	name: default
-	namespace: metallb-system
+  name: default
+  namespace: metallb-system
 spec:
-	ipAddressPools:
-		- default-pool
+  ipAddressPools:
+    - default-pool
 EOF
 ```
 
-## 3. Verify MetalLB is healthy
+## 3. MetalLB の状態を確認する
 
 ```bash
 kubectl -n metallb-system get pods
@@ -43,22 +43,22 @@ kubectl -n metallb-system get ipaddresspool
 kubectl -n metallb-system get l2advertisement
 ```
 
-## 4. Manually expose Traefik service as LoadBalancer
+## 4. Traefik Service を手動で LoadBalancer 化する
 
 ```bash
 kubectl -n kube-system patch svc rke2-traefik --type merge -p '{"spec":{"type":"LoadBalancer","loadBalancerIP":"192.168.1.190"}}'
 ```
 
-## 5. Verify Traefik external IP assignment
+## 5. Traefik に外部IPが割り当てられたことを確認する
 
 ```bash
 kubectl -n kube-system get svc rke2-traefik
 ```
 
-Expected: `TYPE=LoadBalancer` and `EXTERNAL-IP=192.168.1.190`.
+期待値は `TYPE=LoadBalancer` かつ `EXTERNAL-IP=192.168.1.190` です。
 
-## Notes
+## 補足
 
-- If Fleet also manages Traefik Service/HelmChartConfig, ownership conflicts can occur. Keep one owner for Traefik config.
-- `catalog-repos/chart-repos.yaml` adds MetalLB and Bitnami repos to Rancher catalogs.
-- `longhorn/fleet.yaml` installs Longhorn from Rancher charts with Fleet.
+- Fleet でも Traefik の Service や HelmChartConfig を管理すると、所有権競合が発生することがあります。Traefik 設定の管理者は 1 つに揃えてください。
+- [catalog-repos/chart-repos.yaml](catalog-repos/chart-repos.yaml) では Rancher に MetalLB と Bitnami のリポジトリを追加します。
+- [longhorn/fleet.yaml](longhorn/fleet.yaml) では Rancher Charts から Longhorn を Fleet 経由で導入します。

@@ -1,18 +1,18 @@
 # ibid-fleet-config
 
-## Contents
+## 構成
 
-- `catalog-repos/`: Rancher catalog repositories (MetalLB, Bitnami)
-- `longhorn-crd/`: Fleet bundle to install Longhorn CRDs from Rancher charts
-- `longhorn/`: Fleet bundle to install Longhorn from Rancher charts
-- `metallb/`: Fleet bundle to install MetalLB from MetalLB chart repo
-- `docs/manual-metallb-and-traefik.md`: Manual MetalLB install + Traefik LB steps
+- `catalog-repos/`: Rancher のカタログリポジトリ定義（MetalLB、Bitnami）
+- `longhorn-crd/`: Rancher Charts から Longhorn CRD を導入する Fleet バンドル
+- `longhorn/`: Rancher Charts から Longhorn 本体を導入する Fleet バンドル
+- `metallb/`: MetalLB Chart を導入する Fleet バンドル
+- `docs/manual-metallb-and-traefik.md`: MetalLB 手動導入と Traefik LB 化の手順書
 
-## Intended flow
+## 想定フロー
 
-1. Apply `catalog-repos/` with Fleet to add chart repositories.
-2. Apply `longhorn-crd/` with Fleet to install Longhorn CRDs.
-3. Apply `longhorn/` with Fleet to install Longhorn.
-4. Apply `metallb/` with Fleet to install MetalLB (same style as Longhorn).
-5. If needed, use the manual fallback in `docs/manual-metallb-and-traefik.md`.
-6. Use Bitnami repository for later WordPress installation.
+1. Fleet で `catalog-repos/` を適用して、Chart リポジトリを追加します。
+2. Fleet で `longhorn-crd/` を適用して、Longhorn CRD を導入します。
+3. Fleet で `longhorn/` を適用して、Longhorn 本体を導入します。
+4. Fleet で `metallb/` を適用して、MetalLB を導入します。
+5. 必要に応じて [docs/manual-metallb-and-traefik.md](docs/manual-metallb-and-traefik.md) の手動手順を使います。
+6. 後続の WordPress 導入では Bitnami リポジトリを利用します。
