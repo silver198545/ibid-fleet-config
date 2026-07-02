@@ -95,33 +95,42 @@ EOF
 kubectl get ippools.loadbalancer.harvesterhci.io pool1 -o yaml
 ```
 
-## 2. Traefik を LoadBalancer 化する
+IPPool を作成すれば、`service.type: LoadBalancer` を指定している Service（例えば
+[wordpress/fleet.yaml](../wordpress/fleet.yaml)）は追加の変更なしに外部IPが割り当てられます。
 
-ゲストクラスタ側で、これまで通り Traefik の Service を `LoadBalancer` に変更します。
-
-```bash
-kubectl -n kube-system patch svc rke2-traefik --type merge -p '{"spec":{"type":"LoadBalancer"}}'
-```
-
-固定IP（例: `192.168.1.190`）を使いたい場合は、`kube-vip.io/loadbalancerIPs` アノテーションで
-希望のIPを指定できます（上記 IPPool の範囲内であること）。
+## 2. 外部IPが割り当てられたことを確認する
 
 ```bash
-kubectl -n kube-system annotate svc rke2-traefik kube-vip.io/loadbalancerIPs=192.168.1.190
-```
-
-## 3. 外部IPが割り当てられたことを確認する
-
-```bash
-kubectl -n kube-system get svc rke2-traefik
+kubectl -n <namespace> get svc
 ```
 
 期待値は `TYPE=LoadBalancer` かつ `EXTERNAL-IP` に IPPool の範囲内のアドレスが入っていることです。
 
+## Traefik を LoadBalancer 化する必要はあるか
+
+**WordPress は自分専用の `LoadBalancer` Service を直接持つ構成（`ingress.enabled: false`）のため、
+Traefik を経由しません。** WordPress を公開するためだけであれば、Traefik を LoadBalancer 化する
+必要はありません。
+
+過去の手順（旧 `manual-metallb-and-traefik.md`）では Traefik も MetalLB で LoadBalancer 化していましたが、
+これは WordPress とは無関係な、別の目的（Rancher UI や他の Ingress ベースのアプリを Traefik 経由で
+公開する等）で設定されていたものです。そうした用途が無ければ、以下で元の `ClusterIP` に戻せます。
+
+```bash
+# Traefik を元の ClusterIP に戻す
+kubectl -n kube-system patch svc rke2-traefik --type merge -p '{"spec":{"type":"ClusterIP"}}'
+
+# kube-vip.io/loadbalancerIPs アノテーションを付けていた場合は削除
+kubectl -n kube-system annotate svc rke2-traefik kube-vip.io/loadbalancerIPs-
+```
+
+将来的に WordPress をドメイン名 + TLS でアクセスできるようにする場合は、
+`wordpress/fleet.yaml` の `ingress.enabled: true` に切り替えて Traefik 経由の Ingress に
+することも選択肢になります（[manual-wordpress.md](manual-wordpress.md) の補足を参照）。
+その場合は改めて Traefik を LoadBalancer 化してください。
+
 ## 補足
 
-- WordPress（[wordpress/fleet.yaml](../wordpress/fleet.yaml)）は `service.type: LoadBalancer` を
-  指定しているだけなので、この IPPool を作成すれば追加の変更なしに IP が割り当てられます。
 - MetalLB は廃止したため、[catalog-repos/chart-repos.yaml](../catalog-repos/chart-repos.yaml) から
   MetalLB の ClusterRepo、`metallb/` の Fleet バンドルは削除済みです。
 - Fleet でも Traefik の Service や HelmChartConfig を管理すると、所有権競合が発生することがあります。

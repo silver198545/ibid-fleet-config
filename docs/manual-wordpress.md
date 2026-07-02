@@ -75,13 +75,17 @@ Fleet の GitRepo にこのリポジトリの `wordpress/` ディレクトリを
 
 ## 3. 割り当てられた外部IPを確認する
 
+Fleet がインストールする Helm リリース名は GitRepo の設定に依存するため、
+Service 名は `wordpress` そのままとは限りません（例: `base-infra-wordpress`）。
+まず実際の Service 名を確認してから見てください。
+
 ```bash
-kubectl -n wordpress get svc wordpress
+kubectl -n wordpress get svc
 ```
 
 `TYPE=LoadBalancer` かつ `EXTERNAL-IP` に Harvester の IPPool 範囲内の
 アドレスが割り当てられていることを確認します。IP が割り当てられない場合は
-`kubectl -n wordpress describe svc wordpress` のイベントを確認し、
+`kubectl -n wordpress describe svc <service名>` のイベントを確認し、
 [manual-harvester-loadbalancer.md](manual-harvester-loadbalancer.md) の IPPool 設定を見直してください。
 
 ## 4. Pod とストレージの状態を確認する
