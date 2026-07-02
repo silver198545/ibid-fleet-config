@@ -1,5 +1,8 @@
 # WordPress (Bitnami Chart) 導入手順
 
+これは最初のWordPressサイトの導入手順です。同じクラスターに**別のWordPressサイトを追加**する場合は
+[manual-wordpress-multi-site.md](manual-wordpress-multi-site.md) を参照してください。
+
 既存WordPressサイトからのデータ移行（リストア）手順は
 [manual-wordpress-restore.md](manual-wordpress-restore.md) を参照してください。
 

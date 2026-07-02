@@ -1,23 +1,53 @@
 #!/usr/bin/env bash
-# wordpress/fleet.yaml の内容を一次情報源として、Fleet(Continuous Delivery)を介さず
+# <site>/fleet.yaml の内容を一次情報源として、Fleet(Continuous Delivery)を介さず
 # helm upgrade --install で直接WordPressをデプロイ/アップグレードする。
+# 複数サイトの管理方法は docs/manual-wordpress-multi-site.md を参照。
 #
 # 前提:
 #   - kubectl/helm が対象クラスタ(dev1)を指すよう設定済みであること
-#   - docs/manual-wordpress.md の手順1でSecret(wordpress-credentials等)を作成済みであること
+#   - docs/manual-wordpress.md (最初のサイト) または
+#     docs/manual-wordpress-multi-site.md (追加サイト) の手順でSecretを作成済みであること
 #   - Fleetの管理下から外す一度きりの切替作業は docs/manual-wordpress-fleet-cutover.md を参照
 #
 # 使い方:
-#   scripts/deploy-wordpress.sh [追加のhelmオプション...]
-#   例: scripts/deploy-wordpress.sh --dry-run
+#   scripts/deploy-wordpress.sh [サイト名] [追加のhelmオプション...]
+#   例: scripts/deploy-wordpress.sh                  # 最初のサイト(wordpress/fleet.yaml)
+#       scripts/deploy-wordpress.sh --dry-run         # 同上、helmオプション付き
+#       scripts/deploy-wordpress.sh web               # 追加サイト(wordpress-web/fleet.yaml)
+#       scripts/deploy-wordpress.sh web --dry-run     # 同上、helmオプション付き
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-FLEET_YAML="$REPO_ROOT/wordpress/fleet.yaml"
 
-RELEASE_NAME="${RELEASE_NAME:-base-infra-wordpress}"
-NAMESPACE="${NAMESPACE:-wordpress}"
+# 第1引数が"-"始まりでなければサイト名として扱う(それ以外はすべてhelmへの追加オプション)。
+SITE=""
+if [[ $# -gt 0 && "$1" != -* ]]; then
+  SITE="$1"
+  shift
+fi
+
+if [[ -z "$SITE" || "$SITE" == "wordpress" ]]; then
+  # 最初のサイト。既存の運用(namespace/リリース名)との後方互換のためデフォルトを維持する。
+  SITE_DIR="wordpress"
+  RELEASE_NAME="${RELEASE_NAME:-base-infra-wordpress}"
+  NAMESPACE="${NAMESPACE:-wordpress}"
+  MARIADB_UPGRADE_SECRET="${MARIADB_UPGRADE_SECRET:-wordpress-mariadb-upgrade-values}"
+  # Fleet時代から使っている既存PVC(リリース名と同名)にそのままバインドさせる
+  # (下記の`persistence.existingClaim`コメント参照)。最初のサイトだけの特殊事情であり、
+  # PVCが存在しない新規サイトに適用するとchartがPVCを作成せずPodがマウント失敗する。
+  EXISTING_CLAIM_ARGS=(--set "persistence.existingClaim=$RELEASE_NAME")
+else
+  # 追加サイト。wordpress-<site>/fleet.yaml と、揃った命名規則のnamespace/リリース名/Secretを使う。
+  # PVCはchartに新規作成させるため、existingClaimは指定しない。
+  SITE_DIR="wordpress-$SITE"
+  RELEASE_NAME="${RELEASE_NAME:-wordpress-$SITE}"
+  NAMESPACE="${NAMESPACE:-wordpress-$SITE}"
+  MARIADB_UPGRADE_SECRET="${MARIADB_UPGRADE_SECRET:-wordpress-$SITE-mariadb-upgrade-values}"
+  EXISTING_CLAIM_ARGS=()
+fi
+
+FLEET_YAML="$REPO_ROOT/$SITE_DIR/fleet.yaml"
 
 for cmd in helm kubectl python3; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
@@ -59,19 +89,19 @@ PYEOF
 # fleet.yaml の helm.valuesFrom.secretKeyRef 相当を再現する。
 # helm CLIには valuesFrom(Secret参照)に相当する機能がないため、ここでSecretから読み出して
 # 通常のvaluesファイルとしてマージする。
-kubectl -n "$NAMESPACE" get secret wordpress-mariadb-upgrade-values \
+kubectl -n "$NAMESPACE" get secret "$MARIADB_UPGRADE_SECRET" \
   -o jsonpath='{.data.values\.yaml}' | base64 -d >"$SECRET_VALUES"
 
 helm repo add bitnami https://charts.bitnami.com/bitnami >/dev/null 2>&1 || true
 helm repo update bitnami >/dev/null
 
-# persistence.existingClaim: WordPress本体用PVCを新規作成させず、Fleet時代から使っている
-# 既存PVC(リリース名と同名)にそのままバインドさせる。これによりFleet管理からの切替時に
-# PVC名の衝突やデータ引き継ぎ漏れを起こさない。
+# persistence.existingClaim(最初のサイトのみ): WordPress本体用PVCを新規作成させず、
+# Fleet時代から使っている既存PVC(リリース名と同名)にそのままバインドさせる。これにより
+# Fleet管理からの切替時にPVC名の衝突やデータ引き継ぎ漏れを起こさない。
 helm upgrade --install "$RELEASE_NAME" bitnami/wordpress \
   --version "$VERSION" \
   -n "$NAMESPACE" --create-namespace \
   -f "$FLEET_VALUES" \
   -f "$SECRET_VALUES" \
-  --set "persistence.existingClaim=$RELEASE_NAME" \
+  "${EXISTING_CLAIM_ARGS[@]}" \
   "$@"

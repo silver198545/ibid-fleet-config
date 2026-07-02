@@ -1,0 +1,51 @@
+defaultNamespace: wordpress-web
+targetNamespace: wordpress-web
+
+helm:
+  chart: wordpress
+  repo: https://charts.bitnami.com/bitnami
+  version: 32.1.10
+  # BitnamiのmariadbサブチャートはHelmアップグレード時、existingSecretを
+  # 使っていてもauth.rootPassword/auth.passwordの明示指定を要求してくる
+  # (PASSWORDS ERROR)。Gitにパスワードを書かないよう、事前に作成した
+  # Secret経由でこれらの値を注入する。docs/manual-wordpress-multi-site.md参照。
+  valuesFrom:
+    - secretKeyRef:
+        name: wordpress-web-mariadb-upgrade-values
+        namespace: wordpress-web
+        key: values.yaml
+  values:
+    # Web層: 2レプリカで冗長化。wp-content は Longhorn の
+    # ReadWriteMany ボリュームで全レプリカ間で共有する。
+    replicaCount: 2
+
+    service:
+      type: LoadBalancer
+
+    persistence:
+      enabled: true
+      storageClass: longhorn
+      accessModes:
+        - ReadWriteMany
+      size: 10Gi
+
+    # 管理者パスワードは Git に含めず、事前に作成した Secret を参照する。
+    # docs/manual-wordpress-multi-site.md の手順に従って事前に作成すること。
+    existingSecret: wordpress-web-credentials
+    wordpressUsername: admin
+    wordpressEmail: admin@example.com
+
+    mariadb:
+      enabled: true
+      architecture: standalone
+      auth:
+        existingSecret: wordpress-web-mariadb-credentials
+        database: bitnami_wordpress
+        username: bn_wordpress
+      primary:
+        persistence:
+          enabled: true
+          storageClass: longhorn
+          accessModes:
+            - ReadWriteOnce
+          size: 8Gi
