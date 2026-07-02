@@ -39,6 +39,12 @@ helm:
     # docs/manual-wordpress.md の「バックアップからのリストア」参照。
     wordpressTablePrefix: "tp_"
 
+    # 既存DB(移行済みデータ)に接続する構成のため、初回インストールウィザードを
+    # スキップする。falseのままだとchartがwordpressUsername/wordpressEmailの
+    # ユーザーをDBから検索して更新しようとし、移行済みDBの実ユーザーと
+    # 一致せず `Invalid user ID, email or login` でPodがCrashLoopBackOffする。
+    wordpressSkipInstall: true
+
     mariadb:
       enabled: true
       architecture: standalone
