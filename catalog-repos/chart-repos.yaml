@@ -1,13 +1,6 @@
 apiVersion: catalog.cattle.io/v1
 kind: ClusterRepo
 metadata:
-  name: metallb
-spec:
-  url: https://metallb.github.io/metallb
----
-apiVersion: catalog.cattle.io/v1
-kind: ClusterRepo
-metadata:
   name: bitnami
 spec:
   url: https://charts.bitnami.com/bitnami

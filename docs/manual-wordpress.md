@@ -1,21 +1,21 @@
 # WordPress (Bitnami Chart) 導入手順
 
 [wordpress/fleet.yaml](../wordpress/fleet.yaml) は Bitnami の `wordpress` Chart を使って、
-LoadBalancer (MetalLB) 経由で公開する冗長構成の WordPress を導入します。
+LoadBalancer 経由で公開する冗長構成の WordPress を導入します。
 
 - Web層: `replicaCount: 2` で2レプリカ構成。`wp-content` は Longhorn の
   ReadWriteMany ボリュームで全レプリカ間で共有します。
 - DB層: WordPress Chart にバンドルされた MariaDB を単体構成で使用します
   （冗長化はしていません）。
-- 公開: `service.type: LoadBalancer` を指定し、MetalLB の IPAddressPool から
-  自動でIPを割り当てます。
+- 公開: `service.type: LoadBalancer` を指定し、Harvester Cloud Provider の
+  IPPool から自動でIPを割り当てます。
 
 前提として、以下が Fleet で導入済みであることが必要です。
 
 - [catalog-repos/fleet.yaml](../catalog-repos/fleet.yaml)（Bitnami リポジトリ登録）
 - [longhorn/fleet.yaml](../longhorn/fleet.yaml)（`longhorn` StorageClass、RWX 対応）
-- [metallb/fleet.yaml](../metallb/fleet.yaml) と IPAddressPool / L2Advertisement
-  （[manual-metallb-and-traefik.md](manual-metallb-and-traefik.md) 参照）
+- Harvester 管理クラスタ側に、このゲストクラスタ向けの `IPPool` が作成済みであること
+  （[manual-harvester-loadbalancer.md](manual-harvester-loadbalancer.md) 参照）
 
 また、Longhorn の ReadWriteMany（RWX）ボリュームは各ワーカーノードが NFSv4 クライアントとして
 マウントする方式のため、**全ノードに `nfs-common` パッケージのインストールが必要**です。
@@ -79,8 +79,10 @@ Fleet の GitRepo にこのリポジトリの `wordpress/` ディレクトリを
 kubectl -n wordpress get svc wordpress
 ```
 
-`TYPE=LoadBalancer` かつ `EXTERNAL-IP` に MetalLB の IPAddressPool 範囲内の
-アドレスが割り当てられていることを確認します。
+`TYPE=LoadBalancer` かつ `EXTERNAL-IP` に Harvester の IPPool 範囲内の
+アドレスが割り当てられていることを確認します。IP が割り当てられない場合は
+`kubectl -n wordpress describe svc wordpress` のイベントを確認し、
+[manual-harvester-loadbalancer.md](manual-harvester-loadbalancer.md) の IPPool 設定を見直してください。
 
 ## 4. Pod とストレージの状態を確認する
 
