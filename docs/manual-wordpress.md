@@ -3,6 +3,13 @@
 既存WordPressサイトからのデータ移行（リストア）手順は
 [manual-wordpress-restore.md](manual-wordpress-restore.md) を参照してください。
 
+**WordPressはFleet(Continuous Delivery)による自動デプロイをやめ、
+[scripts/deploy-wordpress.sh](../scripts/deploy-wordpress.sh) による手動デプロイに移行しています。**
+Fleet管理下から手動運用へ切り替える一度きりの手順は
+[manual-wordpress-fleet-cutover.md](manual-wordpress-fleet-cutover.md) を参照してください。
+`wordpress/fleet.yaml` はFleetのバンドル定義としては使われておらず、
+`scripts/deploy-wordpress.sh` が読み取るhelm valuesの一次情報源として残しています。
+
 [wordpress/fleet.yaml](../wordpress/fleet.yaml) は Bitnami の `wordpress` Chart を使って、
 LoadBalancer 経由で公開する冗長構成の WordPress を導入します。
 
@@ -99,11 +106,19 @@ rm /tmp/mariadb-upgrade-values.yaml
 こちらも同じ内容で更新する必要があります（更新し忘れると次回のFleetアップグレード時に
 同じ`PASSWORDS ERROR`が再発します）。
 
-## 2. Fleet で wordpress/ を適用する
+## 2. デプロイスクリプトを実行する
 
-Fleet の GitRepo にこのリポジトリの `wordpress/` ディレクトリを対象パスとして
-追加します（Rancher UI の Continuous Delivery、または既存の GitRepo 定義に
-パスを追記）。
+`kubectl`/`helm` が対象クラスタを指すよう設定した状態で、以下を実行します。
+
+```bash
+cd ibid-fleet-config
+./scripts/deploy-wordpress.sh
+```
+
+`wordpress/fleet.yaml` の `helm.chart`/`helm.version`/`helm.values` を読み取り、
+`helm upgrade --install` でデプロイします（初回導入・以後のアップグレードいずれも同じコマンドです）。
+`wordpress/fleet.yaml` を編集した場合も、変更を反映するには本スクリプトを再実行してください
+（Fleetは`wordpress`を追跡していないため、Git pushだけでは反映されません）。
 
 ## 3. 割り当てられた外部IPを確認する
 

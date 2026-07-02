@@ -5,10 +5,15 @@
 - `catalog-repos/`: Rancher のカタログリポジトリ定義（Bitnami）
 - `longhorn-crd/`: Rancher Charts から Longhorn CRD を導入する Fleet バンドル
 - `longhorn/`: Rancher Charts から Longhorn 本体を導入する Fleet バンドル
-- `wordpress/`: Bitnami の WordPress Chart を LoadBalancer 冗長構成で導入する Fleet バンドル
+- `wordpress/`: Bitnami の WordPress Chart を LoadBalancer 冗長構成で導入する設定一式
+  （Fleetバンドルとしては使用しておらず、`scripts/deploy-wordpress.sh` が読み取るhelm valuesの
+  参照元）
+- `scripts/deploy-wordpress.sh`: `wordpress/fleet.yaml` の内容をもとに WordPress を手動デプロイする
+  スクリプト（Fleetを介さない）
 - `docs/manual-harvester-loadbalancer.md`: Harvester Cloud Provider の IPPool 作成手順
   （MetalLB は廃止し、Harvester Cloud Provider に一本化）
-- `docs/manual-wordpress.md`: WordPress 導入前の Secret 作成など手動手順書
+- `docs/manual-wordpress.md`: WordPress 導入前の Secret 作成、デプロイスクリプトの実行手順
+- `docs/manual-wordpress-fleet-cutover.md`: WordPressをFleet管理から手動運用へ切り替える手順
 
 ## 想定フロー
 
@@ -18,8 +23,9 @@
 4. [docs/manual-harvester-loadbalancer.md](docs/manual-harvester-loadbalancer.md) の手順で
    Harvester 管理クラスタに IPPool を作成します。
 5. [docs/manual-wordpress.md](docs/manual-wordpress.md) の手順で Secret を作成した後、
-   Fleet で `wordpress/` を適用して WordPress を導入します。WordPress は自分専用の
-   LoadBalancer Service を持つため、Traefik を LoadBalancer 化する必要はありません。
+   `scripts/deploy-wordpress.sh` を実行して WordPress を導入します（Fleetでは管理しません）。
+   WordPress は自分専用の LoadBalancer Service を持つため、Traefik を LoadBalancer 化する
+   必要はありません。
 
 ## 補足: MetalLB からの移行について
 

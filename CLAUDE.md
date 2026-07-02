@@ -20,7 +20,16 @@ set of raw manifests). Bundles are applied in dependency order, documented in [R
    (from `https://charts.rancher.io`), providing the `longhorn` StorageClass including ReadWriteMany (RWX)
    support.
 3. `wordpress/` — Bitnami WordPress chart, 2 web replicas sharing `wp-content` via a Longhorn RWX volume,
-   with a standalone (non-HA) bundled MariaDB, exposed via `service.type: LoadBalancer`.
+   with a standalone (non-HA) bundled MariaDB, exposed via `service.type: LoadBalancer`. **Not an active
+   Fleet bundle** — it was deliberately removed from the `base-infra` GitRepo's `spec.paths` (see
+   `docs/manual-wordpress-fleet-cutover.md`) because Continuous Delivery auto-applying changes to a
+   namespace holding production-like data was considered too risky. `wordpress/fleet.yaml` is kept only
+   as the single source of truth for `helm.chart`/`helm.version`/`helm.values`, read by
+   `scripts/deploy-wordpress.sh` to run `helm upgrade --install` by hand.
+
+`scripts/deploy-wordpress.sh` performs the manual WordPress deploy/upgrade described above — it is the
+only supported way to apply changes to `wordpress/fleet.yaml`; editing that file and pushing to Git has
+no effect on its own.
 
 `docs/` holds manual runbooks for steps Fleet cannot automate (see below) — always check these before
 changing behavior they document, and update them when the corresponding `fleet.yaml` changes.
@@ -55,6 +64,9 @@ changing behavior they document, and update them when the corresponding `fleet.y
   installed manually after provisioning (`docs/manual-wordpress.md`).
 - Chart versions are pinned explicitly in each `fleet.yaml` (`helm.version`) — bump deliberately, don't
   leave them floating.
+- **WordPress upgrades require running `scripts/deploy-wordpress.sh` by hand** after editing
+  `wordpress/fleet.yaml` — unlike `longhorn`/`longhorn-crd`/`catalog-repos`, Fleet does not auto-apply
+  this bundle (see above).
 
 ## Making changes
 
