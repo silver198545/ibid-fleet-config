@@ -1,5 +1,8 @@
 # WordPress (Bitnami Chart) 導入手順
 
+既存WordPressサイトからのデータ移行（リストア）手順は
+[manual-wordpress-restore.md](manual-wordpress-restore.md) を参照してください。
+
 [wordpress/fleet.yaml](../wordpress/fleet.yaml) は Bitnami の `wordpress` Chart を使って、
 LoadBalancer 経由で公開する冗長構成の WordPress を導入します。
 
@@ -66,6 +69,35 @@ kubectl -n wordpress create secret generic wordpress-mariadb-credentials \
   --from-literal=mariadb-root-password='<root用の強いパスワード>' \
   --from-literal=mariadb-password='<bn_wordpress用の強いパスワード>'
 ```
+
+Bitnamiの`mariadb`サブチャートは、`auth.existingSecret`を使っていても
+**Helmアップグレード時**（インストール時は問題ない）に
+`auth.rootPassword`/`auth.password`の明示指定を要求してくることがあります
+（`PASSWORDS ERROR: You must provide your current passwords when upgrading the release`）。
+これを避けるため、上記と同じ値を持つ、Helm values形式のSecretも作成しておきます
+（`wordpress/fleet.yaml`の`helm.valuesFrom`から参照されます）。
+
+```bash
+ROOTPW=$(kubectl -n wordpress get secret wordpress-mariadb-credentials -o jsonpath='{.data.mariadb-root-password}' | base64 -d)
+BNPW=$(kubectl -n wordpress get secret wordpress-mariadb-credentials -o jsonpath='{.data.mariadb-password}' | base64 -d)
+
+cat <<EOF > /tmp/mariadb-upgrade-values.yaml
+mariadb:
+  auth:
+    rootPassword: "$ROOTPW"
+    password: "$BNPW"
+EOF
+
+kubectl -n wordpress create secret generic wordpress-mariadb-upgrade-values \
+  --from-file=values.yaml=/tmp/mariadb-upgrade-values.yaml
+
+rm /tmp/mariadb-upgrade-values.yaml
+```
+
+このSecretは`wordpress-mariadb-credentials`のパスワードをそのままコピーしただけのものです。
+そのため、`wordpress-mariadb-credentials`のパスワードをローテーションした場合は
+こちらも同じ内容で更新する必要があります（更新し忘れると次回のFleetアップグレード時に
+同じ`PASSWORDS ERROR`が再発します）。
 
 ## 2. Fleet で wordpress/ を適用する
 
