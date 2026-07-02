@@ -5,6 +5,15 @@ helm:
   chart: wordpress
   repo: https://charts.bitnami.com/bitnami
   version: 32.1.10
+  # BitnamiのmariadbサブチャートはHelmアップグレード時、existingSecretを
+  # 使っていてもauth.rootPassword/auth.passwordの明示指定を要求してくる
+  # (PASSWORDS ERROR)。Gitにパスワードを書かないよう、事前に作成した
+  # Secret経由でこれらの値を注入する。docs/manual-wordpress.md参照。
+  valuesFrom:
+    - secretKeyRef:
+        name: wordpress-mariadb-upgrade-values
+        namespace: wordpress
+        key: values.yaml
   values:
     # Web層: 2レプリカで冗長化。wp-content は Longhorn の
     # ReadWriteMany ボリュームで全レプリカ間で共有する。
