@@ -52,41 +52,17 @@ helm:
         name: wordpress-$SITE-mariadb-upgrade-values
         namespace: wordpress-$SITE
         key: values.yaml
+  # 共通のデフォルト値は ../wordpress-base-values.yaml にまとめてあり、
+  # scripts/deploy-wordpress.sh がここより先に読み込む。ここにはこのサイト固有の
+  # 差分のみを書く。
   values:
-    # Web層: 2レプリカで冗長化。wp-content は Longhorn の
-    # ReadWriteMany ボリュームで全レプリカ間で共有する。
-    replicaCount: 2
-
-    service:
-      type: LoadBalancer
-
-    persistence:
-      enabled: true
-      storageClass: longhorn
-      accessModes:
-        - ReadWriteMany
-      size: 10Gi
-
     # 管理者パスワードは Git に含めず、事前に作成した Secret を参照する。
     # docs/manual-wordpress-multi-site.md の手順に従って事前に作成すること。
     existingSecret: wordpress-$SITE-credentials
-    wordpressUsername: admin
-    wordpressEmail: admin@example.com
 
     mariadb:
-      enabled: true
-      architecture: standalone
       auth:
         existingSecret: wordpress-$SITE-mariadb-credentials
-        database: bitnami_wordpress
-        username: bn_wordpress
-      primary:
-        persistence:
-          enabled: true
-          storageClass: longhorn
-          accessModes:
-            - ReadWriteOnce
-          size: 8Gi
 EOF
 
 echo "作成しました: $SITE_DIR/fleet.yaml"

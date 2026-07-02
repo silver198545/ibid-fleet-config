@@ -11,9 +11,11 @@
 - `wordpress-web/`: 2サイト目のWordPress（サイト名`web`）。用途・運用方法は`wordpress/`と同じで、
   namespace/リリース名も`wordpress-web`に統一。追加経緯は
   `docs/manual-wordpress-multi-site.md`参照
-- `scripts/deploy-wordpress.sh`: `wordpress/fleet.yaml`（または`wordpress-<site>/fleet.yaml`）の
-  内容をもとに WordPress を手動デプロイするスクリプト（Fleetを介さない）。第1引数にサイト名を
-  指定（省略時は最初のサイト）
+- `wordpress-base-values.yaml`: 全WordPressサイトに共通するデフォルトのHelm values。各サイトの
+  `fleet.yaml`にはこのファイルとの差分（Secret名やサイト固有の設定）のみを書く
+- `scripts/deploy-wordpress.sh`: `wordpress-base-values.yaml`と`wordpress/fleet.yaml`（または
+  `wordpress-<site>/fleet.yaml`）の内容をもとに WordPress を手動デプロイするスクリプト
+  （Fleetを介さない）。第1引数にサイト名を指定（省略時は最初のサイト）
 - `scripts/new-wordpress-site.sh`: 追加のWordPressサイト用ディレクトリ(`wordpress-<site>/fleet.yaml`)を
   ひな形から生成するスクリプト
 - `docs/manual-harvester-loadbalancer.md`: Harvester Cloud Provider の IPPool 作成手順

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# <site>/fleet.yaml の内容を一次情報源として、Fleet(Continuous Delivery)を介さず
-# helm upgrade --install で直接WordPressをデプロイ/アップグレードする。
-# 複数サイトの管理方法は docs/manual-wordpress-multi-site.md を参照。
+# wordpress-base-values.yaml(全サイト共通の値)と <site>/fleet.yaml(サイト固有の差分)
+# を一次情報源として、Fleet(Continuous Delivery)を介さず helm upgrade --install で
+# 直接WordPressをデプロイ/アップグレードする。複数サイトの管理方法は
+# docs/manual-wordpress-multi-site.md を参照。
 #
 # 前提:
 #   - kubectl/helm が対象クラスタ(dev1)を指すよう設定済みであること
@@ -48,6 +49,7 @@ else
 fi
 
 FLEET_YAML="$REPO_ROOT/$SITE_DIR/fleet.yaml"
+BASE_VALUES="$REPO_ROOT/wordpress-base-values.yaml"
 
 for cmd in helm kubectl python3; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
@@ -58,6 +60,11 @@ done
 
 if [[ ! -f "$FLEET_YAML" ]]; then
   echo "エラー: $FLEET_YAML が見つかりません。" >&2
+  exit 1
+fi
+
+if [[ ! -f "$BASE_VALUES" ]]; then
+  echo "エラー: $BASE_VALUES が見つかりません。" >&2
   exit 1
 fi
 
@@ -101,6 +108,7 @@ helm repo update bitnami >/dev/null
 helm upgrade --install "$RELEASE_NAME" bitnami/wordpress \
   --version "$VERSION" \
   -n "$NAMESPACE" --create-namespace \
+  -f "$BASE_VALUES" \
   -f "$FLEET_VALUES" \
   -f "$SECRET_VALUES" \
   "${EXISTING_CLAIM_ARGS[@]}" \

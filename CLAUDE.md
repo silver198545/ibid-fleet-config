@@ -25,14 +25,41 @@ set of raw manifests). Bundles are applied in dependency order, documented in [R
    `docs/manual-wordpress-fleet-cutover.md`) because Continuous Delivery auto-applying changes to a
    namespace holding production-like data was considered too risky. `wordpress/fleet.yaml` is kept only
    as the single source of truth for `helm.chart`/`helm.version`/`helm.values`, read by
-   `scripts/deploy-wordpress.sh` to run `helm upgrade --install` by hand.
+   `scripts/deploy-wordpress.sh` to run `helm upgrade --install` by hand. `wordpress-web/` is a second,
+   independent WordPress site that follows the same pattern (own namespace/release/Secrets, own
+   `fleet.yaml`) — see "Multiple WordPress sites" below.
 
 `scripts/deploy-wordpress.sh` performs the manual WordPress deploy/upgrade described above — it is the
-only supported way to apply changes to `wordpress/fleet.yaml`; editing that file and pushing to Git has
-no effect on its own.
+only supported way to apply changes to `wordpress/fleet.yaml` (or any `wordpress-<site>/fleet.yaml`);
+editing that file and pushing to Git has no effect on its own.
 
 `docs/` holds manual runbooks for steps Fleet cannot automate (see below) — always check these before
 changing behavior they document, and update them when the corresponding `fleet.yaml` changes.
+
+## Multiple WordPress sites
+
+The cluster can host more than one independent WordPress site. Each site is its own directory
+(`wordpress/` for the first site, `wordpress-<site>/` for additional ones, e.g. `wordpress-web/`) with
+its own `fleet.yaml`, namespace, Helm release, and Secrets — sites do not share data or credentials.
+
+Values common to all sites (`replicaCount`, `service.type`, `persistence.*`, `mariadb.*` defaults, etc.)
+live in a single shared file, `wordpress-base-values.yaml` at the repo root, to avoid duplicating them in
+every site's `fleet.yaml`. `scripts/deploy-wordpress.sh` passes `wordpress-base-values.yaml` to `helm -f`
+before the site's own `fleet.yaml` values, so each `wordpress-<site>/fleet.yaml` should only contain
+values that differ from the shared defaults (Secret names, and any site-specific quirks like
+`wordpressTablePrefix`/`wordpressSkipInstall` on the first site — see its comments for why those exist).
+If you change a value that should apply to every site, edit `wordpress-base-values.yaml`, not each site
+individually.
+
+- `scripts/deploy-wordpress.sh [site] [helm options...]` — first positional arg selects the site
+  (`wordpress-<site>/fleet.yaml`); omitted or `wordpress` means the first site, preserving its legacy
+  namespace/release name (`wordpress`/`base-infra-wordpress`) for backward compatibility.
+- `scripts/new-wordpress-site.sh <site>` — scaffolds a new `wordpress-<site>/fleet.yaml` from a template.
+- Full runbook for adding a site: `docs/manual-wordpress-multi-site.md`.
+- The first site's `fleet.yaml` also sets `persistence.existingClaim` (via a `--set` in
+  `deploy-wordpress.sh`, not in `fleet.yaml`) to bind to the PVC created back when it was Fleet-managed.
+  This is specific to that one site's migration history — do not add it for new sites, since they have no
+  pre-existing PVC and the chart needs to create one.
 
 ## Key architectural facts to know before editing
 

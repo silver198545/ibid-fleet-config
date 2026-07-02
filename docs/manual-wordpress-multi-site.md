@@ -24,10 +24,16 @@ cd ibid-fleet-config
 ```
 
 `wordpress-<site>/fleet.yaml` が生成されます。namespace・リリース名・Secret名は
-`wordpress-<site>`という命名規則で統一されます。チャートバージョンや
-`replicaCount`、ボリュームサイズなど、サイト固有の要件があれば生成後にこのファイルを
-編集してください（[wordpress/fleet.yaml](../wordpress/fleet.yaml)と同様、Fleetバンドルとしては
-使わず、`scripts/deploy-wordpress.sh`が読み取る一次情報源として扱います）。
+`wordpress-<site>`という命名規則で統一されます（[wordpress/fleet.yaml](../wordpress/fleet.yaml)と
+同様、Fleetバンドルとしては使わず、`scripts/deploy-wordpress.sh`が読み取る一次情報源として
+扱います）。
+
+`replicaCount`・`service.type`・`persistence.*`・`mariadb.*`のデフォルト値など全サイト共通の
+設定は[wordpress-base-values.yaml](../wordpress-base-values.yaml)にまとめてあり、
+`scripts/deploy-wordpress.sh`が各サイトの`fleet.yaml`より先に読み込みます。生成された
+`fleet.yaml`にはSecret名などサイト固有の差分だけが入っているので、そのサイトだけ
+チャートバージョンやボリュームサイズを変えたい場合はこのファイルに追記し、
+全サイト共通で変えたい場合は`wordpress-base-values.yaml`を編集してください。
 
 ## 2. 認証情報の Secret を事前に作成する
 
@@ -80,8 +86,9 @@ rm /tmp/mariadb-upgrade-values.yaml
 ./scripts/deploy-wordpress.sh web
 ```
 
-`wordpress-web/fleet.yaml` の `helm.chart`/`helm.version`/`helm.values` を読み取り、
-namespace・リリース名とも`wordpress-web`として`helm upgrade --install`でデプロイします
+`wordpress-base-values.yaml`（共通値）と`wordpress-web/fleet.yaml`の`helm.chart`/`helm.version`/
+`helm.values`（サイト固有の差分）を読み取り、namespace・リリース名とも`wordpress-web`として
+`helm upgrade --install`でデプロイします
 （初回導入・以後のアップグレードいずれも同じコマンドです）。`wordpress-web/fleet.yaml`を
 編集した場合も、変更を反映するには本コマンドを再実行してください（Fleetはこのディレクトリを
 追跡しないため、Git pushだけでは反映されません）。

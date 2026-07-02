@@ -118,8 +118,11 @@ cd ibid-fleet-config
 ./scripts/deploy-wordpress.sh
 ```
 
-`wordpress/fleet.yaml` の `helm.chart`/`helm.version`/`helm.values` を読み取り、
-`helm upgrade --install` でデプロイします（初回導入・以後のアップグレードいずれも同じコマンドです）。
+[wordpress-base-values.yaml](../wordpress-base-values.yaml)（全サイト共通の値）と
+`wordpress/fleet.yaml` の `helm.chart`/`helm.version`/`helm.values`（このサイト固有の差分）を
+読み取り、`helm upgrade --install` でデプロイします（初回導入・以後のアップグレードいずれも
+同じコマンドです）。全サイト共通の設定を変える場合は`wordpress-base-values.yaml`を、
+このサイトだけの設定を変える場合は`wordpress/fleet.yaml`を編集してください。
 `wordpress/fleet.yaml` を編集した場合も、変更を反映するには本スクリプトを再実行してください
 （Fleetは`wordpress`を追跡していないため、Git pushだけでは反映されません）。
 
