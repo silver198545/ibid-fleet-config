@@ -37,9 +37,7 @@ helm:
 
     # 既存WordPressからのデータ移行のため、旧環境と同じテーブル接頭辞に合わせる。
     # docs/manual-wordpress.md の「バックアップからのリストア」参照。
-    extraEnvVars:
-      - name: WORDPRESS_TABLE_PREFIX
-        value: "tp_"
+    wordpressTablePrefix: "tp_"
 
     mariadb:
       enabled: true
