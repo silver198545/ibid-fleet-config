@@ -1,0 +1,42 @@
+defaultNamespace: wordpress
+targetNamespace: wordpress
+
+helm:
+  chart: wordpress
+  repo: https://charts.bitnami.com/bitnami
+  version: 32.1.10
+  values:
+    # Web層: 2レプリカで冗長化。wp-content は Longhorn の
+    # ReadWriteMany ボリュームで全レプリカ間で共有する。
+    replicaCount: 2
+
+    service:
+      type: LoadBalancer
+
+    persistence:
+      enabled: true
+      storageClass: longhorn
+      accessModes:
+        - ReadWriteMany
+      size: 10Gi
+
+    # 管理者パスワードは Git に含めず、事前に作成した Secret を参照する。
+    # docs/manual-wordpress.md の手順に従って事前に作成すること。
+    existingSecret: wordpress-credentials
+    wordpressUsername: admin
+    wordpressEmail: admin@example.com
+
+    mariadb:
+      enabled: true
+      architecture: standalone
+      auth:
+        existingSecret: wordpress-mariadb-credentials
+        database: bitnami_wordpress
+        username: bn_wordpress
+      primary:
+        persistence:
+          enabled: true
+          storageClass: longhorn
+          accessModes:
+            - ReadWriteOnce
+          size: 8Gi
