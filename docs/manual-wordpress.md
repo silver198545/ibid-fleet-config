@@ -74,3 +74,15 @@ kubectl -n longhorn-system get pods -l app=longhorn-share-manager
   通常の ReadWriteOnce ボリュームよりレイテンシが増える点に留意してください。
 - WordPress の Chart バージョンは [wordpress/fleet.yaml](../wordpress/fleet.yaml) で
   明示的に固定しています。アップグレード時はバージョンを更新してください。
+- 現状は次の項目を明示的に設定せず、Chart のデフォルト値のまま導入しています。
+  必要になった際は `wordpress/fleet.yaml` の `helm.values` に追記してください。
+  - `wordpressScheme` / `ingress.*`: 現在は LB の IP に `http` で直接アクセスする構成。
+    ドメイン名でのアクセスや TLS 化をする場合は `ingress.enabled: true` と
+    `ingress.hostname`、`wordpressScheme: https` を設定し、DNS でそのホスト名を
+    LB の IP（または Traefik 経由）に向ける必要があります。
+  - `wordpressBlogName` / `wordpressFirstName` / `wordpressLastName`:
+    サイトタイトルや管理者氏名。未設定の場合は導入後に `wp-admin` の管理画面から
+    変更できます。
+  - `smtpHost` / `smtpPort` / `smtpProtocol` などの SMTP 設定:
+    未設定だとパスワードリセット等の通知メールが送信されません。必要になったら
+    SMTP サーバー情報を追加してください（認証情報は Secret 化を推奨します）。
