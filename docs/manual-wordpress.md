@@ -5,6 +5,9 @@ namespace・Helmリリース・Secret・`fleet.yaml`（`wordpress-<site>/fleet.y
 他のサイトの稼働中データに影響を与えずに追加・削除できます。サイト名は3文字程度の短い
 英数字（例: `web`）を想定しています。以降、サイト名を`<site>`と表記します。
 
+既存の（別環境の）WordPressサイトからのデータ移行（リストア）手順は
+[manual-wordpress-restore.md](manual-wordpress-restore.md)を参照してください。
+
 **WordPressはFleet(Continuous Delivery)による自動デプロイの対象外で、
 [scripts/deploy-wordpress.sh](../scripts/deploy-wordpress.sh) による手動デプロイのみで
 運用します。** `wordpress-<site>/fleet.yaml` はFleetのバンドル定義としては使われておらず、

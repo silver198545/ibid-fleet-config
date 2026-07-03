@@ -20,6 +20,7 @@
 - `docs/manual-harvester-loadbalancer.md`: Harvester Cloud Provider の IPPool 作成手順
   （MetalLB は廃止し、Harvester Cloud Provider に一本化）
 - `docs/manual-wordpress.md`: WordPressサイトを追加する手順（ひな形生成、デプロイスクリプトの実行）
+- `docs/manual-wordpress-restore.md`: 既存の別環境WordPressサイトからデータを移行（リストア）する手順
 
 ## 想定フロー
 

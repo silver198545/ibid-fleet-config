@@ -81,7 +81,9 @@ individually.
   (`duplicate entries for key [name="WORDPRESS_TABLE_PREFIX"]`). Use `wordpressTablePrefix` only.
 - **`wp-config.php` persists on the volume and is not regenerated once created.** Changing
   `wordpressTablePrefix` (or other first-run-only settings) after initial install has no effect until the
-  WordPress and MariaDB PVCs are deleted and recreated from scratch.
+  WordPress and MariaDB PVCs are deleted and recreated from scratch — see
+  `docs/manual-wordpress-restore.md` for the safe procedure (snapshot first, scale down, delete PVCs,
+  re-run `scripts/deploy-wordpress.sh <site>` to recreate them, mariadb before wordpress).
 - **RWX volumes require `nfs-common` on every worker node** (Longhorn RWX is backed by an NFSv4 Share
   Manager). This isn't handled by this repo — it must be baked into the Harvester node-pool cloud-init or
   installed manually after provisioning (`docs/manual-wordpress.md`).
