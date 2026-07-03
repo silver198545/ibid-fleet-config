@@ -1,0 +1,59 @@
+# 全WordPressサイト共通のデフォルトHelm values(旧 wordpress-base-values.yaml を移設)。
+# サブチャート(bitnami/wordpress)へ渡す値はすべて `wordpress:` キーの配下に置くこと。
+# サイト固有の差分(existingSecretの名前、テーブル接頭辞の上書き等)は
+# envs/<env>/sites/<site>/fleet.yaml の helm.values 側に書く。
+# このファイルを変更したら Chart.yaml の version も必ず上げること。
+
+wordpress:
+  # docker.io/bitnami の無償イメージは2025年後半のBroadcom移行以降 `latest` タグしか
+  # 提供されないため、digestで固定して全環境・全サイトの再現性を確保する。
+  # (digest未固定だとPod再作成のたびに中身の異なる`latest`を引く恐れがある)
+  # 更新時はこのdigestを差し替え、Chart.yamlのversionを上げて環境ごとに昇格させる。
+  # 将来的には images/wordpress/ でビルドする自社イメージ(ghcr.io)へ切り替える。
+  image:
+    registry: docker.io
+    repository: bitnami/wordpress
+    tag: latest
+    digest: sha256:39d337946920c27adea7b0495692ab7c11734a2bd32564edb5a415d5ecf137bd
+
+  # Web層: 2レプリカで冗長化。wp-content は Longhorn の
+  # ReadWriteMany ボリュームで全レプリカ間で共有する。
+  replicaCount: 2
+
+  service:
+    type: LoadBalancer
+
+  persistence:
+    enabled: true
+    storageClass: longhorn
+    accessModes:
+      - ReadWriteMany
+    size: 10Gi
+
+  wordpressUsername: admin
+  wordpressEmail: admin@example.com
+
+  # 全サイト共通のデフォルトのテーブル接頭辞。Bitnamiチャート自体のデフォルトは wp_ だが、
+  # このクラスタ群では tp_ を標準として使う。サイトごとに変える必要がある場合は
+  # envs/<env>/sites/<site>/fleet.yaml の helm.values で上書きする。
+  wordpressTablePrefix: "tp_"
+
+  mariadb:
+    enabled: true
+    architecture: standalone
+    # WordPress本体と同じ理由でdigest固定。
+    image:
+      registry: docker.io
+      repository: bitnami/mariadb
+      tag: latest
+      digest: sha256:946c00ed95bbe1c1df5c3f979db1a35344e4e25ed112110fd7db82ee9c505564
+    auth:
+      database: bitnami_wordpress
+      username: bn_wordpress
+    primary:
+      persistence:
+        enabled: true
+        storageClass: longhorn
+        accessModes:
+          - ReadWriteOnce
+        size: 8Gi

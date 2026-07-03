@@ -1,0 +1,4 @@
+# helm dependency build が取得するサブチャートの実体はコミットしない
+# (Chart.lock からいつでも再取得できる)
+/charts/
+*.tgz

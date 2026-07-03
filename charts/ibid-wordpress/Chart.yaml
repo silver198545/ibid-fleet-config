@@ -1,0 +1,25 @@
+# 全WordPressサイト共通のラッパーチャート。
+# 役割:
+#   - Bitnami wordpress チャートのバージョンをここで一元的に固定する
+#   - 全サイト共通のデフォルトvalues(values.yaml)を配布物として持つ
+# サイト側(envs/<env>/sites/<site>/fleet.yaml)はこのチャートを
+# oci://ghcr.io/silver198545/charts/ibid-wordpress として参照し、
+# サイト固有の差分だけを helm.values に書く。
+#
+# values を変更したら必ず version を上げること。mainにマージされると
+# .github/workflows/release-chart.yaml がGHCRへ公開し、各環境は
+# envs/<env>/sites/*/fleet.yaml の helm.version を上げることで
+# 環境ごとに段階的に取り込む(これがプロモーションの単位になる)。
+apiVersion: v2
+name: ibid-wordpress
+description: >-
+  Bitnami WordPressチャートに全サイト共通デフォルト(2レプリカ+Longhorn RWX共有、
+  standalone MariaDB、LoadBalancer公開)を焼き込んだラッパーチャート
+type: application
+version: 0.1.0
+appVersion: "7.0.0"
+
+dependencies:
+  - name: wordpress
+    version: 32.1.10
+    repository: https://charts.bitnami.com/bitnami
