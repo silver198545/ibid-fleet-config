@@ -62,7 +62,9 @@ jobs:
             SUBJECT="サイト${SITE}を${FROM_ENV}から${TO_ENV}へ昇格"
           fi
 
-          if git diff --quiet; then
+          # コピーは新規ファイル(未追跡)になり得るため、addしてから差分判定する
+          git add "envs/$TO_ENV"
+          if git diff --cached --quiet; then
             echo "昇格元と昇格先に差分がありません。PRは作成しません。"
             exit 0
           fi
@@ -71,7 +73,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
-          git add "envs/$TO_ENV"
           git commit -m "chore: ${SUBJECT}"
           git push origin "$BRANCH"
 
