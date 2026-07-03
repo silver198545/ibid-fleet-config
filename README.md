@@ -76,7 +76,7 @@ IPPool 機能に一本化しています。
 
 ## 補足: 旧構成(単一クラスタ)からの移行
 
-リポジトリ直下の `catalog-repos/`・`longhorn-crd/`・`longhorn/` は旧GitRepo
-(`base-infra`)が参照している移行前のバンドルです。`envs/dev/infra/` への移設は
-[docs/manual-multi-env.md](docs/manual-multi-env.md) の手順(keepResourcesの同期確認 →
-リリース名の引き継ぎ → 旧GitRepo削除 → 移設PRマージの順)で行ってください。
+infraバンドルは旧構成(リポジトリ直下、GitRepo `base-infra`)から `envs/<env>/infra/` へ
+移設済みです。devの各fleet.yamlの `helm.releaseName` が `base-infra-*` なのは、
+旧GitRepo時代のHelmリリースをそのまま引き継いでいるためです(経緯は
+[docs/manual-multi-env.md](docs/manual-multi-env.md) 参照)。

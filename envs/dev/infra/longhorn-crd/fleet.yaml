@@ -1,0 +1,16 @@
+defaultNamespace: longhorn-system
+targetNamespace: longhorn-system
+
+# バンドル削除時にCRDを道連れ削除するとLonghornの全Volume CRが消えるため、
+# Fleetにリソースを削除させない。マルチ環境化での移設時の安全装置でもある。
+# docs/manual-multi-env.md 参照。
+keepResources: true
+
+helm:
+  # 旧GitRepo(base-infra)時代のHelmリリースをそのまま引き継ぐための名前。
+  # (staging/productionは新規クラスタのため素直な名前 longhorn-crd を使っている)
+  releaseName: base-infra-longhorn-crd
+  chart: longhorn-crd
+  repo: https://charts.rancher.io
+  version: 109.3.1+up1.11.2
+  values: {}
