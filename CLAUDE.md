@@ -5,107 +5,96 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this repository is
 
 This is a **Fleet (Rancher GitOps) configuration repository** — not application code. It contains YAML
-manifests that Rancher's Fleet controller applies to an RKE2 guest cluster provisioned on Harvester.
-There is no build, lint, or test tooling; changes are "tested" by letting Fleet sync them to the cluster
-and verifying resource state with `kubectl`.
+manifests that Rancher's Fleet controller applies to **three RKE2 guest clusters on Harvester**
+(dev → staging → production), plus a wrapper Helm chart and a custom image build. There is no unit-test
+tooling; PRs are validated by `.github/workflows/validate.yaml` (YAML syntax, fleet.yaml required keys,
+helm lint/template), and changes are ultimately "tested" by letting Fleet sync them and verifying
+resource state with `kubectl`.
+
+## Multi-environment architecture (core design)
+
+- **Single `main` branch + per-environment directories** under `envs/dev|staging|production`. Three
+  GitRepo CRs on the Rancher local cluster (copies kept in `fleet-bootstrap/`, applied manually) each
+  watch only their environment's directory and target clusters labeled `env=<name>`.
+- **Promotion is controlled through GitHub PRs**, not cluster-side tooling: the `promote` workflow
+  (manual dispatch) copies `envs/<from>/sites/…` to the next environment and opens a PR;
+  `envs/production/**` requires CODEOWNERS approval via branch protection. Only approved merges reach
+  the production cluster. Do not invent other promotion paths.
+- **What promotes via Git: configuration only** (chart version, values, image digests/tags). DB data and
+  wp-content never promote; they move via `docs/manual-wordpress-restore.md`. Secrets are generated
+  per-site *and per-environment* and never shared or committed.
+- `diff -r envs/staging envs/production` should only show deliberate, in-flight differences.
 
 ## Repository structure
 
-Each top-level directory is an independent Fleet bundle (a `fleet.yaml` targeting one Helm chart or one
-set of raw manifests). Bundles are applied in dependency order, documented in [README.md](README.md):
-
-1. `catalog-repos/` — registers the Bitnami `ClusterRepo` (`chart-repos.yaml`) so later bundles can pull
-   charts from `https://charts.bitnami.com/bitnami`.
-2. `longhorn-crd/` then `longhorn/` — installs Longhorn CRDs, then the Longhorn chart itself
-   (from `https://charts.rancher.io`), providing the `longhorn` StorageClass including ReadWriteMany (RWX)
-   support.
-3. `wordpress-<site>/` (e.g. `wordpress-web/`, optional — see "Multiple WordPress sites" below) — an
-   override directory for one independent WordPress site, each a Bitnami WordPress chart with 2 web
-   replicas sharing `wp-content` via a Longhorn RWX volume, a standalone (non-HA) bundled MariaDB, exposed
-   via `service.type: LoadBalancer`. **Not an active Fleet bundle** — Continuous Delivery auto-applying
-   changes to a namespace holding production-like data was considered too risky, so WordPress is deployed
-   by hand instead. When a `wordpress-<site>/fleet.yaml` exists, it is the single source of truth for that
-   site's `helm.chart`/`helm.version`/`helm.values` overrides, read by `scripts/deploy-wordpress.sh` to run
-   `helm upgrade --install` by hand; when it doesn't exist, `scripts/deploy-wordpress.sh` generates
-   equivalent default values itself (see below) and no directory is needed at all.
-
-`scripts/deploy-wordpress.sh` performs the manual WordPress deploy/upgrade described above — it is the
-only supported way to apply changes to any `wordpress-<site>/fleet.yaml`; editing that file and pushing
-to Git has no effect on its own.
-
-`docs/` holds manual runbooks for steps Fleet cannot automate (see below) — always check these before
-changing behavior they document, and update them when the corresponding `fleet.yaml` changes.
-
-## Multiple WordPress sites
-
-The cluster can host more than one independent WordPress site, each with its own namespace, Helm release,
-and Secrets — sites do not share data or credentials. A site's namespace/release/Secret names are always
-derived mechanically from its name (`wordpress-<site>`), so a bare `scripts/deploy-wordpress.sh <site>` is
-enough to stand up a standard site — no per-site directory needs to exist or be committed.
-
-Values common to all sites (`replicaCount`, `service.type`, `persistence.*`, `mariadb.*` defaults, etc.)
-live in a single shared file, `wordpress-base-values.yaml` at the repo root. A `wordpress-<site>/fleet.yaml`
-is only worth creating (via `scripts/new-wordpress-site.sh <site>`) when a site's `helm.chart`/
-`helm.version`/`helm.values` need to diverge from what's mechanically derivable — e.g. a chart version
-pinned differently for one site, or a non-default `wordpressTablePrefix` for a site restored from another
-environment's backup — since that's the only case where there's real information to keep in Git. If you
-change a value that should apply to every site, edit `wordpress-base-values.yaml`, not a per-site file.
-
-- `scripts/deploy-wordpress.sh <site> [helm options...]` — first positional arg (required) selects the
-  site. Reads `wordpress-<site>/fleet.yaml` if present; otherwise synthesizes the same structure
-  in a temp file using the site name and `DEFAULT_CHART_VERSION` inside the script, and never writes
-  anything to the repo.
-- `scripts/new-wordpress-site.sh <site>` — scaffolds a new `wordpress-<site>/fleet.yaml` from a template,
-  for the divergent-config case above only.
-- Full runbook for adding a site: `docs/manual-wordpress.md`.
+- `envs/<env>/infra/` — catalog-repos (Bitnami ClusterRepo), longhorn-crd, longhorn bundles per
+  environment (Longhorn upgrades promote env by env). NOTE: until the migration in
+  `docs/manual-multi-env.md` is completed, the legacy copies at the repo root
+  (`catalog-repos/`, `longhorn-crd/`, `longhorn/`) are what the old `base-infra` GitRepo applies to
+  dev1 — do not delete or move them except by following that runbook exactly.
+- `envs/<env>/sites/<site>/fleet.yaml` — one WordPress site per directory; generated by
+  `scripts/new-wordpress-site.sh <env> <site>`. Namespace/release/Secret names derive mechanically from
+  the site name (`wordpress-<site>`). Each site sets `helm.releaseName` explicitly and
+  `keepResources: true` (Fleet must never delete site data when a bundle disappears).
+- `charts/ibid-wordpress/` — wrapper chart holding all-site defaults (2 web replicas sharing
+  `wp-content` on a Longhorn RWX volume, standalone bundled MariaDB, `service.type: LoadBalancer`,
+  digest-pinned images, `wordpressTablePrefix: tp_`). Published to
+  `oci://ghcr.io/silver198545/charts/ibid-wordpress` by `release-chart.yaml` on merge. **Any values
+  change requires bumping `Chart.yaml` version**; environments adopt it by bumping `helm.version` in
+  their site fleet.yamls (that bump is the promotion unit).
+- `images/wordpress/` — custom WordPress image (digest-pinned Bitnami base), published to GHCR by
+  `build-image.yaml`. Exists because docker.io/bitnami free images only offer a mutable `latest` tag
+  since Broadcom's 2025 change; digests are how reproducibility is kept.
+- `fleet-bootstrap/` — the three GitRepo definitions (manual apply to Rancher local; `.fleetignore`d).
+- `scripts/` — `new-wordpress-site.sh <env> <site>` (scaffold a site bundle, required for every site),
+  `bootstrap-site-secrets.sh <site>` (create the 3 per-site Secrets on the cluster kubectl points at,
+  fresh random passwords per site per env), `deploy-wordpress.sh <env> <site>` (**break-glass only** —
+  normal changes go through PR merge; pause the env's GitRepo before using it on production).
+- `docs/` — manual runbooks for steps Fleet cannot automate. Always check these before changing
+  behavior they document, and update them when the corresponding config changes. Key one:
+  `docs/manual-multi-env.md` (environment setup, dev1 migration, promotion operation, break-glass).
 
 ## Key architectural facts to know before editing
 
 - **LoadBalancer IPs come from the Harvester Cloud Provider, not MetalLB.** MetalLB was deliberately
-  removed (see `docs/manual-harvester-loadbalancer.md`) because both controllers race to claim
-  `type: LoadBalancer` Services. IP allocation depends on an `IPPool` (`loadbalancer.harvesterhci.io`)
-  that must exist on the **Harvester management cluster** (not this guest cluster, not Rancher's `local`
-  cluster) — that IPPool is outside this repo's scope.
-- **WordPress bypasses Traefik entirely** — it uses its own `LoadBalancer` Service
-  (`ingress.enabled: false` by default), so Traefik does not need to be LoadBalancer-typed unless another
-  app requires Ingress.
-- **Never put passwords in `fleet.yaml` / Git.** WordPress and MariaDB credentials are injected via
-  pre-created Kubernetes Secrets referenced through `existingSecret` (WordPress/MariaDB auth) and
-  `helm.valuesFrom.secretKeyRef` (the `wordpress-<site>-mariadb-upgrade-values` secret). The latter exists
-  specifically because Bitnami's mariadb subchart demands `auth.rootPassword`/`auth.password` on **Helm
-  upgrade** even when `existingSecret` is set — see `docs/manual-wordpress.md` and the comments in each
-  `wordpress-<site>/fleet.yaml`. If you rotate a site's mariadb passwords, this secret must be updated too
-  or the next deploy fails with `PASSWORDS ERROR`.
-- **Passwords are never reused across sites.** If a site's three credential Secrets don't exist yet,
-  `scripts/deploy-wordpress.sh <site>` treats it as a first-time deploy and auto-generates a fresh random
-  password per site (via `openssl rand`) rather than sharing one set of credentials across all sites — so
-  a leak in one site's credentials can't be used against another.
-- **Do not set `WORDPRESS_TABLE_PREFIX` via `extraEnvVars`.** The chart already generates that env var
-  from `wordpressTablePrefix`; duplicating it causes an apply error
-  (`duplicate entries for key [name="WORDPRESS_TABLE_PREFIX"]`). Use `wordpressTablePrefix` only.
+  removed (see `docs/manual-harvester-loadbalancer.md`). IP allocation needs an `IPPool`
+  (`loadbalancer.harvesterhci.io`) per guest cluster on the **Harvester management cluster** — outside
+  this repo's scope. WordPress bypasses Traefik entirely (own LoadBalancer Service).
+- **Never put passwords in fleet.yaml / Git.** Credentials are injected via pre-created Secrets
+  referenced through `existingSecret` and `helm.valuesFrom.secretKeyRef`
+  (`wordpress-<site>-mariadb-upgrade-values` — exists because Bitnami's mariadb subchart demands
+  `auth.rootPassword`/`auth.password` on Helm upgrade even with `existingSecret`; rotating mariadb
+  passwords requires updating this secret too, or the next apply fails with `PASSWORDS ERROR`).
+  Since the wrapper chart, this secret's values.yaml must be nested under a top-level `wordpress:` key.
+- **Site values nest under `wordpress:`.** The Bitnami chart is a dependency of `ibid-wordpress`, so
+  every value that used to be top-level now lives under `wordpress:` in fleet.yaml `helm.values`, the
+  upgrade-values secret, and the wrapper chart's values.yaml.
+- **`keepResources: true` is mandatory** on infra and site bundles: bundle deletion or GitRepo
+  re-pointing must never cascade into uninstalling Longhorn or deleting site PVCs. Site deletion is a
+  documented manual procedure (`docs/manual-wordpress.md`).
+- **Do not set `WORDPRESS_TABLE_PREFIX` via `extraEnvVars`** — use `wordpressTablePrefix` only
+  (duplicate env var causes an apply error).
 - **`wp-config.php` persists on the volume and is not regenerated once created.** Changing
-  `wordpressTablePrefix` (or other first-run-only settings) after initial install has no effect until the
-  WordPress and MariaDB PVCs are deleted and recreated from scratch — see
-  `docs/manual-wordpress-restore.md` for the safe procedure (snapshot first, scale down, delete PVCs,
-  re-run `scripts/deploy-wordpress.sh <site>` to recreate them, mariadb before wordpress).
-- **RWX volumes require `nfs-common` on every worker node** (Longhorn RWX is backed by an NFSv4 Share
-  Manager). This isn't handled by this repo — it must be baked into the Harvester node-pool cloud-init or
-  installed manually after provisioning (`docs/manual-wordpress.md`).
-- Chart versions are pinned explicitly — either in a site's `fleet.yaml` (`helm.version`) if it has one,
-  or via `DEFAULT_CHART_VERSION` in `scripts/deploy-wordpress.sh` otherwise. Bump deliberately, don't
-  leave them floating.
-- **WordPress upgrades require running `scripts/deploy-wordpress.sh <site>` by hand** — unlike
-  `longhorn`/`longhorn-crd`/`catalog-repos`, Fleet does not auto-apply WordPress at all.
+  `wordpressTablePrefix` (or other first-run-only settings) after install has no effect until the
+  WordPress and MariaDB PVCs are recreated — see `docs/manual-wordpress-restore.md`.
+- **RWX volumes require `nfs-common` on every worker node** (Longhorn RWX = NFSv4 Share Manager).
+  Baked into Harvester node-pool cloud-init or installed manually (`docs/manual-wordpress.md`).
+- Chart/image versions are pinned explicitly (chart `version` in each site fleet.yaml, image digests in
+  the wrapper chart / Dockerfile). Bump deliberately, dev first, then promote.
+- The `validate` workflow rejects site fleet.yamls missing `keepResources`/`releaseName`/`version` or
+  containing password-like keys.
 
 ## Making changes
 
-- Fleet bundle directories are self-contained: `defaultNamespace`/`targetNamespace` plus a `helm:` block
-  (chart, repo, version, values) or raw manifests. When adding a new app, mirror the existing `longhorn`
-  pattern (separate directory, own `fleet.yaml`, README entry describing where it fits in the apply
-  order).
-- If a change requires a manual, non-Git-tracked step (creating a Secret, creating an IPPool on the
-  Harvester management cluster, installing an OS package on nodes), document it under `docs/` and link it
-  from `README.md`, following the existing runbook style.
+- Changes enter through **dev** (`envs/dev/…` or `charts/`/`images/` + a dev version bump) and promote
+  outward via the `promote` workflow's PRs. Never edit `envs/production/**` directly except through a
+  promotion PR or a deliberate, documented hotfix.
+- Fleet bundle directories are self-contained (`defaultNamespace`/`targetNamespace` + `helm:` block or
+  raw manifests). New apps mirror the existing pattern: separate directory per environment under
+  `envs/<env>/`, own `fleet.yaml`, README entry.
+- If a change requires a manual, non-Git-tracked step (creating a Secret, an IPPool, a GitHub setting,
+  making a GHCR package public), document it under `docs/` and link it from `README.md`.
+- Non-bundle directories must stay listed in `.fleetignore` so a broad GitRepo can never apply them.
 
 ## Commit convention
 

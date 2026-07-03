@@ -1,8 +1,8 @@
 # WordPress 既存サイトからのデータ移行（リストア）手順
 
 [docs/manual-wordpress.md](manual-wordpress.md)の手順で導入済みのWordPressサイト
-（`wordpress-<site>/fleet.yaml`）に、既存の（別環境の）WordPressサイトからバックアップした
-データを流し込む手順です。以降、対象サイト名を`<site>`と表記します（例: `web`）。
+（`envs/<env>/sites/<site>/fleet.yaml`）に、既存の（別環境の）WordPressサイトからバックアップした
+データを流し込む手順です。以降、対象サイト名を`<site>`、環境名を`<env>`と表記します（例: `web`）。
 
 対象とするバックアップ形式は次の2点です。
 
@@ -42,13 +42,15 @@ kubectl -n "wordpress-$SITE" get pods
 kubectl -n "wordpress-$SITE" exec <wordpress-pod> -- grep table_prefix /bitnami/wordpress/wp-config.php
 ```
 
-このクラスタのデフォルトは`tp_`です（[wordpress-base-values.yaml](../wordpress-base-values.yaml)
+このクラスタのデフォルトは`tp_`です（[charts/ibid-wordpress/values.yaml](../charts/ibid-wordpress/values.yaml)
 参照。Bitnamiチャート自体のデフォルトは`wp_`ですが、全サイト共通で`tp_`に上書きしています）。
-旧サイトの接頭辞がこれと異なる場合、`wordpress-<site>/fleet.yaml` の `helm.values` に
-`wordpressTablePrefix` を設定して上書きします。
+旧サイトの接頭辞がこれと異なる場合、`envs/<env>/sites/<site>/fleet.yaml` の `helm.values` に
+`wordpress:` 配下で `wordpressTablePrefix` を設定して上書きします。
 
 ```yaml
-    wordpressTablePrefix: "旧サイトの接頭辞"
+  values:
+    wordpress:
+      wordpressTablePrefix: "旧サイトの接頭辞"
 ```
 
 **注意:** 環境変数を直接追加したい場合でも `extraEnvVars` で
@@ -56,7 +58,7 @@ kubectl -n "wordpress-$SITE" exec <wordpress-pod> -- grep table_prefix /bitnami/
 環境変数を生成する専用パラメータ（`wordpressTablePrefix`）が既にあるため、
 `extraEnvVars`と二重に定義すると
 `duplicate entries for key [name="WORDPRESS_TABLE_PREFIX"]` で
-`scripts/deploy-wordpress.sh`の適用がエラーになります。
+helmの適用がエラーになります。
 
 また、`wp-config.php` は一度生成されると永続ボリューム上に残り続け、
 Bitnamiの初期化スクリプトは「既にファイルがあれば再生成しない」ため、
@@ -81,15 +83,17 @@ kubectl -n "wordpress-$SITE" get pods
 kubectl -n "wordpress-$SITE" delete pvc "wordpress-$SITE"
 kubectl -n "wordpress-$SITE" delete pvc "data-wordpress-$SITE-mariadb-0"
 
-# scripts/deploy-wordpress.shを再実行してPVCを作り直し、mariadb起動後にwordpressを起動する
-# (helm upgrade --installがチャートのテンプレートからPVCを再作成する)
-./scripts/deploy-wordpress.sh "$SITE"
+# デプロイを再実行してPVCを作り直し、mariadb起動後にwordpressを起動する
+# (helm upgrade --installがチャートのテンプレートからPVCを再作成する)。
+# Rancher UI(Continuous Delivery → 対象バンドルのForce Update)でFleetに再適用させるか、
+# break-glassスクリプトで直接適用する:
+./scripts/deploy-wordpress.sh <env> "$SITE"
 ```
 
 wp-content用のPVC（Deploymentが参照する単独PVCリソース）は、削除しても
 StatefulSetのvolumeClaimTemplateのようには自動再作成されません。
 `0/5 nodes are available: persistentvolumeclaim "..." not found` のようなエラーで
-Podがスケジュールされない場合は、`scripts/deploy-wordpress.sh <site>`を再実行してPVCを
+Podがスケジュールされない場合は、`scripts/deploy-wordpress.sh <env> <site>`を再実行してPVCを
 チャートに作り直させてください。
 
 再作成後、Podが `Running` になったら接頭辞を再確認します。
@@ -215,4 +219,4 @@ kubectl -n "wordpress-$SITE" get svc
 - **`wp-config.php`削除後に`CrashLoopBackOff`になる**
   → 2.の「PVCごと作り直す」方法に切り替えてください。
 - **PVC削除後に`persistentvolumeclaim "..." not found`でPodがスケジュールされない**
-  → `scripts/deploy-wordpress.sh <site>`を再実行してPVCをチャートに作り直させてください。
+  → `scripts/deploy-wordpress.sh <env> <site>`を再実行してPVCをチャートに作り直させてください。
