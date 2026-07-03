@@ -1,0 +1,36 @@
+# images/wordpress/ 配下の変更がmainにマージされたら、カスタムWordPressイメージを
+# ビルドしてGHCRへ公開する。タグは images/wordpress/TAG の内容。
+# 公開後、charts/ibid-wordpress/values.yaml の image.* をこのイメージへ切り替え、
+# チャートバージョンを上げて環境ごとに昇格させる。
+#
+# 初回のみ: 公開されたパッケージ(ghcr.io上の wordpress)の可視性を
+# GitHubのPackage設定で public にすること。
+name: build-wordpress-image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "images/wordpress/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: イメージをビルドしてGHCRへpush
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="$(tr -d '[:space:]' < images/wordpress/TAG)"
+          IMAGE="ghcr.io/${{ github.repository_owner }}/wordpress:$TAG"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker build -t "$IMAGE" images/wordpress
+          docker push "$IMAGE"
+          echo "公開しました: $IMAGE"

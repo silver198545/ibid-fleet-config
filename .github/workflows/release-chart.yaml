@@ -1,0 +1,33 @@
+# charts/ 配下の変更がmainにマージされたら、ラッパーチャートをGHCRへ公開する。
+# 各環境のenvs/<env>/sites/*/fleet.yamlは oci://ghcr.io/<owner>/charts/ibid-wordpress を
+# 参照しており、helm.versionを上げることで環境ごとに新チャートを取り込む。
+#
+# 初回のみ: 公開されたパッケージ(ghcr.io上の charts/ibid-wordpress)の可視性を
+# GitHubのPackage設定で public にすること(クラスタが匿名でpullできるようにするため)。
+name: release-chart
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "charts/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: チャートをパッケージしてGHCRへpush
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          helm dependency build charts/ibid-wordpress
+          helm package charts/ibid-wordpress -d /tmp/chart-dist
+          echo "$GH_TOKEN" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm push /tmp/chart-dist/ibid-wordpress-*.tgz "oci://ghcr.io/${{ github.repository_owner }}/charts"

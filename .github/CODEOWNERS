@@ -1,0 +1,4 @@
+# envs/production/ 配下(本番クラスタへ適用される内容)の変更は本番承認者のレビュー必須。
+# ブランチ保護で「Require review from Code Owners」を有効にすること
+# (docs/manual-multi-env.md 参照)。承認者が増えたらここに追記する。
+/envs/production/ @silver198545

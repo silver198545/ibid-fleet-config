@@ -1,0 +1,81 @@
+# PRごとの検証: YAML構文、サイトfleet.yamlの必須項目、ラッパーチャートのlint/render。
+# ブランチ保護でこのチェックを必須にすること(docs/manual-multi-env.md 参照)。
+name: validate
+
+on:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: PyYAMLをインストール
+        run: pip install --quiet pyyaml
+
+      - name: 全YAMLファイルの構文チェック
+        run: |
+          python3 - <<'EOF'
+          import glob, sys, yaml
+
+          failed = False
+          for path in glob.glob("**/*.yaml", recursive=True) + glob.glob("**/*.yml", recursive=True):
+              if path.startswith("charts/ibid-wordpress/charts/"):
+                  continue  # helm dependency buildの生成物
+              try:
+                  with open(path) as f:
+                      list(yaml.safe_load_all(f))
+              except yaml.YAMLError as e:
+                  print(f"NG {path}: {e}")
+                  failed = True
+          sys.exit(1 if failed else 0)
+          EOF
+
+      - name: サイトfleet.yamlの必須項目チェック
+        run: |
+          python3 - <<'EOF'
+          import glob, sys, yaml
+
+          failed = False
+          for path in glob.glob("envs/*/sites/*/fleet.yaml"):
+              with open(path) as f:
+                  doc = yaml.safe_load(f)
+              helm = doc.get("helm") or {}
+              problems = []
+              if not doc.get("keepResources"):
+                  problems.append("keepResources: true がない(サイト削除時にPVCごと消える)")
+              if not helm.get("releaseName"):
+                  problems.append("helm.releaseName がない")
+              if not helm.get("chart"):
+                  problems.append("helm.chart がない")
+              if not helm.get("version"):
+                  problems.append("helm.version がない(バージョン固定必須)")
+              # パスワード類の混入防止(existingSecret参照のみ許可)。コメント行は除外。
+              lines = [l for l in open(path) if not l.lstrip().startswith("#")]
+              for ng in ("rootPassword", "wordpressPassword", "password:"):
+                  if any(ng in l for l in lines):
+                      problems.append(f"パスワードらしき記述 '{ng}' がある(Secret経由で注入すること)")
+              for p in problems:
+                  print(f"NG {path}: {p}")
+                  failed = True
+          sys.exit(1 if failed else 0)
+          EOF
+
+      - name: ラッパーチャートの lint と render
+        run: |
+          helm dependency build charts/ibid-wordpress
+          helm lint charts/ibid-wordpress
+          # サイト相当のvaluesを与えてrenderが通ることを確認する
+          cat > /tmp/site-values.yaml <<'EOF'
+          wordpress:
+            existingSecret: wordpress-test-credentials
+            mariadb:
+              auth:
+                existingSecret: wordpress-test-mariadb-credentials
+                rootPassword: "dummy"
+                password: "dummy"
+          EOF
+          helm template wordpress-test charts/ibid-wordpress \
+            -n wordpress-test -f /tmp/site-values.yaml > /dev/null
+          echo "render OK"

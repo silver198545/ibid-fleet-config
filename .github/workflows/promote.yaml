@@ -1,0 +1,98 @@
+# 環境間プロモーションPRの自動生成(手動起動)。
+# 指定したサイト(または全サイト)の設定を dev→staging または staging→production へ
+# コピーし、PRを作成する。PRのdiffがそのまま変更レビューになり、マージが昇格の承認になる。
+# envs/production/ 配下はCODEOWNERSにより承認必須。
+#
+# 注意: github.token で作成されたPRでは validate ワークフローが自動起動しない
+# (GitHub Actionsの再帰防止仕様)。ブランチ保護で validate を必須チェックにする場合は、
+# リポジトリのSecretsに PROMOTE_TOKEN(repo権限のPAT)を登録すること。
+# 登録があればそちらを優先して使う。
+name: promote
+
+on:
+  workflow_dispatch:
+    inputs:
+      from_env:
+        description: "昇格元の環境"
+        type: choice
+        required: true
+        options:
+          - dev
+          - staging
+      site:
+        description: "サイト名(all で昇格元の全サイト)"
+        type: string
+        required: true
+        default: all
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PROMOTE_TOKEN || github.token }}
+
+      - name: 昇格内容をコピーしてPRを作成
+        env:
+          GH_TOKEN: ${{ secrets.PROMOTE_TOKEN || github.token }}
+          FROM_ENV: ${{ inputs.from_env }}
+          SITE: ${{ inputs.site }}
+        run: |
+          set -euo pipefail
+
+          if [ "$FROM_ENV" = "dev" ]; then TO_ENV=staging; else TO_ENV=production; fi
+
+          if [ "$SITE" = "all" ]; then
+            # 全サイトを昇格元に完全同期する(昇格元で削除済みのサイトは昇格先からも消える。
+            # 各サイトは keepResources: true のためPVC等の実データはFleetに削除されない)
+            rsync -a --delete "envs/$FROM_ENV/sites/" "envs/$TO_ENV/sites/"
+            SUBJECT="全サイトを${FROM_ENV}から${TO_ENV}へ昇格"
+          else
+            if [ ! -d "envs/$FROM_ENV/sites/$SITE" ]; then
+              echo "エラー: envs/$FROM_ENV/sites/$SITE がありません" >&2
+              exit 1
+            fi
+            rm -rf "envs/$TO_ENV/sites/$SITE"
+            cp -r "envs/$FROM_ENV/sites/$SITE" "envs/$TO_ENV/sites/$SITE"
+            SUBJECT="サイト${SITE}を${FROM_ENV}から${TO_ENV}へ昇格"
+          fi
+
+          if git diff --quiet; then
+            echo "昇格元と昇格先に差分がありません。PRは作成しません。"
+            exit 0
+          fi
+
+          BRANCH="promote/${FROM_ENV}-to-${TO_ENV}-${SITE}-${{ github.run_id }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add "envs/$TO_ENV"
+          git commit -m "chore: ${SUBJECT}"
+          git push origin "$BRANCH"
+
+          BODY_FILE="$(mktemp)"
+          cat > "$BODY_FILE" <<EOF
+          ## 昇格内容
+
+          \`envs/$FROM_ENV/sites\` → \`envs/$TO_ENV/sites\` (対象: $SITE)
+
+          ## マージ前チェックリスト
+
+          - [ ] diffの内容(チャートバージョン/values/イメージの変更点)を確認した
+          - [ ] チャート/イメージ更新を含む場合、changelogに破壊的変更(DBマイグレーション等)がないか確認した
+          $( [ "$TO_ENV" = "production" ] && echo '- [ ] 対象サイトのLonghornスナップショット/バックアップを取得した' )
+          - [ ] 昇格元の環境で対象サイトが正常稼働していることを確認した
+
+          🤖 Generated with promote.yaml
+          EOF
+
+          gh pr create \
+            --title "chore: ${SUBJECT}" \
+            --body-file "$BODY_FILE" \
+            --base main \
+            --head "$BRANCH"
