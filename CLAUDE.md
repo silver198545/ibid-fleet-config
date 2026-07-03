@@ -19,14 +19,15 @@ set of raw manifests). Bundles are applied in dependency order, documented in [R
 2. `longhorn-crd/` then `longhorn/` — installs Longhorn CRDs, then the Longhorn chart itself
    (from `https://charts.rancher.io`), providing the `longhorn` StorageClass including ReadWriteMany (RWX)
    support.
-3. `wordpress-<site>/` (e.g. `wordpress-web/`) — one directory per independent WordPress site, each a
-   Bitnami WordPress chart with 2 web replicas sharing `wp-content` via a Longhorn RWX volume, a
-   standalone (non-HA) bundled MariaDB, exposed via `service.type: LoadBalancer`. **Not an active Fleet
-   bundle** — Continuous Delivery auto-applying changes to a namespace holding production-like data was
-   considered too risky, so WordPress is deployed by hand instead (see "Multiple WordPress sites" below).
-   Each `wordpress-<site>/fleet.yaml` is kept only as the single source of truth for
-   `helm.chart`/`helm.version`/`helm.values` for that site, read by `scripts/deploy-wordpress.sh` to run
-   `helm upgrade --install` by hand.
+3. `wordpress-<site>/` (e.g. `wordpress-web/`, optional — see "Multiple WordPress sites" below) — an
+   override directory for one independent WordPress site, each a Bitnami WordPress chart with 2 web
+   replicas sharing `wp-content` via a Longhorn RWX volume, a standalone (non-HA) bundled MariaDB, exposed
+   via `service.type: LoadBalancer`. **Not an active Fleet bundle** — Continuous Delivery auto-applying
+   changes to a namespace holding production-like data was considered too risky, so WordPress is deployed
+   by hand instead. When a `wordpress-<site>/fleet.yaml` exists, it is the single source of truth for that
+   site's `helm.chart`/`helm.version`/`helm.values` overrides, read by `scripts/deploy-wordpress.sh` to run
+   `helm upgrade --install` by hand; when it doesn't exist, `scripts/deploy-wordpress.sh` generates
+   equivalent default values itself (see below) and no directory is needed at all.
 
 `scripts/deploy-wordpress.sh` performs the manual WordPress deploy/upgrade described above — it is the
 only supported way to apply changes to any `wordpress-<site>/fleet.yaml`; editing that file and pushing
@@ -37,22 +38,25 @@ changing behavior they document, and update them when the corresponding `fleet.y
 
 ## Multiple WordPress sites
 
-The cluster can host more than one independent WordPress site. Each site is its own directory
-(`wordpress-<site>/`, e.g. `wordpress-web/`) with its own `fleet.yaml`, namespace, Helm release, and
-Secrets — sites do not share data or credentials.
+The cluster can host more than one independent WordPress site, each with its own namespace, Helm release,
+and Secrets — sites do not share data or credentials. A site's namespace/release/Secret names are always
+derived mechanically from its name (`wordpress-<site>`), so a bare `scripts/deploy-wordpress.sh <site>` is
+enough to stand up a standard site — no per-site directory needs to exist or be committed.
 
 Values common to all sites (`replicaCount`, `service.type`, `persistence.*`, `mariadb.*` defaults, etc.)
-live in a single shared file, `wordpress-base-values.yaml` at the repo root, to avoid duplicating them in
-every site's `fleet.yaml`. `scripts/deploy-wordpress.sh` passes `wordpress-base-values.yaml` to `helm -f`
-before the site's own `fleet.yaml` values, so each `wordpress-<site>/fleet.yaml` should only contain
-values that differ from the shared defaults (Secret names, and any genuinely site-specific quirks, e.g.
-a non-default `wordpressTablePrefix` for a site restored from another environment's backup). If you
-change a value that should apply to every site, edit `wordpress-base-values.yaml`, not each site
-individually.
+live in a single shared file, `wordpress-base-values.yaml` at the repo root. A `wordpress-<site>/fleet.yaml`
+is only worth creating (via `scripts/new-wordpress-site.sh <site>`) when a site's `helm.chart`/
+`helm.version`/`helm.values` need to diverge from what's mechanically derivable — e.g. a chart version
+pinned differently for one site, or a non-default `wordpressTablePrefix` for a site restored from another
+environment's backup — since that's the only case where there's real information to keep in Git. If you
+change a value that should apply to every site, edit `wordpress-base-values.yaml`, not a per-site file.
 
 - `scripts/deploy-wordpress.sh <site> [helm options...]` — first positional arg (required) selects the
-  site (`wordpress-<site>/fleet.yaml`).
-- `scripts/new-wordpress-site.sh <site>` — scaffolds a new `wordpress-<site>/fleet.yaml` from a template.
+  site. Reads `wordpress-<site>/fleet.yaml` if present; otherwise synthesizes the same structure
+  in a temp file using the site name and `DEFAULT_CHART_VERSION` inside the script, and never writes
+  anything to the repo.
+- `scripts/new-wordpress-site.sh <site>` — scaffolds a new `wordpress-<site>/fleet.yaml` from a template,
+  for the divergent-config case above only.
 - Full runbook for adding a site: `docs/manual-wordpress.md`.
 
 ## Key architectural facts to know before editing
@@ -87,18 +91,18 @@ individually.
 - **RWX volumes require `nfs-common` on every worker node** (Longhorn RWX is backed by an NFSv4 Share
   Manager). This isn't handled by this repo — it must be baked into the Harvester node-pool cloud-init or
   installed manually after provisioning (`docs/manual-wordpress.md`).
-- Chart versions are pinned explicitly in each `fleet.yaml` (`helm.version`) — bump deliberately, don't
+- Chart versions are pinned explicitly — either in a site's `fleet.yaml` (`helm.version`) if it has one,
+  or via `DEFAULT_CHART_VERSION` in `scripts/deploy-wordpress.sh` otherwise. Bump deliberately, don't
   leave them floating.
-- **WordPress upgrades require running `scripts/deploy-wordpress.sh <site>` by hand** after editing a
-  `wordpress-<site>/fleet.yaml` — unlike `longhorn`/`longhorn-crd`/`catalog-repos`, Fleet does not
-  auto-apply these bundles (see above).
+- **WordPress upgrades require running `scripts/deploy-wordpress.sh <site>` by hand** — unlike
+  `longhorn`/`longhorn-crd`/`catalog-repos`, Fleet does not auto-apply WordPress at all.
 
 ## Making changes
 
 - Fleet bundle directories are self-contained: `defaultNamespace`/`targetNamespace` plus a `helm:` block
-  (chart, repo, version, values) or raw manifests. When adding a new app, mirror the existing
-  `longhorn`/`wordpress-<site>` pattern (separate directory, own `fleet.yaml`, README entry describing
-  where it fits in the apply order).
+  (chart, repo, version, values) or raw manifests. When adding a new app, mirror the existing `longhorn`
+  pattern (separate directory, own `fleet.yaml`, README entry describing where it fits in the apply
+  order).
 - If a change requires a manual, non-Git-tracked step (creating a Secret, creating an IPPool on the
   Harvester management cluster, installing an OS package on nodes), document it under `docs/` and link it
   from `README.md`, following the existing runbook style.

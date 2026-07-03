@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# 新しいWordPressサイト用のディレクトリ(wordpress-<site>/fleet.yaml)をテンプレートから
-# 生成する。生成後の手順(namespace/Secret作成・デプロイ)は
-# docs/manual-wordpress.md を参照。
+# wordpress-<site>/fleet.yaml が無いサイトは scripts/deploy-wordpress.sh が標準のデフォルト
+# 設定をその場で生成してデプロイするため、このスクリプトの実行は必須ではない。
+# そのサイトだけチャートバージョンを個別に固定したい、wordpressTablePrefixを設定したい等、
+# 全サイト共通のデフォルト(wordpress-base-values.yaml)から外れた設定をGitに残しておきたい
+# 場合にのみ、テンプレートとして生成する。生成後の手順は docs/manual-wordpress.md を参照。
 #
 # 使い方:
 #   scripts/new-wordpress-site.sh <site>

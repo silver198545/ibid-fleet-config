@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
-# wordpress-base-values.yaml(全サイト共通の値)と wordpress-<site>/fleet.yaml(サイト固有の差分)
-# を一次情報源として、Fleet(Continuous Delivery)を介さず helm upgrade --install で
-# 直接WordPressをデプロイ/アップグレードする。サイトの新規作成は scripts/new-wordpress-site.sh、
-# 運用手順全体は docs/manual-wordpress.md を参照。
+# wordpress-base-values.yaml(全サイト共通の値)を一次情報源として、Fleet(Continuous Delivery)
+# を介さず helm upgrade --install で直接WordPressをデプロイ/アップグレードする。
+#
+# wordpress-<site>/fleet.yaml は、そのサイトが全サイト共通のデフォルト値から外れた設定
+# (チャートバージョンの個別固定、wordpressTablePrefix等)を持つ場合にのみ、Gitにコミットして
+# 使う「上書き用」ファイル(scripts/new-wordpress-site.sh で生成できる)。存在しない場合は
+# サイト名から機械的に決まるデフォルト設定(標準のSecret名など)をその場で生成して使うだけで、
+# リポジトリには何も残さない。運用手順全体は docs/manual-wordpress.md を参照。
 #
 # 前提:
 #   - kubectl/helm が対象クラスタ(dev1)を指すよう設定済みであること
@@ -15,7 +19,7 @@
 #
 # 使い方:
 #   scripts/deploy-wordpress.sh <サイト名> [追加のhelmオプション...]
-#   例: scripts/deploy-wordpress.sh web               # wordpress-web/fleet.yaml
+#   例: scripts/deploy-wordpress.sh web               # サイト名"web"を新規/更新デプロイ
 #       scripts/deploy-wordpress.sh web --dry-run     # 同上、helmオプション付き
 set -euo pipefail
 
@@ -30,6 +34,8 @@ fi
 
 SITE="$1"
 shift
+
+DEFAULT_CHART_VERSION="32.1.10"
 
 SITE_DIR="wordpress-$SITE"
 RELEASE_NAME="${RELEASE_NAME:-wordpress-$SITE}"
@@ -48,11 +54,6 @@ for cmd in helm kubectl python3 openssl; do
   fi
 done
 
-if [[ ! -f "$FLEET_YAML" ]]; then
-  echo "エラー: $FLEET_YAML が見つかりません。" >&2
-  exit 1
-fi
-
 if [[ ! -f "$BASE_VALUES" ]]; then
   echo "エラー: $BASE_VALUES が見つかりません。" >&2
   exit 1
@@ -61,6 +62,25 @@ fi
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 chmod 700 "$WORKDIR"
+
+# wordpress-<site>/fleet.yaml が無ければ、サイト名から機械的に決まるデフォルト設定を
+# その場限り(WORKDIR配下)で生成して使う。リポジトリには何も残らない。
+if [[ -f "$FLEET_YAML" ]]; then
+  echo "$SITE_DIR/fleet.yaml の設定を使用します。" >&2
+else
+  FLEET_YAML="$WORKDIR/default-fleet-values.yaml"
+  cat >"$FLEET_YAML" <<EOF
+helm:
+  chart: wordpress
+  repo: https://charts.bitnami.com/bitnami
+  version: $DEFAULT_CHART_VERSION
+  values:
+    existingSecret: $CREDENTIALS_SECRET
+    mariadb:
+      auth:
+        existingSecret: $MARIADB_SECRET
+EOF
+fi
 
 # 認証情報のSecretが1つも無ければ、このサイトの初回デプロイとみなし、サイト専用のランダム
 # パスワードを生成してSecretを作成する。一部だけ存在する場合(手動で作り直し中など)は
