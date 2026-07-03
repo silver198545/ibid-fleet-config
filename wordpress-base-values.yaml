@@ -1,8 +1,7 @@
 # 全WordPressサイト(wordpress-<site>/, ...)に共通のデフォルトHelm values。
 # scripts/deploy-wordpress.sh が各サイトの fleet.yaml の helm.values より先に読み込み、
 # サイト固有の値で上書きする形でhelmに渡す。共通設定を変更する場合はこのファイルを、
-# サイト固有の設定(existingSecretの名前、テーブル接頭辞など)は各サイトの
-# fleet.yaml を編集する。
+# サイト固有の設定(existingSecretの名前など)は各サイトの fleet.yaml を編集する。
 
 # Web層: 2レプリカで冗長化。wp-content は Longhorn の
 # ReadWriteMany ボリュームで全レプリカ間で共有する。
@@ -20,6 +19,11 @@ persistence:
 
 wordpressUsername: admin
 wordpressEmail: admin@example.com
+
+# 全サイト共通のデフォルトのテーブル接頭辞。Bitnamiチャート自体のデフォルトは wp_ だが、
+# このクラスタでは tp_ を標準として使う。サイトごとに変える必要がある場合は、
+# wordpress-<site>/fleet.yaml の helm.values で上書きする。
+wordpressTablePrefix: "tp_"
 
 mariadb:
   enabled: true

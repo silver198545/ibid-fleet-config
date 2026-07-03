@@ -42,11 +42,13 @@ kubectl -n "wordpress-$SITE" get pods
 kubectl -n "wordpress-$SITE" exec <wordpress-pod> -- grep table_prefix /bitnami/wordpress/wp-config.php
 ```
 
-Bitnamiのデフォルトは `wp_` です。旧サイトの接頭辞と異なる場合、
-`wordpress-<site>/fleet.yaml` の `helm.values` に `wordpressTablePrefix` を設定します。
+このクラスタのデフォルトは`tp_`です（[wordpress-base-values.yaml](../wordpress-base-values.yaml)
+参照。Bitnamiチャート自体のデフォルトは`wp_`ですが、全サイト共通で`tp_`に上書きしています）。
+旧サイトの接頭辞がこれと異なる場合、`wordpress-<site>/fleet.yaml` の `helm.values` に
+`wordpressTablePrefix` を設定して上書きします。
 
 ```yaml
-    wordpressTablePrefix: "tp_"
+    wordpressTablePrefix: "旧サイトの接頭辞"
 ```
 
 **注意:** 環境変数を直接追加したい場合でも `extraEnvVars` で
