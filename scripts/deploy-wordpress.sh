@@ -142,6 +142,7 @@ if [[ "${CHART_LOCAL:-}" == "1" ]]; then
     echo "警告: ローカルチャートのversion($LOCAL_VERSION)がfleet.yamlのversion($VERSION)と異なります。" >&2
     echo "      ローカルチャートの内容でデプロイします。" >&2
   fi
+  helm repo add bitnami https://charts.bitnami.com/bitnami >/dev/null 2>&1 || true
   helm dependency build "$CHART" >/dev/null
   helm upgrade --install "$RELEASE_NAME" "$CHART" \
     -n "$NAMESPACE" --create-namespace \

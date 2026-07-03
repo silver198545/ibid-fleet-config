@@ -27,6 +27,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # helm dependency build はローカルのリポジトリ一覧に定義が無いと失敗する
+          helm repo add bitnami https://charts.bitnami.com/bitnami
           helm dependency build charts/ibid-wordpress
           helm package charts/ibid-wordpress -d /tmp/chart-dist
           echo "$GH_TOKEN" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
