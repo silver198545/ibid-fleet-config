@@ -88,6 +88,24 @@ helm:
       mariadb:
         auth:
           existingSecret: wordpress-$SITE-mariadb-credentials
+
+# Kubernetes APIはNetworkPolicyのportsにprotocol: TCPを自動補完するが、
+# Bitnamiチャートのマニフェストには無いため、Fleetが常時「Modified」と
+# 誤検知する。ingress部分を差分比較の対象から除外して抑止する。
+diff:
+  comparePatches:
+    - apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      name: wordpress-$SITE
+      namespace: wordpress-$SITE
+      jsonPointers:
+        - /spec/ingress
+    - apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      name: wordpress-$SITE-mariadb
+      namespace: wordpress-$SITE
+      jsonPointers:
+        - /spec/ingress
 EOF
 
 echo "作成しました: $SITE_DIR/fleet.yaml"

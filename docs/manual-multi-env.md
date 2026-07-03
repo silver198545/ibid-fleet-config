@@ -24,10 +24,14 @@ wp-contentの実データは昇格せず、必要な場合は [manual-wordpress-
    - Require review from Code Owners
    - Require status checks to pass: `validate`
 2. [.github/CODEOWNERS](../.github/CODEOWNERS) の本番承認者を実際の体制に合わせて更新する。
-3. (任意)`PROMOTE_TOKEN` をリポジトリSecretsに登録する(repo権限のPAT)。
+3. **ActionsにPR作成を許可する**(Settings → Actions → General → Workflow permissions):
+   「Allow GitHub Actions to create and approve pull requests」にチェック。
+   無効のままだと promote.yaml がブランチをpushした後のPR作成で
+   「GitHub Actions is not permitted to create or approve pull requests」で失敗する。
+4. (任意)`PROMOTE_TOKEN` をリポジトリSecretsに登録する(repo権限のPAT)。
    promote.yaml がデフォルトの `github.token` でPRを作ると `validate` が自動起動しない
    (GitHub Actionsの再帰防止仕様)ため、validateを必須チェックにするなら実質必須。
-4. **GHCRパッケージのpublic化**(初回のチャート公開・イメージ公開後に1回だけ):
+5. **GHCRパッケージのpublic化**(初回のチャート公開・イメージ公開後に1回だけ):
    GitHubの Packages → `charts/ibid-wordpress` と `wordpress` → Package settings →
    Change visibility → Public。クラスタが匿名でpullできるようにするため。
 
