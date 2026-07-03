@@ -1,0 +1,7 @@
+defaultNamespace: cattle-system
+
+# バンドル削除やGitRepo付け替えに伴ってClusterRepoが消されないようにする。
+keepResources: true
+
+helm:
+  releaseName: catalog-repos

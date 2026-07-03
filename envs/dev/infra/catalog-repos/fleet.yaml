@@ -3,3 +3,8 @@ defaultNamespace: cattle-system
 # マルチ環境化でバンドルの置き場所を移設する際、旧バンドル削除に伴って
 # ClusterRepoが消されないようにする。docs/manual-multi-env.md 参照。
 keepResources: true
+
+# 旧GitRepo(base-infra)時代のHelmリリース名を引き継ぐ(rawマニフェストの
+# バンドルもFleetはHelmリリースとして管理している)。
+helm:
+  releaseName: base-infra-catalog-repos

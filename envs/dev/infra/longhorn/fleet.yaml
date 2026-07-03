@@ -1,0 +1,18 @@
+defaultNamespace: longhorn-system
+targetNamespace: longhorn-system
+
+# バンドルがGitから消えたりGitRepoが付け替えられたりしても、Fleetにリソースを
+# 削除させない(ストレージ層のアンインストール=全ボリューム喪失につながるため)。
+# マルチ環境化でバンドルの置き場所を移設する際の安全装置でもある。
+# docs/manual-multi-env.md 参照。
+keepResources: true
+
+helm:
+  # 旧GitRepo(base-infra)時代のHelmリリースをそのまま引き継ぐための名前。
+  # これが無いとFleetが別名の新リリースを作ろうとして既存リソースと衝突する。
+  # (staging/productionは新規クラスタのため素直な名前 longhorn を使っている)
+  releaseName: base-infra-longhorn
+  chart: longhorn
+  repo: https://charts.rancher.io
+  version: 109.3.1+up1.11.2
+  values: {}

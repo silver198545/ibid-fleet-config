@@ -1,0 +1,13 @@
+defaultNamespace: longhorn-system
+targetNamespace: longhorn-system
+
+# バンドルがGitから消えたりGitRepoが付け替えられたりしても、Fleetにリソースを
+# 削除させない(ストレージ層のアンインストール=全ボリューム喪失につながるため)。
+keepResources: true
+
+helm:
+  releaseName: longhorn
+  chart: longhorn
+  repo: https://charts.rancher.io
+  version: 109.3.1+up1.11.2
+  values: {}
