@@ -1,51 +1,64 @@
 #!/usr/bin/env bash
-# wordpress-base-values.yaml(全サイト共通の値)を一次情報源として、Fleet(Continuous Delivery)
-# を介さず helm upgrade --install で直接WordPressをデプロイ/アップグレードする。
+# 【break-glass(緊急用)】WordPressをFleetを介さず helm upgrade --install で直接
+# デプロイ/アップグレードする。
 #
-# wordpress-<site>/fleet.yaml は、そのサイトが全サイト共通のデフォルト値から外れた設定
-# (チャートバージョンの個別固定、wordpressTablePrefix等)を持つ場合にのみ、Gitにコミットして
-# 使う「上書き用」ファイル(scripts/new-wordpress-site.sh で生成できる)。存在しない場合は
-# サイト名から機械的に決まるデフォルト設定(標準のSecret名など)をその場で生成して使うだけで、
-# リポジトリには何も残さない。運用手順全体は docs/manual-wordpress.md を参照。
+# 通常の変更適用は envs/<env>/sites/<site>/fleet.yaml を編集してPRをマージし、
+# Fleetに適用させること。このスクリプトはFleet/Rancher/GitHubが使えない障害時や、
+# devでのマージ前の検証にのみ使う。本番で使う場合は、Fleetによる二重適用を避けるため
+# 先に production の GitRepo を paused にすること(docs/manual-multi-env.md 参照)。
+#
+# fleet.yaml の helm.chart / helm.version / helm.values を単一の情報源として読み取り、
+# Fleetが適用するのと同じ内容をhelmで直接適用する。fleet.yamlが無いサイト(マージ前の
+# 新規サイト等)は、サイト名から機械的に決まるデフォルト設定をその場で生成して使う。
+#
+# 認証情報のSecretが存在しない場合は scripts/bootstrap-site-secrets.sh を自動で呼び、
+# サイトごとのランダムパスワードを生成する(出力されるパスワードは必ず控えること)。
 #
 # 前提:
-#   - kubectl/helm が対象クラスタ(dev1)を指すよう設定済みであること
-#
-# 認証情報のSecret(wordpress-<site>-credentials等)がまだ存在しない場合は、初回実行時に
-# サイトごとのランダムなパスワードを自動生成して作成する(全サイトでパスワードを使い回すと
-# 1サイトの漏洩が他サイトに波及するため)。生成したパスワードはhelmコマンド完了後、末尾で
-# 標準エラー出力にしか表示されないので、初回実行時は必ず控えること。
-# 詳細は docs/manual-wordpress.md 参照。
+#   - kubectl/helm が対象環境のクラスタを指すよう設定済みであること
 #
 # 使い方:
-#   scripts/deploy-wordpress.sh <サイト名> [追加のhelmオプション...]
-#   例: scripts/deploy-wordpress.sh web               # サイト名"web"を新規/更新デプロイ
-#       scripts/deploy-wordpress.sh web --dry-run     # 同上、helmオプション付き
+#   scripts/deploy-wordpress.sh <env> <サイト名> [追加のhelmオプション...]
+#   例: scripts/deploy-wordpress.sh dev web            # devのサイト"web"を適用
+#       scripts/deploy-wordpress.sh dev web --dry-run  # 同上、helmオプション付き
+#
+# 環境変数:
+#   CHART_LOCAL=1 ... OCIレジストリ(ghcr.io)からではなく、このリポジトリ内の
+#                     charts/ibid-wordpress を直接使う(レジストリ障害時用)。
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-if [[ $# -eq 0 || "$1" == -* ]]; then
-  echo "使い方: $0 <サイト名> [追加のhelmオプション...]" >&2
-  echo "例: $0 web" >&2
+# scripts/new-wordpress-site.sh と揃えること
+DEFAULT_CHART_REF="oci://ghcr.io/silver198545/charts/ibid-wordpress"
+DEFAULT_CHART_VERSION="0.1.0"
+
+if [[ $# -lt 2 || "$1" == -* || "$2" == -* ]]; then
+  echo "使い方: $0 <env> <サイト名> [追加のhelmオプション...]" >&2
+  echo "例: $0 dev web" >&2
   exit 1
 fi
 
-SITE="$1"
-shift
+ENV_NAME="$1"
+SITE="$2"
+shift 2
 
-DEFAULT_CHART_VERSION="32.1.10"
+case "$ENV_NAME" in
+  dev|staging|production) ;;
+  *)
+    echo "エラー: envは dev / staging / production のいずれかを指定してください: $ENV_NAME" >&2
+    exit 1
+    ;;
+esac
 
-SITE_DIR="wordpress-$SITE"
 RELEASE_NAME="${RELEASE_NAME:-wordpress-$SITE}"
 NAMESPACE="${NAMESPACE:-wordpress-$SITE}"
 CREDENTIALS_SECRET="${CREDENTIALS_SECRET:-wordpress-$SITE-credentials}"
 MARIADB_SECRET="${MARIADB_SECRET:-wordpress-$SITE-mariadb-credentials}"
 MARIADB_UPGRADE_SECRET="${MARIADB_UPGRADE_SECRET:-wordpress-$SITE-mariadb-upgrade-values}"
 
-FLEET_YAML="$REPO_ROOT/$SITE_DIR/fleet.yaml"
-BASE_VALUES="$REPO_ROOT/wordpress-base-values.yaml"
+FLEET_YAML="$REPO_ROOT/envs/$ENV_NAME/sites/$SITE/fleet.yaml"
 
 for cmd in helm kubectl python3 openssl; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
@@ -54,70 +67,44 @@ for cmd in helm kubectl python3 openssl; do
   fi
 done
 
-if [[ ! -f "$BASE_VALUES" ]]; then
-  echo "エラー: $BASE_VALUES が見つかりません。" >&2
-  exit 1
+CONTEXT="$(kubectl config current-context)"
+echo "対象: env=$ENV_NAME site=$SITE (kubectlコンテキスト: $CONTEXT)" >&2
+if [[ "${IBID_ASSUME_YES:-}" != "1" ]]; then
+  read -r -p "このクラスタが env=$ENV_NAME で正しければ y を入力: " REPLY
+  if [[ "$REPLY" != "y" ]]; then
+    echo "中断しました。" >&2
+    exit 1
+  fi
 fi
 
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 chmod 700 "$WORKDIR"
 
-# wordpress-<site>/fleet.yaml が無ければ、サイト名から機械的に決まるデフォルト設定を
+# fleet.yaml が無ければ、サイト名から機械的に決まるデフォルト設定を
 # その場限り(WORKDIR配下)で生成して使う。リポジトリには何も残らない。
 if [[ -f "$FLEET_YAML" ]]; then
-  echo "$SITE_DIR/fleet.yaml の設定を使用します。" >&2
+  echo "envs/$ENV_NAME/sites/$SITE/fleet.yaml の設定を使用します。" >&2
 else
+  echo "fleet.yamlが無いため、デフォルト設定をその場で生成して使用します。" >&2
   FLEET_YAML="$WORKDIR/default-fleet-values.yaml"
   cat >"$FLEET_YAML" <<EOF
 helm:
-  chart: wordpress
-  repo: https://charts.bitnami.com/bitnami
-  version: $DEFAULT_CHART_VERSION
+  chart: $DEFAULT_CHART_REF
+  version: "$DEFAULT_CHART_VERSION"
   values:
-    existingSecret: $CREDENTIALS_SECRET
-    mariadb:
-      auth:
-        existingSecret: $MARIADB_SECRET
+    wordpress:
+      existingSecret: $CREDENTIALS_SECRET
+      mariadb:
+        auth:
+          existingSecret: $MARIADB_SECRET
 EOF
 fi
 
-# 認証情報のSecretが1つも無ければ、このサイトの初回デプロイとみなし、サイト専用のランダム
-# パスワードを生成してSecretを作成する。一部だけ存在する場合(手動で作り直し中など)は
-# 意図しない上書きを避けるため何もしない。
-if ! kubectl -n "$NAMESPACE" get secret "$MARIADB_UPGRADE_SECRET" >/dev/null 2>&1 \
-  && ! kubectl -n "$NAMESPACE" get secret "$CREDENTIALS_SECRET" >/dev/null 2>&1 \
-  && ! kubectl -n "$NAMESPACE" get secret "$MARIADB_SECRET" >/dev/null 2>&1; then
-  echo "認証情報のSecretが見つからないため、'$NAMESPACE' 用に新規パスワードを生成します。" >&2
-
-  kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-
-  WP_PASSWORD="$(openssl rand -base64 24)"
-  DB_ROOT_PASSWORD="$(openssl rand -base64 24)"
-  DB_PASSWORD="$(openssl rand -base64 24)"
-
-  kubectl -n "$NAMESPACE" create secret generic "$CREDENTIALS_SECRET" \
-    --from-literal=wordpress-password="$WP_PASSWORD"
-
-  kubectl -n "$NAMESPACE" create secret generic "$MARIADB_SECRET" \
-    --from-literal=mariadb-root-password="$DB_ROOT_PASSWORD" \
-    --from-literal=mariadb-password="$DB_PASSWORD"
-
-  # BitnamiのmariadbサブチャートはHelmアップグレード時、existingSecretを使っていても
-  # auth.rootPassword/auth.passwordの明示指定を要求してくる(PASSWORDS ERROR)ため、
-  # 同じ値をHelm values形式でも保持しておく。
-  cat >"$WORKDIR/mariadb-upgrade-values.yaml" <<EOF
-mariadb:
-  auth:
-    rootPassword: "$DB_ROOT_PASSWORD"
-    password: "$DB_PASSWORD"
-EOF
-
-  kubectl -n "$NAMESPACE" create secret generic "$MARIADB_UPGRADE_SECRET" \
-    --from-file=values.yaml="$WORKDIR/mariadb-upgrade-values.yaml"
-
-  BOOTSTRAPPED=1
-fi
+# 認証情報のSecretが1つも無ければ初回デプロイとみなし、bootstrap-site-secrets.sh で
+# サイト専用のランダムパスワードを生成する(3つとも揃っていれば何もしない。
+# 一部だけ存在する場合は同スクリプトがエラーで中断する)。
+"$SCRIPT_DIR/bootstrap-site-secrets.sh" "$SITE"
 
 FLEET_VALUES="$WORKDIR/fleet-values.yaml"
 SECRET_VALUES="$WORKDIR/secret-values.yaml"
@@ -146,25 +133,26 @@ PYEOF
 kubectl -n "$NAMESPACE" get secret "$MARIADB_UPGRADE_SECRET" \
   -o jsonpath='{.data.values\.yaml}' | base64 -d >"$SECRET_VALUES"
 
-helm repo add bitnami https://charts.bitnami.com/bitnami >/dev/null 2>&1 || true
-helm repo update bitnami >/dev/null
-
-helm upgrade --install "$RELEASE_NAME" bitnami/wordpress \
-  --version "$VERSION" \
-  -n "$NAMESPACE" --create-namespace \
-  -f "$BASE_VALUES" \
-  -f "$FLEET_VALUES" \
-  -f "$SECRET_VALUES" \
-  "$@"
-
-# helmコマンドの出力(NOTES/WARNING等)に埋もれないよう、生成したパスワードは最後にまとめて表示する。
-if [[ "${BOOTSTRAPPED:-}" == "1" ]]; then
-  cat >&2 <<EOF
-
-生成したパスワード('$NAMESPACE'。ここにしか表示されないので必ず控えてください):
-  WordPress管理者(admin)パスワード:      $WP_PASSWORD
-  MariaDB rootパスワード:               $DB_ROOT_PASSWORD
-  MariaDB bn_wordpressユーザーパスワード: $DB_PASSWORD
-
-EOF
+# レジストリ障害時はリポジトリ内のチャートで代替できる(Fleetが適用するものと
+# 同一内容になるよう、fleet.yamlのhelm.versionと一致するか確認する)。
+if [[ "${CHART_LOCAL:-}" == "1" ]]; then
+  CHART="$REPO_ROOT/charts/ibid-wordpress"
+  LOCAL_VERSION="$(python3 -c "import yaml;print(yaml.safe_load(open('$CHART/Chart.yaml'))['version'])")"
+  if [[ "$LOCAL_VERSION" != "$VERSION" ]]; then
+    echo "警告: ローカルチャートのversion($LOCAL_VERSION)がfleet.yamlのversion($VERSION)と異なります。" >&2
+    echo "      ローカルチャートの内容でデプロイします。" >&2
+  fi
+  helm dependency build "$CHART" >/dev/null
+  helm upgrade --install "$RELEASE_NAME" "$CHART" \
+    -n "$NAMESPACE" --create-namespace \
+    -f "$FLEET_VALUES" \
+    -f "$SECRET_VALUES" \
+    "$@"
+else
+  helm upgrade --install "$RELEASE_NAME" "$CHART" \
+    --version "$VERSION" \
+    -n "$NAMESPACE" --create-namespace \
+    -f "$FLEET_VALUES" \
+    -f "$SECRET_VALUES" \
+    "$@"
 fi

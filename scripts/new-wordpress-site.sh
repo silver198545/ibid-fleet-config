@@ -1,31 +1,52 @@
 #!/usr/bin/env bash
-# wordpress-<site>/fleet.yaml が無いサイトは scripts/deploy-wordpress.sh が標準のデフォルト
-# 設定をその場で生成してデプロイするため、このスクリプトの実行は必須ではない。
-# そのサイトだけチャートバージョンを個別に固定したい、wordpressTablePrefixを設定したい等、
-# 全サイト共通のデフォルト(wordpress-base-values.yaml)から外れた設定をGitに残しておきたい
-# 場合にのみ、テンプレートとして生成する。生成後の手順は docs/manual-wordpress.md を参照。
+# 指定環境のWordPressサイト用Fleetバンドル(envs/<env>/sites/<site>/fleet.yaml)を
+# ひな形から生成する。Fleet管理下のサイトはこのファイルが適用の起点になるため、
+# サイトを追加する際は必ず実行する(旧構成と異なり任意ではない)。
+#
+# 生成後の流れ(詳細は docs/manual-wordpress.md):
+#   1. scripts/bootstrap-site-secrets.sh <site> で対象クラスタにSecretを作成
+#   2. 生成されたfleet.yamlを必要に応じて編集(テーブル接頭辞の上書き等)
+#   3. PRを作成してマージ → 対象環境のFleetが自動適用
+#
+# サイトは原則devに追加し、staging/productionへは昇格PR
+# (.github/workflows/promote.yaml)で展開する。
 #
 # 使い方:
-#   scripts/new-wordpress-site.sh <site>
-#   例: scripts/new-wordpress-site.sh web
+#   scripts/new-wordpress-site.sh <env> <site>
+#   例: scripts/new-wordpress-site.sh dev web
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-if [[ $# -ne 1 ]]; then
-  echo "使い方: $0 <site>" >&2
-  echo "例: $0 web" >&2
+# ラッパーチャート(charts/ibid-wordpress)の参照先。チャートを更新したら
+# ここではなく、各環境のfleet.yamlのhelm.versionを昇格させて追従する。
+CHART_REF="oci://ghcr.io/silver198545/charts/ibid-wordpress"
+CHART_VERSION="0.1.0"
+
+if [[ $# -ne 2 ]]; then
+  echo "使い方: $0 <env> <site>" >&2
+  echo "例: $0 dev web" >&2
   exit 1
 fi
 
-SITE="$1"
+ENV_NAME="$1"
+SITE="$2"
+
+case "$ENV_NAME" in
+  dev|staging|production) ;;
+  *)
+    echo "エラー: envは dev / staging / production のいずれかを指定してください: $ENV_NAME" >&2
+    exit 1
+    ;;
+esac
+
 if [[ ! "$SITE" =~ ^[a-z0-9-]+$ ]]; then
   echo "エラー: サイト名は英小文字・数字・ハイフンのみ使用できます: $SITE" >&2
   exit 1
 fi
 
-SITE_DIR="$REPO_ROOT/wordpress-$SITE"
+SITE_DIR="$REPO_ROOT/envs/$ENV_NAME/sites/$SITE"
 if [[ -e "$SITE_DIR" ]]; then
   echo "エラー: $SITE_DIR は既に存在します。" >&2
   exit 1
@@ -37,30 +58,36 @@ cat >"$SITE_DIR/fleet.yaml" <<EOF
 defaultNamespace: wordpress-$SITE
 targetNamespace: wordpress-$SITE
 
+# このサイトをGitから削除してもFleetにリソース(PVC=データ含む)を削除させない。
+# サイトの完全削除は docs/manual-wordpress.md の手順に従って手動で行う。
+keepResources: true
+
 helm:
-  chart: wordpress
-  repo: https://charts.bitnami.com/bitnami
-  version: 32.1.10
+  # リリース名を明示する(Fleetのバンドル名由来の自動命名にしない)。
+  # 既存の手動デプロイ済みリリースをFleetが引き継ぐためにも必須。
+  releaseName: wordpress-$SITE
+  # 全サイト共通デフォルトを内包したラッパーチャート(charts/ibid-wordpress)。
+  # バージョンを上げる=このサイトへの変更適用。環境ごとに段階的に昇格させる。
+  chart: $CHART_REF
+  version: "$CHART_VERSION"
   # BitnamiのmariadbサブチャートはHelmアップグレード時、existingSecretを
   # 使っていてもauth.rootPassword/auth.passwordの明示指定を要求してくる
-  # (PASSWORDS ERROR)。Gitにパスワードを書かないよう、事前に作成した
-  # Secret経由でこれらの値を注入する。docs/manual-wordpress.md参照。
+  # (PASSWORDS ERROR)。Gitにパスワードを書かないよう、
+  # scripts/bootstrap-site-secrets.sh で事前作成したSecret経由で注入する。
   valuesFrom:
     - secretKeyRef:
         name: wordpress-$SITE-mariadb-upgrade-values
         namespace: wordpress-$SITE
         key: values.yaml
-  # 共通のデフォルト値は ../wordpress-base-values.yaml にまとめてあり、
-  # scripts/deploy-wordpress.sh がここより先に読み込む。ここにはこのサイト固有の
-  # 差分のみを書く。
+  # 共通のデフォルト値はラッパーチャート側にまとめてある。ここにはこのサイト固有の
+  # 差分のみを、wordpress: 配下にネストして書く。
   values:
-    # 管理者パスワードは Git に含めず、事前に作成した Secret を参照する。
-    # docs/manual-wordpress.md の手順に従って事前に作成すること。
-    existingSecret: wordpress-$SITE-credentials
-
-    mariadb:
-      auth:
-        existingSecret: wordpress-$SITE-mariadb-credentials
+    wordpress:
+      # 管理者パスワードはGitに含めず、事前に作成したSecretを参照する。
+      existingSecret: wordpress-$SITE-credentials
+      mariadb:
+        auth:
+          existingSecret: wordpress-$SITE-mariadb-credentials
 EOF
 
 echo "作成しました: $SITE_DIR/fleet.yaml"
