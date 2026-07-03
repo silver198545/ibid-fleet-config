@@ -165,12 +165,15 @@ kubectl -n "wordpress-$SITE" exec <mariadb-pod> -- rm /tmp/backup.dump
 Bitnamiのwordpressイメージには`wp`コマンドが同梱されています。
 
 置換前に、DBへ実際に復元されている（=置換で指定すべき「旧ドメイン」の）URLを確認します。
-思い込みで指定すると1件もヒットせず気づかないまま次に進んでしまうため、必ず実際の値を
-確認してから使ってください。
+思い込みで指定すると1件もヒットせず気づかないまま次に進んでしまうため、必ずDBの値を直接
+確認してから使ってください（`wp option get`はwp-config.phpのDB接続設定を経由するため、
+意図した接続先を見ているか分かりにくく、手順5と同様にmariadb Podへ直接SQLを投げます。
+テーブル接頭辞`tp_`は手順2で確認した実際の値に読み替えてください）。
 
 ```bash
-kubectl -n "wordpress-$SITE" exec <wordpress-pod> -- wp option get siteurl
-kubectl -n "wordpress-$SITE" exec <wordpress-pod> -- wp option get home
+ROOTPW=$(kubectl -n "wordpress-$SITE" get secret "wordpress-$SITE-mariadb-credentials" -o jsonpath='{.data.mariadb-root-password}' | base64 -d)
+
+kubectl -n "wordpress-$SITE" exec <mariadb-pod> -- bash -c "mysql -u root -p'$ROOTPW' bitnami_wordpress -e \"SELECT option_name, option_value FROM tp_options WHERE option_name IN ('siteurl','home');\""
 ```
 
 ```bash
