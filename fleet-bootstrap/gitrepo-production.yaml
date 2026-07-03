@@ -1,0 +1,22 @@
+# production環境用GitRepo。Rancher localクラスタの fleet-default namespaceへ手動適用する。
+# envs/production/ 配下のみを監視し、env=production ラベルのクラスタへ適用する。
+#
+# 緊急時(本番への自動適用を一時停止したい場合)は spec.paused: true を設定する:
+#   kubectl --context <rancher-local> -n fleet-default patch gitrepo ibid-production \
+#     --type merge -p '{"spec":{"paused":true}}'
+# 復旧後は false に戻す。docs/manual-multi-env.md の break-glass 手順参照。
+apiVersion: fleet.cattle.io/v1alpha1
+kind: GitRepo
+metadata:
+  name: ibid-production
+  namespace: fleet-default
+spec:
+  repo: https://github.com/silver198545/ibid-fleet-config
+  branch: main
+  paths:
+    - envs/production
+  targets:
+    - name: production
+      clusterSelector:
+        matchLabels:
+          env: production

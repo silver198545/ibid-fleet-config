@@ -1,0 +1,8 @@
+# Fleetのバンドルスキャン対象から除外するパス。
+# ここに挙げるディレクトリはKubernetesへ直接適用する内容ではないため、
+# GitRepoがリポジトリ全体をスキャンする設定でも誤ってバンドル化されないようにする。
+charts/
+images/
+fleet-bootstrap/
+scripts/
+docs/

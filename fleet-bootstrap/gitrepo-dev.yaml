@@ -1,0 +1,17 @@
+# dev環境用GitRepo。Rancher localクラスタの fleet-default namespaceへ手動適用する。
+# envs/dev/ 配下のみを監視し、env=dev ラベルのクラスタへ適用する。
+apiVersion: fleet.cattle.io/v1alpha1
+kind: GitRepo
+metadata:
+  name: ibid-dev
+  namespace: fleet-default
+spec:
+  repo: https://github.com/silver198545/ibid-fleet-config
+  branch: main
+  paths:
+    - envs/dev
+  targets:
+    - name: dev
+      clusterSelector:
+        matchLabels:
+          env: dev
