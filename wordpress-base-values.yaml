@@ -1,4 +1,4 @@
-# 全WordPressサイト(wordpress/, wordpress-web/, ...)に共通のデフォルトHelm values。
+# 全WordPressサイト(wordpress-<site>/, ...)に共通のデフォルトHelm values。
 # scripts/deploy-wordpress.sh が各サイトの fleet.yaml の helm.values より先に読み込み、
 # サイト固有の値で上書きする形でhelmに渡す。共通設定を変更する場合はこのファイルを、
 # サイト固有の設定(existingSecretの名前、テーブル接頭辞など)は各サイトの

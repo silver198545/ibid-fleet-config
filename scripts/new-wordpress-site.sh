@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 新しいWordPressサイト用のディレクトリ(wordpress-<site>/fleet.yaml)をテンプレートから
 # 生成する。生成後の手順(namespace/Secret作成・デプロイ)は
-# docs/manual-wordpress-multi-site.md を参照。
+# docs/manual-wordpress.md を参照。
 #
 # 使い方:
 #   scripts/new-wordpress-site.sh <site>
@@ -20,10 +20,6 @@ fi
 SITE="$1"
 if [[ ! "$SITE" =~ ^[a-z0-9-]+$ ]]; then
   echo "エラー: サイト名は英小文字・数字・ハイフンのみ使用できます: $SITE" >&2
-  exit 1
-fi
-if [[ "$SITE" == "wordpress" ]]; then
-  echo "エラー: 'wordpress' は最初のサイト用に予約済みです。別の名前を指定してください。" >&2
   exit 1
 fi
 
@@ -46,7 +42,7 @@ helm:
   # BitnamiのmariadbサブチャートはHelmアップグレード時、existingSecretを
   # 使っていてもauth.rootPassword/auth.passwordの明示指定を要求してくる
   # (PASSWORDS ERROR)。Gitにパスワードを書かないよう、事前に作成した
-  # Secret経由でこれらの値を注入する。docs/manual-wordpress-multi-site.md参照。
+  # Secret経由でこれらの値を注入する。docs/manual-wordpress.md参照。
   valuesFrom:
     - secretKeyRef:
         name: wordpress-$SITE-mariadb-upgrade-values
@@ -57,7 +53,7 @@ helm:
   # 差分のみを書く。
   values:
     # 管理者パスワードは Git に含めず、事前に作成した Secret を参照する。
-    # docs/manual-wordpress-multi-site.md の手順に従って事前に作成すること。
+    # docs/manual-wordpress.md の手順に従って事前に作成すること。
     existingSecret: wordpress-$SITE-credentials
 
     mariadb:
@@ -66,4 +62,4 @@ helm:
 EOF
 
 echo "作成しました: $SITE_DIR/fleet.yaml"
-echo "次の手順は docs/manual-wordpress-multi-site.md を参照してください。"
+echo "次の手順は docs/manual-wordpress.md を参照してください。"

@@ -5,25 +5,21 @@
 - `catalog-repos/`: Rancher のカタログリポジトリ定義（Bitnami）
 - `longhorn-crd/`: Rancher Charts から Longhorn CRD を導入する Fleet バンドル
 - `longhorn/`: Rancher Charts から Longhorn 本体を導入する Fleet バンドル
-- `wordpress/`: Bitnami の WordPress Chart を LoadBalancer 冗長構成で導入する設定一式
-  （Fleetバンドルとしては使用しておらず、`scripts/deploy-wordpress.sh` が読み取るhelm valuesの
-  参照元。最初のWordPressサイト）
-- `wordpress-web/`: 2サイト目のWordPress（サイト名`web`）。用途・運用方法は`wordpress/`と同じで、
-  namespace/リリース名も`wordpress-web`に統一。追加経緯は
-  `docs/manual-wordpress-multi-site.md`参照
+- `wordpress-<site>/`: サイトごとに独立したWordPressの設定一式（例: `wordpress-web/`）。
+  Bitnami の WordPress Chart を LoadBalancer 冗長構成で導入する。Fleetバンドルとしては
+  使用しておらず、`scripts/deploy-wordpress.sh` が読み取るhelm valuesの参照元。
+  `scripts/new-wordpress-site.sh <site>` でひな形を生成する
 - `wordpress-base-values.yaml`: 全WordPressサイトに共通するデフォルトのHelm values。各サイトの
   `fleet.yaml`にはこのファイルとの差分（Secret名やサイト固有の設定）のみを書く
-- `scripts/deploy-wordpress.sh`: `wordpress-base-values.yaml`と`wordpress/fleet.yaml`（または
-  `wordpress-<site>/fleet.yaml`）の内容をもとに WordPress を手動デプロイするスクリプト
-  （Fleetを介さない）。第1引数にサイト名を指定（省略時は最初のサイト）
+- `scripts/deploy-wordpress.sh`: `wordpress-base-values.yaml`と`wordpress-<site>/fleet.yaml`の
+  内容をもとに WordPress を手動デプロイするスクリプト（Fleetを介さない）。第1引数にサイト名を
+  指定（必須）
 - `scripts/new-wordpress-site.sh`: 追加のWordPressサイト用ディレクトリ(`wordpress-<site>/fleet.yaml`)を
   ひな形から生成するスクリプト
 - `docs/manual-harvester-loadbalancer.md`: Harvester Cloud Provider の IPPool 作成手順
   （MetalLB は廃止し、Harvester Cloud Provider に一本化）
-- `docs/manual-wordpress.md`: WordPress 導入前の Secret 作成、デプロイスクリプトの実行手順
-  （最初のサイト）
-- `docs/manual-wordpress-multi-site.md`: 同じクラスターに2サイト目以降のWordPressを追加する手順
-- `docs/manual-wordpress-fleet-cutover.md`: WordPressをFleet管理から手動運用へ切り替える手順
+- `docs/manual-wordpress.md`: WordPressサイトを追加する手順（ひな形生成、Secret作成、
+  デプロイスクリプトの実行）
 
 ## 想定フロー
 
@@ -32,10 +28,11 @@
 3. Fleet で `longhorn/` を適用して、Longhorn 本体を導入します。
 4. [docs/manual-harvester-loadbalancer.md](docs/manual-harvester-loadbalancer.md) の手順で
    Harvester 管理クラスタに IPPool を作成します。
-5. [docs/manual-wordpress.md](docs/manual-wordpress.md) の手順で Secret を作成した後、
-   `scripts/deploy-wordpress.sh` を実行して WordPress を導入します（Fleetでは管理しません）。
-   WordPress は自分専用の LoadBalancer Service を持つため、Traefik を LoadBalancer 化する
-   必要はありません。
+5. [docs/manual-wordpress.md](docs/manual-wordpress.md) の手順で `scripts/new-wordpress-site.sh`
+   によりサイトのひな形を生成し、Secret を作成した後、`scripts/deploy-wordpress.sh <site>` を
+   実行して WordPress を導入します（Fleetでは管理しません）。サイトを追加するたびにこの手順を
+   繰り返します。WordPress は自分専用の LoadBalancer Service を持つため、Traefik を
+   LoadBalancer 化する必要はありません。
 
 ## 補足: MetalLB からの移行について
 
