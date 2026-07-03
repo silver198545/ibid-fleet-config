@@ -164,6 +164,15 @@ kubectl -n "wordpress-$SITE" exec <mariadb-pod> -- rm /tmp/backup.dump
 本文・メタデータ中のシリアライズ済みリンク）をwp-cliで一括置換します。
 Bitnamiのwordpressイメージには`wp`コマンドが同梱されています。
 
+置換前に、DBへ実際に復元されている（=置換で指定すべき「旧ドメイン」の）URLを確認します。
+思い込みで指定すると1件もヒットせず気づかないまま次に進んでしまうため、必ず実際の値を
+確認してから使ってください。
+
+```bash
+kubectl -n "wordpress-$SITE" exec <wordpress-pod> -- wp option get siteurl
+kubectl -n "wordpress-$SITE" exec <wordpress-pod> -- wp option get home
+```
+
 ```bash
 kubectl -n "wordpress-$SITE" exec <wordpress-pod> -- wp search-replace \
   'http://旧ドメイン/パス' 'http://新ドメインまたはLB-IP/パス' --all-tables --precise
