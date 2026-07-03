@@ -78,55 +78,7 @@ cd ibid-fleet-config
 `wordpress-<site>/fleet.yaml` が生成されます。namespace・リリース名・Secret名は
 `wordpress-<site>`という命名規則で統一されます。
 
-## 2. 認証情報の Secret を事前に作成する
-
-パスワードを Git 管理下に置かないため、デプロイスクリプトを実行する前に
-`wordpress-<site>` Namespace へ Secret を手動で作成します。
-
-```bash
-SITE=web  # 実際のサイト名に置き換える
-
-kubectl create namespace "wordpress-$SITE"
-
-# WordPress管理者パスワード
-kubectl -n "wordpress-$SITE" create secret generic "wordpress-$SITE-credentials" \
-  --from-literal=wordpress-password='<管理者用の強いパスワード>'
-
-# MariaDB (root / bn_wordpress ユーザー) パスワード
-kubectl -n "wordpress-$SITE" create secret generic "wordpress-$SITE-mariadb-credentials" \
-  --from-literal=mariadb-root-password='<root用の強いパスワード>' \
-  --from-literal=mariadb-password='<bn_wordpress用の強いパスワード>'
-```
-
-Bitnamiの`mariadb`サブチャートは、`auth.existingSecret`を使っていても
-**Helmアップグレード時**（インストール時は問題ない）に
-`auth.rootPassword`/`auth.password`の明示指定を要求してくることがあります
-（`PASSWORDS ERROR: You must provide your current passwords when upgrading the release`）。
-これを避けるため、上記と同じ値を持つ、Helm values形式のSecretも作成しておきます
-（`wordpress-<site>/fleet.yaml`の`helm.valuesFrom`から参照されます）。
-
-```bash
-ROOTPW=$(kubectl -n "wordpress-$SITE" get secret "wordpress-$SITE-mariadb-credentials" -o jsonpath='{.data.mariadb-root-password}' | base64 -d)
-BNPW=$(kubectl -n "wordpress-$SITE" get secret "wordpress-$SITE-mariadb-credentials" -o jsonpath='{.data.mariadb-password}' | base64 -d)
-
-cat <<EOF > /tmp/mariadb-upgrade-values.yaml
-mariadb:
-  auth:
-    rootPassword: "$ROOTPW"
-    password: "$BNPW"
-EOF
-
-kubectl -n "wordpress-$SITE" create secret generic "wordpress-$SITE-mariadb-upgrade-values" \
-  --from-file=values.yaml=/tmp/mariadb-upgrade-values.yaml
-
-rm /tmp/mariadb-upgrade-values.yaml
-```
-
-このSecretは`wordpress-<site>-mariadb-credentials`のパスワードをそのままコピーしただけの
-ものです。そのため、パスワードをローテーションした場合はこちらも同じ内容で更新する必要が
-あります（更新し忘れると次回のデプロイ時に同じ`PASSWORDS ERROR`が再発します）。
-
-## 3. デプロイスクリプトを実行する
+## 2. デプロイスクリプトを実行する
 
 `kubectl`/`helm` が対象クラスタを指すよう設定した状態で、第1引数にサイト名を指定して
 実行します。
@@ -142,7 +94,26 @@ rm /tmp/mariadb-upgrade-values.yaml
 編集した場合も、変更を反映するには本コマンドを再実行してください（Fleetはこのディレクトリを
 追跡しないため、Git pushだけでは反映されません）。
 
-## 4. 割り当てられた外部IPを確認する
+このサイトの認証情報Secret（`wordpress-<site>-credentials`・`wordpress-<site>-mariadb-credentials`・
+`wordpress-<site>-mariadb-upgrade-values`）が1つも存在しない場合、本コマンドは初回デプロイと
+みなし、サイト専用のランダムなパスワードを自動生成してからSecretを作成します（**全サイトで
+パスワードを使い回さないため**。1サイトの認証情報が漏れても他サイトに波及しないようにする
+設計です）。生成したパスワードは`helm upgrade --install`の実行後、コマンドの最後に標準エラー
+出力へその場限り表示されるので、実行結果から必ず控えてください（Gitや他の場所には保存されません）。
+
+```
+生成したパスワード('wordpress-web'。ここにしか表示されないので必ず控えてください):
+  WordPress管理者(admin)パスワード:      ...
+  MariaDB rootパスワード:               ...
+  MariaDB bn_wordpressユーザーパスワード: ...
+```
+
+パスワードをローテーションしたい場合は、対象サイトの3つのSecretを削除してから本コマンドを
+再実行してください（新しいランダムパスワードで作り直されます。ただし、既にPodが起動済みの
+MariaDBの実際のDBユーザーパスワードは変わらないため、DB側のパスワードも合わせて変更しない限り
+次回デプロイ時に`PASSWORDS ERROR`になります）。
+
+## 3. 割り当てられた外部IPを確認する
 
 ```bash
 kubectl -n wordpress-web get svc
@@ -153,7 +124,7 @@ kubectl -n wordpress-web get svc
 `kubectl -n wordpress-web describe svc <service名>` のイベントを確認し、
 [manual-harvester-loadbalancer.md](manual-harvester-loadbalancer.md) の IPPool 設定を見直してください。
 
-## 5. Pod とストレージの状態を確認する
+## 4. Pod とストレージの状態を確認する
 
 ```bash
 kubectl -n wordpress-web get pods

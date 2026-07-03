@@ -13,13 +13,13 @@
   `fleet.yaml`にはこのファイルとの差分（Secret名やサイト固有の設定）のみを書く
 - `scripts/deploy-wordpress.sh`: `wordpress-base-values.yaml`と`wordpress-<site>/fleet.yaml`の
   内容をもとに WordPress を手動デプロイするスクリプト（Fleetを介さない）。第1引数にサイト名を
-  指定（必須）
+  指定（必須）。認証情報のSecretが未作成の場合は、サイトごとのランダムパスワードを自動生成して
+  作成する（全サイトでパスワードを使い回さないため）
 - `scripts/new-wordpress-site.sh`: 追加のWordPressサイト用ディレクトリ(`wordpress-<site>/fleet.yaml`)を
   ひな形から生成するスクリプト
 - `docs/manual-harvester-loadbalancer.md`: Harvester Cloud Provider の IPPool 作成手順
   （MetalLB は廃止し、Harvester Cloud Provider に一本化）
-- `docs/manual-wordpress.md`: WordPressサイトを追加する手順（ひな形生成、Secret作成、
-  デプロイスクリプトの実行）
+- `docs/manual-wordpress.md`: WordPressサイトを追加する手順（ひな形生成、デプロイスクリプトの実行）
 
 ## 想定フロー
 
@@ -29,10 +29,10 @@
 4. [docs/manual-harvester-loadbalancer.md](docs/manual-harvester-loadbalancer.md) の手順で
    Harvester 管理クラスタに IPPool を作成します。
 5. [docs/manual-wordpress.md](docs/manual-wordpress.md) の手順で `scripts/new-wordpress-site.sh`
-   によりサイトのひな形を生成し、Secret を作成した後、`scripts/deploy-wordpress.sh <site>` を
-   実行して WordPress を導入します（Fleetでは管理しません）。サイトを追加するたびにこの手順を
-   繰り返します。WordPress は自分専用の LoadBalancer Service を持つため、Traefik を
-   LoadBalancer 化する必要はありません。
+   によりサイトのひな形を生成し、`scripts/deploy-wordpress.sh <site>` を実行して WordPress を
+   導入します（Fleetでは管理しません。認証情報はサイトごとに自動生成されます）。サイトを
+   追加するたびにこの手順を繰り返します。WordPress は自分専用の LoadBalancer Service を持つ
+   ため、Traefik を LoadBalancer 化する必要はありません。
 
 ## 補足: MetalLB からの移行について
 

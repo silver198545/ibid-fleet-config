@@ -72,6 +72,10 @@ individually.
   upgrade** even when `existingSecret` is set — see `docs/manual-wordpress.md` and the comments in each
   `wordpress-<site>/fleet.yaml`. If you rotate a site's mariadb passwords, this secret must be updated too
   or the next deploy fails with `PASSWORDS ERROR`.
+- **Passwords are never reused across sites.** If a site's three credential Secrets don't exist yet,
+  `scripts/deploy-wordpress.sh <site>` treats it as a first-time deploy and auto-generates a fresh random
+  password per site (via `openssl rand`) rather than sharing one set of credentials across all sites — so
+  a leak in one site's credentials can't be used against another.
 - **Do not set `WORDPRESS_TABLE_PREFIX` via `extraEnvVars`.** The chart already generates that env var
   from `wordpressTablePrefix`; duplicating it causes an apply error
   (`duplicate entries for key [name="WORDPRESS_TABLE_PREFIX"]`). Use `wordpressTablePrefix` only.
