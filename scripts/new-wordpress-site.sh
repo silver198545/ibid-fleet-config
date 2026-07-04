@@ -80,7 +80,8 @@ helm:
         namespace: wordpress-$SITE
         key: values.yaml
   # 共通のデフォルト値はラッパーチャート側にまとめてある。ここにはこのサイト固有の
-  # 差分のみを、wordpress: 配下にネストして書く。
+  # 差分のみを書く。Bitnamiサブチャートへ渡す値は wordpress: 配下に、ラッパー
+  # チャート自身の設定(plugins等)は values 直下に置く。
   values:
     # このサイトが必要とするプラグイン(宣言的)。適用のたびにwp-cliのJobが
     # インストール(バージョン固定)・有効化する。再現性のためversion明示を推奨。
