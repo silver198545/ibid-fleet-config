@@ -8,24 +8,30 @@
 実行方式: WordPressコア(イメージ内 /opt/bitnami/wordpress)はJobユーザーでは
 書き換えられないため、symlinkだけで組み立てた作業ディレクトリを/tmpに作り、
 wp-content と wp-config.php のみPVC上の実体へ向ける(検証済みの方式)。
+
+helmフック(post-upgrade)には意図的にしない: Fleet経由の適用ではフックの完了待ちが
+コンテキスト期限切れを起こし、リリースがfailed→再試行ループに陥る(dev1で実測)。
+代わりにプラグイン一覧+イメージのハッシュをJob名に含めることで、構成が変わった
+ときだけ新しいJobが作られる(Jobはimmutableなため名前を変えて作り直す方式)。
 */ -}}
 {{- if .Values.plugins }}
 {{- $img := .Values.wordpress.image }}
+{{- $imgRef := printf "%s/%s" $img.registry $img.repository }}
+{{- if $img.digest }}
+{{- $imgRef = printf "%s@%s" $imgRef $img.digest }}
+{{- else }}
+{{- $imgRef = printf "%s:%s" $imgRef $img.tag }}
+{{- end }}
+{{- $syncHash := printf "%s|%s" (toJson .Values.plugins) $imgRef | sha256sum | trunc 8 }}
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ .Release.Name }}-plugin-sync
+  name: {{ .Release.Name }}-plugin-sync-{{ $syncHash }}
   namespace: {{ .Release.Namespace }}
   labels:
     app.kubernetes.io/name: {{ .Chart.Name }}
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: plugin-sync
-  annotations:
-    # インストール直後はWordPressの初期化完了をスクリプト内で待つ
-    helm.sh/hook: post-install,post-upgrade
-    helm.sh/hook-weight: "5"
-    # 前回のJobは残してログを確認できるようにし、次回実行の直前に置き換える
-    helm.sh/hook-delete-policy: before-hook-creation
 spec:
   backoffLimit: 2
   activeDeadlineSeconds: 900
@@ -45,7 +51,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: plugin-sync
-          image: {{ $img.registry }}/{{ $img.repository }}{{ if $img.digest }}@{{ $img.digest }}{{ else }}:{{ $img.tag }}{{ end }}
+          image: {{ $imgRef }}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
