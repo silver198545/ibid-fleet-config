@@ -1,0 +1,13 @@
+defaultNamespace: longhorn-system
+
+# RecurringJobは設定のみ(データ実体はNFS側)だが、infraバンドルの方針に合わせて
+# バンドル削除時もリソースを残す。
+keepResources: true
+
+helm:
+  releaseName: longhorn-jobs
+  # BackupTarget `default` はLonghornが自動作成する既存CRのため、
+  # 所有権を引き取って上書き管理する。
+  # 注意: 初回は docs/manual-multi-env.md の手順どおり、同じURLを
+  # kubectl patch で先に投入しておくこと(SSAのフィールド所有権競合対策)。
+  takeOwnership: true
