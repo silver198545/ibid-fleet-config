@@ -12,7 +12,7 @@ helm:
   # 全サイト共通デフォルトを内包したラッパーチャート(charts/ibid-wordpress)。
   # バージョンを上げる=このサイトへの変更適用。環境ごとに段階的に昇格させる。
   chart: oci://ghcr.io/silver198545/charts/ibid-wordpress
-  version: "0.2.0"
+  version: "0.2.1"
   # BitnamiのmariadbサブチャートはHelmアップグレード時、existingSecretを
   # 使っていてもauth.rootPassword/auth.passwordの明示指定を要求してくる
   # (PASSWORDS ERROR)。Gitにパスワードを書かないよう、
