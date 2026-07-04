@@ -22,7 +22,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # ラッパーチャート(charts/ibid-wordpress)の参照先。チャートを更新したら
 # ここではなく、各環境のfleet.yamlのhelm.versionを昇格させて追従する。
 CHART_REF="oci://ghcr.io/silver198545/charts/ibid-wordpress"
-CHART_VERSION="0.2.0"
+CHART_VERSION="0.2.1"
 
 if [[ $# -ne 2 ]]; then
   echo "使い方: $0 <env> <site>" >&2
