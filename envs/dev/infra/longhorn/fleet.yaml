@@ -15,4 +15,8 @@ helm:
   chart: longhorn
   repo: https://charts.rancher.io
   version: 109.3.1+up1.11.2
-  values: {}
+  values:
+    defaultSettings:
+      # クラスタ外NFSへのバックアップ先(環境ごとに別ディレクトリ)。
+      # 定期実行は ../longhorn-jobs/ のRecurringJobで管理する。
+      backupTarget: nfs://192.168.1.1:/data/nfs/longhorn/dev

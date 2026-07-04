@@ -1,0 +1,8 @@
+defaultNamespace: longhorn-system
+
+# RecurringJobは設定のみ(データ実体はNFS側)だが、infraバンドルの方針に合わせて
+# バンドル削除時もリソースを残す。
+keepResources: true
+
+helm:
+  releaseName: longhorn-jobs
