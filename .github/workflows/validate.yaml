@@ -23,6 +23,8 @@ jobs:
           for path in glob.glob("**/*.yaml", recursive=True) + glob.glob("**/*.yml", recursive=True):
               if path.startswith("charts/ibid-wordpress/charts/"):
                   continue  # helm dependency buildの生成物
+              if path.startswith("charts/ibid-wordpress/templates/"):
+                  continue  # Helmテンプレート({{ }}構文)は素のYAMLでは不正。helm lint/templateで検証する
               try:
                   with open(path) as f:
                       list(yaml.safe_load_all(f))
