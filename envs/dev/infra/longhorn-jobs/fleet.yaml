@@ -6,3 +6,6 @@ keepResources: true
 
 helm:
   releaseName: longhorn-jobs
+  # BackupTarget `default` はLonghornが自動作成する既存CRのため、
+  # 所有権を引き取って上書き管理する。
+  takeOwnership: true
