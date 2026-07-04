@@ -32,6 +32,43 @@ last error:ip is not allocated, mode: pool, message: no matched IPPool with requ
 > `kubectl -n kube-system logs -l app.kubernetes.io/name=harvester-cloud-provider` で
 > 同様のログが繰り返し出ていれば、まず IPPool の有無を疑ってください。
 
+### 既知の落とし穴: ゲストクラスタ側のクラスタ名が正しく名乗れていない
+
+IPPoolの`selector.scope[].guestCluster`を実際のクラスタ名(例: `dev1`)に設定しているのに、
+エラーメッセージの`Cluster:`がそれと違う値(典型的には`kubernetes`)になっていて
+一致しない、というケースがある。これはHarvester側ではなく**ゲストクラスタ側の
+`harvester-cloud-provider`(Cloud Controller Manager)が、自分の所属クラスタ名を
+正しく認識できていない**ことが原因。
+
+確認方法(ゲストクラスタ側):
+
+```bash
+kubectl -n kube-system get helmchartconfig harvester-cloud-provider -o jsonpath='{.spec.valuesContent}'
+```
+
+正常なクラスタ(移行後に新規作成したstaging/production等)では
+`{"global":{"cattle":{"clusterId":"c-m-xxxxxxxx","clusterName":"<クラスタ名>"}}}`
+のように`clusterName`が入っているが、`clusterId`しか入っていない(`clusterName`が
+欠落している)場合、CCMはクラスタ名をKubernetesの伝統的なデフォルト値
+`kubernetes`のまま名乗ってしまう。dev1は移行前の単一クラスタ時代に作られた
+名残でこの`clusterName`が入っていなかった実績がある。
+
+修正(ゲストクラスタ側):
+
+```bash
+kubectl -n kube-system patch helmchartconfig harvester-cloud-provider --type merge -p \
+  '{"spec":{"valuesContent":"{\"global\":{\"cattle\":{\"clusterId\":\"<既存のclusterIdをそのまま>\",\"clusterName\":\"<正しいクラスタ名>\"}}}"}}'
+
+# HelmのreinstallジョブがChart values Secretを更新したのを確認してから、CCMを再起動して反映させる
+kubectl -n kube-system rollout restart deploy/harvester-cloud-provider
+```
+
+> この`HelmChartConfig`はRKE2のAddon機構が管理しているため、Rancher側でクラスタの
+> Cloud Provider設定が再同期されるタイミングで`clusterName`が消えて再発する可能性がある。
+> 再発した場合は同じ手順で当て直す。恒久対策にするなら、本来はRancherのクラスタ設定
+> (Cluster Management → 対象クラスタ → Cloud Provider関連の設定)側で`clusterName`を
+> 明示できないか確認するのが望ましい。
+
 ### どのクラスタが「Harvester管理クラスタ」なのか迷ったら
 
 Rancher + Harvester 構成では、Rancher のクラスタ一覧に紛らわしいクラスタが複数存在します。
