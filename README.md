@@ -31,6 +31,9 @@ dev → staging → production の3つのRKE2クラスタ(Harvester上、Rancher
   対象クラスタへ作成(パスワードはサイトごと・環境ごとにランダム生成)
 - `scripts/deploy-wordpress.sh <env> <site>`: **緊急用(break-glass)**の手動デプロイ。
   通常の変更はPRマージ→Fleet適用で行う
+- `scripts/restore-wordpress.sh <site> <バックアップディレクトリ>`: 既存サイトの
+  バックアップ(`yyyymmdd_hhmm.tar.lzo`/`.dump.lzo`)を指定サイトへリストア
+  ([docs/manual-wordpress-restore.md](docs/manual-wordpress-restore.md)参照)
 - `.github/workflows/`: `validate`(PR検証)、`release-chart`(チャート公開)、
   `build-wordpress-image`(イメージ公開)、`promote`(昇格PR生成)
 - `docs/manual-multi-env.md`: マルチ環境のセットアップ・既存クラスタの移行・昇格運用・
