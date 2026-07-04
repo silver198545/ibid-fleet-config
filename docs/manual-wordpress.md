@@ -142,6 +142,33 @@ kubectl -n longhorn-system get pods -l app=longhorn-share-manager
 Fleet側の適用状況はRancher UI(Continuous Delivery → Bundles)または
 `kubectl --context <rancher-local> -n fleet-default get bundles` で確認できます。
 
+## プラグインの管理(Git駆動)
+
+プラグインは各サイトの `fleet.yaml` の `helm.values.plugins` に宣言します。
+チャートのプラグイン同期Job(wp-cli)が、helm適用のたびにインストール
+(バージョン固定)と有効化を行います。
+
+```yaml
+  values:
+    plugins:
+      - name: advanced-custom-fields
+        version: "6.8.4"        # 再現性のためversion明示を推奨
+      - name: classic-editor
+        version: "1.7.0"
+        # activate: false       # インストールのみで有効化しない場合
+    wordpress:
+      ...
+```
+
+- **プラグインの追加・バージョンアップ = PR** になり、promoteワークフローで
+  dev→staging→production へ昇格できます(動作チェックを経て本番へ、が実現できます)。
+- **一覧から消しても自動削除はされません**(稼働中サイトの自動削除は危険なため)。
+  削除する場合は手動で: `wp plugin deactivate <name> && wp plugin delete <name>`
+  (実行方法はJobのログ、または `kubectl exec` でWordPress Podから)。
+- 同期Jobのログ: `kubectl -n wordpress-<site> logs job/wordpress-<site>-plugin-sync`
+- wp-adminからの手動インストールも引き続き可能ですが、その内容は他環境へ
+  昇格されません。恒久的に使うプラグインは必ず `plugins:` に載せてください。
+
 ## サイトを削除する場合
 
 `envs/<env>/sites/<site>/` をGitから削除してマージします。各サイトのfleet.yamlは
