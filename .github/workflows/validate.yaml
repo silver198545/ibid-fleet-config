@@ -72,6 +72,15 @@ jobs:
           helm lint charts/ibid-wordpress
           # サイト相当のvaluesを与えてrenderが通ることを確認する
           cat > /tmp/site-values.yaml <<'EOF'
+          # plugins はプラグイン同期Jobのテンプレートを必ずレンダリングさせるために指定
+          # (version省略・activate: false の分岐も含めて網羅する)
+          plugins:
+            - name: test-plugin-pinned
+              version: "1.2.3"
+            - name: test-plugin-latest
+            - name: test-plugin-noactivate
+              version: "2.0.0"
+              activate: false
           wordpress:
             existingSecret: wordpress-test-credentials
             mariadb:
@@ -81,5 +90,17 @@ jobs:
                 password: "dummy"
           EOF
           helm template wordpress-test charts/ibid-wordpress \
-            -n wordpress-test -f /tmp/site-values.yaml > /dev/null
-          echo "render OK"
+            -n wordpress-test -f /tmp/site-values.yaml > /tmp/rendered.yaml
+          # プラグイン同期Jobの生成スクリプトを取り出してbashの構文チェックにかける
+          # (テンプレートの空白トリムによるコマンド連結事故などを検知する)
+          python3 - <<'EOF'
+          import yaml
+          script = None
+          for doc in yaml.safe_load_all(open("/tmp/rendered.yaml")):
+              if doc and doc.get("kind") == "Job" and "plugin-sync" in doc["metadata"]["name"]:
+                  script = doc["spec"]["template"]["spec"]["containers"][0]["command"][2]
+          assert script, "plugin-sync Jobがレンダリングされていない"
+          open("/tmp/plugin-sync.sh", "w").write(script)
+          EOF
+          bash -n /tmp/plugin-sync.sh
+          echo "render OK (plugin-sync Jobのbash構文チェック含む)"
