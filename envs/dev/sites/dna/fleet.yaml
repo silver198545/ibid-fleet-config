@@ -1,0 +1,51 @@
+defaultNamespace: wordpress-dna
+targetNamespace: wordpress-dna
+
+# このサイトをGitから削除してもFleetにリソース(PVC=データ含む)を削除させない。
+# サイトの完全削除は docs/manual-wordpress.md の手順に従って手動で行う。
+keepResources: true
+
+helm:
+  # リリース名を明示する(Fleetのバンドル名由来の自動命名にしない)。
+  # 既存の手動デプロイ済みリリースをFleetが引き継ぐためにも必須。
+  releaseName: wordpress-dna
+  # 全サイト共通デフォルトを内包したラッパーチャート(charts/ibid-wordpress)。
+  # バージョンを上げる=このサイトへの変更適用。環境ごとに段階的に昇格させる。
+  chart: oci://ghcr.io/silver198545/charts/ibid-wordpress
+  version: "0.1.0"
+  # BitnamiのmariadbサブチャートはHelmアップグレード時、existingSecretを
+  # 使っていてもauth.rootPassword/auth.passwordの明示指定を要求してくる
+  # (PASSWORDS ERROR)。Gitにパスワードを書かないよう、
+  # scripts/bootstrap-site-secrets.sh で事前作成したSecret経由で注入する。
+  valuesFrom:
+    - secretKeyRef:
+        name: wordpress-dna-mariadb-upgrade-values
+        namespace: wordpress-dna
+        key: values.yaml
+  # 共通のデフォルト値はラッパーチャート側にまとめてある。ここにはこのサイト固有の
+  # 差分のみを、wordpress: 配下にネストして書く。
+  values:
+    wordpress:
+      # 管理者パスワードはGitに含めず、事前に作成したSecretを参照する。
+      existingSecret: wordpress-dna-credentials
+      mariadb:
+        auth:
+          existingSecret: wordpress-dna-mariadb-credentials
+
+# Kubernetes APIはNetworkPolicyのportsにprotocol: TCPを自動補完するが、
+# Bitnamiチャートのマニフェストには無いため、Fleetが常時「Modified」と
+# 誤検知する。ingress部分を差分比較の対象から除外して抑止する。
+diff:
+  comparePatches:
+    - apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      name: wordpress-dna
+      namespace: wordpress-dna
+      jsonPointers:
+        - /spec/ingress
+    - apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      name: wordpress-dna-mariadb
+      namespace: wordpress-dna
+      jsonPointers:
+        - /spec/ingress
