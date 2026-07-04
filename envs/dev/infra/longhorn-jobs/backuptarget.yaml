@@ -1,0 +1,14 @@
+# バックアップ先の設定。Longhorn 1.8以降、backupTargetはSettingではなく
+# このBackupTarget CR(名前は default 固定)で管理される。
+# 注意: longhorn/fleet.yaml の defaultSettings.backupTarget は新規インストール時に
+# しか効かないため、既存クラスタではこのCRが唯一の実効的な設定になる。
+# `default` CRはLonghornが自動作成済みのため、バンドル側は takeOwnership で引き取る。
+apiVersion: longhorn.io/v1beta2
+kind: BackupTarget
+metadata:
+  name: default
+  namespace: longhorn-system
+spec:
+  backupTargetURL: nfs://192.168.1.1:/data/nfs/longhorn/dev
+  credentialSecret: ""
+  pollInterval: 5m0s
