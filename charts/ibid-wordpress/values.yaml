@@ -4,6 +4,19 @@
 # envs/<env>/sites/<site>/fleet.yaml の helm.values 側に書く。
 # このファイルを変更したら Chart.yaml の version も必ず上げること。
 
+# サイトが必要とするプラグインの宣言的な一覧(templates/plugin-sync-job.yaml)。
+# helm適用のたびにwp-cliのJobがインストール(バージョン固定)・有効化する。
+# 環境間の再現性のため version の明示を推奨。一覧から消しても自動削除はしない
+# (稼働中サイトのプラグイン自動削除は危険なため。削除は手動: wp plugin delete)。
+# 通常はチャート側ではなく、各サイトの fleet.yaml の helm.values.plugins に書く。
+plugins: []
+# plugins:
+#   - name: advanced-custom-fields
+#     version: "6.8.4"
+#   - name: classic-editor
+#     version: "1.7.0"
+#     activate: false   # インストールのみで有効化しない場合
+
 wordpress:
   # docker.io/bitnami の無償イメージは2025年後半のBroadcom移行以降 `latest` タグしか
   # 提供されないため、digestで固定して全環境・全サイトの再現性を確保する。

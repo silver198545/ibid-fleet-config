@@ -22,7 +22,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # ラッパーチャート(charts/ibid-wordpress)の参照先。チャートを更新したら
 # ここではなく、各環境のfleet.yamlのhelm.versionを昇格させて追従する。
 CHART_REF="oci://ghcr.io/silver198545/charts/ibid-wordpress"
-CHART_VERSION="0.1.0"
+CHART_VERSION="0.2.0"
 
 if [[ $# -ne 2 ]]; then
   echo "使い方: $0 <env> <site>" >&2
@@ -82,6 +82,12 @@ helm:
   # 共通のデフォルト値はラッパーチャート側にまとめてある。ここにはこのサイト固有の
   # 差分のみを、wordpress: 配下にネストして書く。
   values:
+    # このサイトが必要とするプラグイン(宣言的)。適用のたびにwp-cliのJobが
+    # インストール(バージョン固定)・有効化する。再現性のためversion明示を推奨。
+    # 一覧から消しても自動削除はしない(削除は手動)。docs/manual-wordpress.md参照。
+    # plugins:
+    #   - name: advanced-custom-fields
+    #     version: "6.8.4"
     wordpress:
       # 管理者パスワードはGitに含めず、事前に作成したSecretを参照する。
       existingSecret: wordpress-$SITE-credentials

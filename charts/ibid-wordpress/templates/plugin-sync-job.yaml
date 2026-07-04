@@ -1,0 +1,113 @@
+{{- /*
+プラグイン同期Job(helm hook)。
+.Values.plugins に宣言されたプラグインを、wp-cliで各環境へインストール・有効化する。
+コンテンツ(DB/wp-content)には触れず、プラグインの追加・バージョン固定のみを行う。
+一覧から消してもこのJobは削除まではしない(削除は手動: wp plugin deactivate/delete。
+稼働中サイトのプラグインを自動削除するのは危険なため、意図的に追加方向のみ)。
+
+実行方式: WordPressコア(イメージ内 /opt/bitnami/wordpress)はJobユーザーでは
+書き換えられないため、symlinkだけで組み立てた作業ディレクトリを/tmpに作り、
+wp-content と wp-config.php のみPVC上の実体へ向ける(検証済みの方式)。
+*/ -}}
+{{- if .Values.plugins }}
+{{- $img := .Values.wordpress.image }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-plugin-sync
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: plugin-sync
+  annotations:
+    # インストール直後はWordPressの初期化完了をスクリプト内で待つ
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "5"
+    # 前回のJobは残してログを確認できるようにし、次回実行の直前に置き換える
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Chart.Name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: plugin-sync
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: plugin-sync
+          image: {{ $img.registry }}/{{ $img.repository }}{{ if $img.digest }}@{{ $img.digest }}{{ else }}:{{ $img.tag }}{{ end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: WP_CLI_CACHE_DIR
+              value: /tmp/wp-cli-cache
+          volumeMounts:
+            - name: wordpress-data
+              mountPath: /bitnami/wordpress
+              subPath: wordpress
+          command:
+            - bash
+            - -ec
+            - |
+              # 初回インストール時はWordPress Podによる初期化(wp-config.php生成)を待つ
+              until [ -f /bitnami/wordpress/wp-config.php ]; do
+                echo "wp-config.php の生成を待機中..."
+                sleep 10
+              done
+
+              # WordPressコアへのsymlinkで作業ディレクトリを組み立てる
+              mkdir -p /tmp/wp
+              for f in /opt/bitnami/wordpress/*; do
+                ln -sfn "$f" "/tmp/wp/$(basename "$f")"
+              done
+              ln -sfn /bitnami/wordpress/wp-content /tmp/wp/wp-content
+              ln -sfn /bitnami/wordpress/wp-config.php /tmp/wp/wp-config.php
+
+              until wp core is-installed --path=/tmp/wp 2>/dev/null; do
+                echo "WordPressのインストール完了(DB接続)を待機中..."
+                sleep 10
+              done
+
+              {{- range .Values.plugins }}
+              {{- $name := required "plugins[].name は必須です" .name }}
+              echo "=== {{ $name }} を同期"
+              {{- if .version }}
+              current="$(wp plugin get {{ $name | quote }} --field=version --path=/tmp/wp 2>/dev/null || true)"
+              if [ "$current" != {{ .version | quote }} ]; then
+                wp plugin install {{ $name | quote }} --version={{ .version | quote }} --force --path=/tmp/wp
+              else
+                echo "既にバージョン {{ .version }} が入っています。スキップ。"
+              fi
+              {{- else }}
+              # バージョン未指定: 未導入時のみ最新を入れる(環境間の再現性のためversion指定を推奨)
+              if ! wp plugin is-installed {{ $name | quote }} --path=/tmp/wp 2>/dev/null; then
+                wp plugin install {{ $name | quote }} --path=/tmp/wp
+              fi
+              {{- end }}
+              {{- /* activate未指定はtrue扱い。defaultはfalseを空とみなすためhasKeyで判定 */ -}}
+              {{- if or (not (hasKey . "activate")) .activate }}
+              wp plugin activate {{ $name | quote }} --path=/tmp/wp 2>/dev/null || true
+              {{- end }}
+              {{- end }}
+
+              echo "=== 同期後のプラグイン一覧:"
+              wp plugin list --path=/tmp/wp
+      volumes:
+        - name: wordpress-data
+          persistentVolumeClaim:
+            # bitnami/wordpressチャートのPVC名はリリース名と一致する
+            # (リリース名がチャート名wordpressを含む場合のfullname規則)
+            claimName: {{ .Release.Name }}
+{{- end }}
