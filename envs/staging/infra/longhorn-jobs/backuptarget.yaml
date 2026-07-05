@@ -1,0 +1,14 @@
+# バックアップ先の設定。Longhorn 1.8以降、backupTargetはSettingではなく
+# このBackupTarget CR(名前は default 固定)で管理される。
+# 初回は同値のkubectl patchを【Gitマージ前に】投入しておくこと(SSAの
+# フィールド所有権競合対策。マージが先行した場合はpatch投入後の再試行で
+# 自然回復する)。手順は docs/manual-multi-env.md 参照。
+apiVersion: longhorn.io/v1beta2
+kind: BackupTarget
+metadata:
+  name: default
+  namespace: longhorn-system
+spec:
+  backupTargetURL: nfs://192.168.1.1:/data/nfs/longhorn/staging
+  credentialSecret: ""
+  pollInterval: 5m0s

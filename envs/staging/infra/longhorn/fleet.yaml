@@ -10,4 +10,8 @@ helm:
   chart: longhorn
   repo: https://charts.rancher.io
   version: 109.3.1+up1.11.2
-  values: {}
+  values:
+    defaultSettings:
+      # 新規インストール時のみ有効。既存クラスタはBackupTarget CR
+      # (../longhorn-jobs/backuptarget.yaml)が実効的な設定。
+      backupTarget: nfs://192.168.1.1:/data/nfs/longhorn/staging
