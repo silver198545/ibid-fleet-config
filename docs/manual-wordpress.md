@@ -84,6 +84,8 @@ runcmd:
 ```bash
 ./scripts/seal-site-secrets.sh <env> <site>
 # 例: ./scripts/seal-site-secrets.sh dev web
+# kubectlコンテキストは環境名から自動選択(dev1/staging1/prod1)。
+# 異なる場合は KUBE_CONTEXT=<コンテキスト名> を前置して上書きできます。
 ```
 
 `envs/<env>/secrets/<site>.yaml` が生成されるので、手順2のfleet.yamlと同じPRに
@@ -118,7 +120,8 @@ PRを作成してマージしてください。マージされると対象環境
 
 サイトは原則devに追加し、staging / production へはActionsの `promote` ワークフロー
 (手動起動)が生成する昇格PRで展開します([manual-multi-env.md](manual-multi-env.md)参照)。
-昇格先の環境でも手順1のSecret作成が事前に必要です。
+昇格先の環境でも手順1と同様に、その環境用のSealedSecretを生成・コミットしておく
+必要があります(封印は環境ごとの鍵のため、devのファイルは流用できません)。
 
 ## 3. 割り当てられた外部IPを確認する
 

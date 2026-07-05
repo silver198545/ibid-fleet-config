@@ -23,7 +23,8 @@ envs/
 - 環境間の差分は `diff -r envs/staging envs/production` でいつでも確認できる。
   意図的な差分(devだけ新バージョン等)以外が出ていたら昇格漏れを疑うこと。
 - サイトの追加は `scripts/new-wordpress-site.sh <env> <site>`(fleet.yaml生成)と
-  `scripts/bootstrap-site-secrets.sh <site>`(対象クラスタへのSecret作成)で行う。
+  `scripts/seal-site-secrets.sh <env> <site>`(認証情報のSealedSecret生成、
+  `envs/<env>/secrets/` にコミット)で行う。
   手順の全体は [../docs/manual-wordpress.md](../docs/manual-wordpress.md) を参照。
 - Gitでプロモーションするのは**構成のみ**(チャートバージョン、values、イメージ)。
   DBデータやwp-contentの実データは昇格しない

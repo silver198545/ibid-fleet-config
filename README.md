@@ -30,7 +30,7 @@ dev → staging → production の3つのRKE2クラスタ(Harvester上、Rancher
 - `scripts/seal-site-secrets.sh <env> <site>`: サイトの認証情報Secret(3種)を
   SealedSecretとして `envs/<env>/secrets/` に生成(パスワードはサイトごと・
   環境ごとにランダム生成。平文はGitに入らない)。
-  `bootstrap-site-secrets.sh` は緊急時用(クラスタへ直接作成)
+  `scripts/bootstrap-site-secrets.sh <site>` は緊急時用(クラスタへ直接作成)
 - `scripts/deploy-wordpress.sh <env> <site>`: **緊急用(break-glass)**の手動デプロイ。
   通常の変更はPRマージ→Fleet適用で行う
 - `scripts/restore-wordpress.sh <site> <バックアップディレクトリ>`: 既存サイトの
