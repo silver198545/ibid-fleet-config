@@ -18,6 +18,8 @@
 #   scripts/seal-site-secrets.sh <env> <site>
 #   例: scripts/seal-site-secrets.sh dev web
 #   環境→kubectlコンテキストの対応は既定(dev1/stating1/prod1)。
+#   ※ stagingクラスタの実名は"stating1"(構築時の綴りのままRancher上の
+#     クラスタ名・コンテキスト名として実在する。タイポではない)。
 #   異なる場合は KUBE_CONTEXT=<コンテキスト名> で上書きする。
 set -euo pipefail
 
@@ -34,7 +36,7 @@ SITE="$2"
 
 case "$ENV_NAME" in
   dev) DEFAULT_CONTEXT="dev1" ;;
-  staging) DEFAULT_CONTEXT="stating1" ;;
+  staging) DEFAULT_CONTEXT="stating1" ;;  # クラスタの実名(タイポではない)
   production) DEFAULT_CONTEXT="prod1" ;;
   *)
     echo "エラー: envは dev / staging / production のいずれかを指定してください: $ENV_NAME" >&2
@@ -127,8 +129,11 @@ cat >"$OUT_FILE" <<EOF
 # パスワードのローテーション手順は docs/manual-wordpress.md 参照。
 EOF
 for s in "$CREDENTIALS_SECRET" "$MARIADB_SECRET" "$MARIADB_UPGRADE_SECRET"; do
+  # kubesealの出力は先頭に"---"を含むことがあるため、除去してから
+  # こちらで区切りを1つだけ付ける(重複すると空ドキュメントが混入する)
   echo "---" >>"$OUT_FILE"
-  kubeseal --context "$CONTEXT" --format yaml <"$WORKDIR/$s.json" >>"$OUT_FILE"
+  kubeseal --context "$CONTEXT" --format yaml <"$WORKDIR/$s.json" \
+    | sed '1{/^---$/d}' >>"$OUT_FILE"
 done
 
 # 環境のsecretsバンドルが未作成なら足場を作る
