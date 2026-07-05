@@ -225,6 +225,108 @@ Fleet/GitHub/GHCRのいずれかが使えない、または即時の手動修復
      --type merge -p '{"spec":{"paused":false}}'
    ```
 
+## 8. DR: クラスタ全損からの復元手順(2026-07-05にstagingで実証済み)
+
+**前提の3点セット**: ①Gitリポジトリ ②封印鍵バックアップ(6.参照) ③LonghornのNFSバックアップ。
+この3つが揃っていれば、クラスタを丸ごと失っても以下の手順で完全復元できる。
+
+### 平時の備え(これが無いと復元できない)
+
+- 鍵バックアップを取得済みであること(6.参照)
+- **バックアップが実際に存在することを定期確認**:
+  `kubectl -n longhorn-system get backupvolumes`
+  (DR演習ではRecurringJobの初回実行前でバックアップが0件だった。**クラスタ構築直後や
+  サイト追加直後は、日次ジョブを待たずに手動で初回バックアップを取ること**)
+
+### 手順
+
+1. **(計画的な再構築の場合)直前バックアップを取得**: 全ボリュームに対して
+   Snapshot CR→Backup CRを作成しCompletedを確認する。**ボリューム名(pvc-...)と
+   PVC名・namespaceの対応を必ず控える**(復元時のfromBackup指定に必要)。
+2. **クラスタ削除**(Rancher UI)。GitRepo・IPPool・NFS上のバックアップ・Git上の
+   SealedSecretは残る。
+3. **再構築**: Rancher UIでRKE2作成(**cloud-initにnfs-common**)→ `env=<環境名>` ラベル
+   → 新kubeconfig取得。クラスタ名を変えた場合は、Harvesterの該当IPPoolの
+   `spec.selector.scope[].guestCluster` を新クラスタ名へ変更する。
+4. **Fleetの自動復元を待つ**: ラベル付与だけでinfra一式(Longhorn/カタログ/
+   sealed-secretsコントローラ/バックアップ設定)が自動導入される。
+   新規インストールでは `defaultSettings.backupTarget` がpatch不要で有効(実証済み)。
+   バックアップ先がavailableになるとNFS上の旧バックアップ一覧も自動で見える。
+5. **サイトのnamespaceを手動作成**: `kubectl create ns wordpress-<site>`(サイト分)。
+   secretsバンドルは適用先namespaceを自分では作らないため、これをしないと
+   `namespaces not found` で止まる(既知の順序制約)。
+6. **封印鍵をリストア**(6.参照)。SealedSecretがSynced=Trueになり、Secretが復元されて
+   sitesバンドルのデプロイが進む(エラーバックオフで止まったままの場合は
+   GitRepoの `spec.forceSyncGeneration` を+1して再同期)。
+   この時点でサイトは**空のWordPress**として起動する(新しい空ボリューム)。
+7. **データ復元**(サイトごと):
+   ```bash
+   # スケールダウン(plugin-sync Jobが実行中ならJobごと削除してよい。Fleetが後で再適用する)
+   kubectl -n wordpress-<site> scale deploy wordpress-<site> --replicas=0
+   kubectl -n wordpress-<site> scale statefulset wordpress-<site>-mariadb --replicas=0
+   # Podが消えたら、空のPVCを削除
+   kubectl -n wordpress-<site> delete pvc wordpress-<site> data-wordpress-<site>-mariadb-0
+   ```
+   バックアップから復元ボリュームを作成(wp-content用は `accessMode: rwx`、
+   DB用は `rwo`。sizeは元と同じバイト数):
+   ```yaml
+   apiVersion: longhorn.io/v1beta2
+   kind: Volume
+   metadata:
+     name: restore-<site>-content   # 任意の新ボリューム名
+     namespace: longhorn-system
+   spec:
+     size: "10737418240"
+     numberOfReplicas: 3
+     accessMode: rwx
+     frontend: blockdev
+     fromBackup: "nfs://192.168.1.1:/data/nfs/longhorn/<env>?backup=<バックアップ名>&volume=<旧ボリューム名>"
+   ```
+   `status.state: detached` になったら復元完了。元のPVC名でPV/PVCを作成して紐付ける
+   (helmが自リソースと認識できるようアノテーションを付ける):
+   ```yaml
+   apiVersion: v1
+   kind: PersistentVolume
+   metadata:
+     name: restore-<site>-content
+   spec:
+     capacity: {storage: 10Gi}
+     accessModes: ["ReadWriteMany"]
+     persistentVolumeReclaimPolicy: Retain
+     storageClassName: longhorn
+     csi: {driver: driver.longhorn.io, fsType: ext4, volumeHandle: restore-<site>-content}
+     claimRef: {namespace: wordpress-<site>, name: wordpress-<site>}
+   ---
+   apiVersion: v1
+   kind: PersistentVolumeClaim
+   metadata:
+     name: wordpress-<site>
+     namespace: wordpress-<site>
+     labels:
+       app.kubernetes.io/instance: wordpress-<site>
+       app.kubernetes.io/managed-by: Helm
+       app.kubernetes.io/name: wordpress
+     annotations:
+       meta.helm.sh/release-name: wordpress-<site>
+       meta.helm.sh/release-namespace: wordpress-<site>
+   spec:
+     accessModes: ["ReadWriteMany"]
+     storageClassName: longhorn
+     volumeName: restore-<site>-content
+     resources: {requests: {storage: 10Gi}}
+   ```
+   (DB用PVC `data-wordpress-<site>-mariadb-0` も同様に作成する。
+   accessModesは `ReadWriteOnce`)
+   ```bash
+   kubectl -n wordpress-<site> scale statefulset wordpress-<site>-mariadb --replicas=1
+   kubectl -n wordpress-<site> scale deploy wordpress-<site> --replicas=2
+   ```
+8. **検証**: SealedSecret全件Synced / 復元Secretの値で実DBへログインできる /
+   サイトHTTP 200 / コンテンツ(プラグイン・記事)が削除前と一致していること。
+9. **後片付け**: GitRepoをforceSyncして手動削除したJob等を再適用させ、全バンドル
+   Readyを確認する。手動で取った復元用バックアップは適宜整理する
+   (RecurringJobの保持世代管理は自動作成分にしか効かない)。
+
 ## 補足: 将来の拡張
 
 - **サイトSecretのSealedSecret移行(Phase 2の後半)**: コントローラ導入(6.参照)に
