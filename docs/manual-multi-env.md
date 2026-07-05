@@ -329,9 +329,9 @@ Fleet/GitHub/GHCRのいずれかが使えない、または即時の手動修復
 
 ## 補足: 将来の拡張
 
-- **サイトSecretのSealedSecret移行(Phase 2の後半)**: コントローラ導入(6.参照)に
-  続けて、bootstrap-site-secrets.shをSealedSecret生成モードへ改修し、既存サイトの
-  Secretを環境ごとにGit管理へ移行する。
+- ~~サイトSecretのSealedSecret移行~~ 完了済み: 全環境のサイトSecretは
+  `envs/<env>/secrets/` のSealedSecretでGit管理されている
+  (生成・移行は `scripts/seal-site-secrets.sh`)。
 - **クラスタ定義のGitOps化(Phase 4)**: Rancher provisioning-v2 の Cluster オブジェクトを
   localクラスタ向けGitRepoで管理できるが、誤マージの影響半径が大きいため3クラスタ規模では
   急がない。

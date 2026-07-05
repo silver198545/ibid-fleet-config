@@ -4,7 +4,7 @@
 # サイトを追加する際は必ず実行する(旧構成と異なり任意ではない)。
 #
 # 生成後の流れ(詳細は docs/manual-wordpress.md):
-#   1. scripts/bootstrap-site-secrets.sh <site> で対象クラスタにSecretを作成
+#   1. scripts/seal-site-secrets.sh <env> <site> で認証情報のSealedSecretを生成
 #   2. 生成されたfleet.yamlを必要に応じて編集(テーブル接頭辞の上書き等)
 #   3. PRを作成してマージ → 対象環境のFleetが自動適用
 #
@@ -73,7 +73,7 @@ helm:
   # BitnamiのmariadbサブチャートはHelmアップグレード時、existingSecretを
   # 使っていてもauth.rootPassword/auth.passwordの明示指定を要求してくる
   # (PASSWORDS ERROR)。Gitにパスワードを書かないよう、
-  # scripts/bootstrap-site-secrets.sh で事前作成したSecret経由で注入する。
+  # scripts/seal-site-secrets.sh で生成したSealedSecret経由で注入する。
   valuesFrom:
     - secretKeyRef:
         name: wordpress-$SITE-mariadb-upgrade-values

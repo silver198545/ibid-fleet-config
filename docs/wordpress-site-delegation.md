@@ -140,7 +140,7 @@ dev→staging→production昇格で行う**([manual-multi-env.md](manual-multi-e
 | プラグイン/テーマの追加・更新 | サイトチーム申請 → 基盤チーム実施 | wp-admin / wp-cli | dev検証 → 本番(同一バージョンを手動で反映) |
 | WPコア・PHP更新 | 基盤チーム | Git(イメージdigest → チャート版数) | dev→staging→production 昇格 |
 | サイト設定(レプリカ数、ドメイン、SMTP等) | 基盤チーム | Git(fleet.yaml / チャートvalues) | 昇格 |
-| Secretローテーション | 基盤チーム | `bootstrap-site-secrets.sh` + kubectl | 各環境 |
+| Secretローテーション | 基盤チーム | `seal-site-secrets.sh` + kubectl | 各環境 |
 | バックアップ・リストア | 基盤チーム | Longhorn + 手順書 | 主に本番 |
 | 障害一次対応 | 基盤チーム(サイトチームは通報) | kubectl / break-glass | 各環境 |
 

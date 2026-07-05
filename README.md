@@ -27,8 +27,10 @@ dev → staging → production の3つのRKE2クラスタ(Harvester上、Rancher
   `latest` のみになったことへの対策)。mainマージで `build-image.yaml` がGHCRへ公開
 - `fleet-bootstrap/`: 環境別GitRepo定義(Rancher localクラスタへ手動適用する控え)
 - `scripts/new-wordpress-site.sh <env> <site>`: サイトのFleetバンドルをひな形から生成
-- `scripts/bootstrap-site-secrets.sh <site>`: サイトの認証情報Secret(3種)を
-  対象クラスタへ作成(パスワードはサイトごと・環境ごとにランダム生成)
+- `scripts/seal-site-secrets.sh <env> <site>`: サイトの認証情報Secret(3種)を
+  SealedSecretとして `envs/<env>/secrets/` に生成(パスワードはサイトごと・
+  環境ごとにランダム生成。平文はGitに入らない)。
+  `scripts/bootstrap-site-secrets.sh <site>` は緊急時用(クラスタへ直接作成)
 - `scripts/deploy-wordpress.sh <env> <site>`: **緊急用(break-glass)**の手動デプロイ。
   通常の変更はPRマージ→Fleet適用で行う
 - `scripts/restore-wordpress.sh <site> <バックアップディレクトリ>`: 既存サイトの
@@ -61,9 +63,9 @@ dev → staging → production の3つのRKE2クラスタ(Harvester上、Rancher
 
 ### サイトの追加と昇格
 
-1. `scripts/bootstrap-site-secrets.sh <site>` で対象クラスタにSecretを作成する
-   (認証情報はサイトごと・環境ごとに自動生成)。
-2. `scripts/new-wordpress-site.sh dev <site>` でバンドルを生成し、PR→マージ。
+1. `scripts/seal-site-secrets.sh dev <site>` で認証情報のSealedSecretを生成する
+   (パスワードはサイトごと・環境ごとに自動生成。生成物はGitにコミット)。
+2. `scripts/new-wordpress-site.sh dev <site>` でバンドルを生成し、1と合わせてPR→マージ。
    devのFleetが自動適用する。WordPress は自分専用の LoadBalancer Service を持つため、
    Traefik を LoadBalancer 化する必要はない。
 3. devで動作確認後、Actionsの `promote` を手動起動して昇格PRを作成し、

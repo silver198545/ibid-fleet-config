@@ -47,8 +47,10 @@ resource state with `kubectl`.
   since Broadcom's 2025 change; digests are how reproducibility is kept.
 - `fleet-bootstrap/` — the three GitRepo definitions (manual apply to Rancher local; `.fleetignore`d).
 - `scripts/` — `new-wordpress-site.sh <env> <site>` (scaffold a site bundle, required for every site),
-  `bootstrap-site-secrets.sh <site>` (create the 3 per-site Secrets on the cluster kubectl points at,
-  fresh random passwords per site per env), `deploy-wordpress.sh <env> <site>` (**break-glass only** —
+  `seal-site-secrets.sh <env> <site>` (generate/migrate the 3 per-site Secrets as SealedSecrets under
+  `envs/<env>/secrets/`, fresh random passwords per site per env; sealing is per-environment so files
+  cannot be copied between envs), `bootstrap-site-secrets.sh <site>` (legacy direct-to-cluster
+  creation, emergencies only), `deploy-wordpress.sh <env> <site>` (**break-glass only** —
   normal changes go through PR merge; pause the env's GitRepo before using it on production).
 - `docs/` — manual runbooks for steps Fleet cannot automate. Always check these before changing
   behavior they document, and update them when the corresponding config changes. Key one:
