@@ -76,25 +76,33 @@ runcmd:
     - qemu-guest-agent.service
 ```
 
-## 1. 認証情報のSecretを対象クラスタに作成する
+## 1. 認証情報のSealedSecretを生成する
 
-Fleetがサイトを適用する前に、サイト専用のSecret(3種)を対象クラスタへ作成します。
-`kubectl` のコンテキストを対象環境のクラスタへ向けてから実行してください。
+サイト専用のSecret(3種)をSealedSecretとして生成し、Gitにコミットします
+(平文パスワードはGitに入らず、対象環境のコントローラだけが復号できます)。
 
 ```bash
-kubectl config use-context <対象環境のコンテキスト>
-./scripts/bootstrap-site-secrets.sh <site>
+./scripts/seal-site-secrets.sh <env> <site>
+# 例: ./scripts/seal-site-secrets.sh dev web
 ```
+
+`envs/<env>/secrets/<site>.yaml` が生成されるので、手順2のfleet.yamlと同じPRに
+含めてください。マージされると対象環境のSealed Secretsコントローラが復号して
+Secretを作成します(手動でのSecret投入は不要)。
 
 パスワードはサイトごと・環境ごとにランダム生成されます(**使い回さないため**。
 1サイト・1環境の認証情報が漏れても他に波及しないようにする設計です)。生成された
 パスワードはコマンドの最後に標準エラー出力へその場限り表示されるので、必ず控えて
 ください(Gitや他の場所には保存されません)。
 
-パスワードをローテーションしたい場合は、対象サイトの3つのSecretを削除してから
-再実行してください(ただし、既にPodが起動済みのMariaDBの実際のDBユーザーパスワードは
-変わらないため、DB側のパスワードも合わせて変更しない限り次回適用時に
-`PASSWORDS ERROR`になります)。
+- 昇格先の環境でも同様に、その環境用のSealedSecretを生成してコミットします
+  (封印は環境ごとの鍵で行うため、ファイルの環境間コピーはできません)。
+- パスワードをローテーションしたい場合は、対象サイトの3つのSecretと
+  `envs/<env>/secrets/<site>.yaml` を削除してから再実行してください(ただし、
+  既にPodが起動済みのMariaDBの実際のDBユーザーパスワードは変わらないため、
+  DB側のパスワードも合わせて変更しない限り次回適用時に`PASSWORDS ERROR`になります)。
+- 旧 `scripts/bootstrap-site-secrets.sh`(クラスタへ直接Secretを作成)は
+  Sealed Secretsが使えない緊急時用として残しています。
 
 ## 2. サイトのFleetバンドルを生成してPRを作成する
 
