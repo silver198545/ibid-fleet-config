@@ -80,10 +80,12 @@ done
 if [[ $EXISTING -eq 3 ]]; then
   echo "既存のSecretを封印します(移行モード。パスワードは変わりません)。" >&2
   for s in "$CREDENTIALS_SECRET" "$MARIADB_SECRET" "$MARIADB_UPGRADE_SECRET"; do
-    kubectl --context "$CONTEXT" -n "$NAMESPACE" get secret "$s" -o json >"$WORKDIR/$s.json"
-    # コントローラが既存Secretを引き取れるようにする(無いと "not managed" エラーになる)
+    # コントローラが既存Secretを引き取れるようにする(無いと "not managed" エラーになる)。
+    # エクスポートより先に付与することで、SealedSecretのtemplateにも同アノテーションが
+    # 含まれ、Secretを手動で作り直した場合の再引き取りにも耐える。
     kubectl --context "$CONTEXT" -n "$NAMESPACE" annotate secret "$s" \
       sealedsecrets.bitnami.com/managed=true --overwrite >/dev/null
+    kubectl --context "$CONTEXT" -n "$NAMESPACE" get secret "$s" -o json >"$WORKDIR/$s.json"
   done
 elif [[ $EXISTING -eq 0 ]]; then
   echo "Secretが無いため新規パスワードを生成して封印します(新規サイトモード)。" >&2
