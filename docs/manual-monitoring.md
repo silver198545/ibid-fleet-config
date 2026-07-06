@@ -13,12 +13,13 @@
 | `monitoring-crd` | rancher-monitoring-crd(ServiceMonitor等のCRD) | なし |
 | `monitoring-secrets` | Slack Webhook URLのSealedSecret | なし(意図的。下記注意参照) |
 | `monitoring-blackbox` | blackbox-exporter(HTTP死活監視の実行体) | なし |
-| `monitoring` | rancher-monitoring本体(Prometheus/Alertmanager/Grafana) | monitoring-crd |
+| `monitoring` | rancher-monitoring本体(Prometheus/Alertmanager/Grafana) | monitoring-crd, monitoring-secrets |
 | `monitoring-config` | ServiceMonitor(Longhorn)+ PrometheusRule(独自アラート) | monitoring-crd |
 
-- `monitoring-secrets` に `dependsOn` を付けてはならない。Alertmanager Podは
-  Webhook Secretをマウントするため、Secretがmonitoring本体より後になると
-  相互待ちのデッドロックになる。
+- 依存の向きは必ず `monitoring` → `monitoring-secrets`(Secret先行適用)。
+  逆に `monitoring-secrets` 側へ `dependsOn` を付けると、Alertmanager Podが
+  Webhook Secretのマウント待ち → monitoringがReadyにならない → Secretが
+  適用されない、という相互待ちのデッドロックになる。
 - チャートversionは全バンドルでLonghornと同じRancherマイナー系列
   (現在は109.x = Rancher 2.14)に合わせる。
 

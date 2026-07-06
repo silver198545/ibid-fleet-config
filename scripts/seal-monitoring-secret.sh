@@ -69,6 +69,9 @@ fi
 
 # 封印はkubeseal内で完結する(平文Secretはクラスタに作らない)。
 # namespaceはこの時点で存在しなくてよい。
+# 途中失敗で不完全なファイルが残らないよう、テンポラリに書いてからmvで置き換える。
+TMP_FILE="$(mktemp "$OUT_DIR/.$SECRET_NAME.XXXXXX")"
+trap 'rm -f "$TMP_FILE"' EXIT
 {
   cat <<EOF
 # Alertmanager用Slack Webhook URLのSealedSecret($ENV_NAME環境)。
@@ -82,7 +85,9 @@ EOF
     --dry-run=client -o json \
     | kubeseal --context "$CONTEXT" --format yaml \
     | sed '1{/^---$/d}'
-} >"$OUT_FILE"
+} >"$TMP_FILE"
+mv "$TMP_FILE" "$OUT_FILE"
+trap - EXIT
 
 echo "作成しました: $OUT_FILE" >&2
 echo "PRを作成してマージしてください。" >&2

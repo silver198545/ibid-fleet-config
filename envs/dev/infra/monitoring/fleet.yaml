@@ -4,9 +4,14 @@ targetNamespace: cattle-monitoring-system
 # 監視スタックの削除がバンドル削除に連動しないようにする(infraバンドルの方針)。
 keepResources: true
 
-# ServiceMonitor等のCRDが先に必要(rancher-monitoring-crdのJob適用完了を待つ)。
+# - CRD: ServiceMonitor等のCRDが先に必要(rancher-monitoring-crdのJob適用完了を待つ)
+# - secrets: AlertmanagerがマウントするWebhook Secretを先行適用させ、
+#   初回適用時のPod Pending(Secret待ち)を避ける。
+#   逆方向(monitoring-secrets側からのdependsOn)は絶対に付けないこと
+#   (相互待ちのデッドロックになる)。
 dependsOn:
   - name: ibid-dev-envs-dev-infra-monitoring-crd
+  - name: ibid-dev-envs-dev-infra-monitoring-secrets
 
 helm:
   # Rancher UI(クラスタ→Monitoring)のGrafanaプロキシ等がこのリリース名を
