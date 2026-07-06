@@ -13,6 +13,22 @@ dependsOn:
   - name: ibid-dev-envs-dev-infra-monitoring-crd
   - name: ibid-dev-envs-dev-infra-monitoring-secrets
 
+# admission webhookのcaBundleはoperatorが実行時に注入するため、
+# そのままだとFleetが常にModified(ドリフト)と判定する。比較から除外する。
+diff:
+  comparePatches:
+    - apiVersion: admissionregistration.k8s.io/v1
+      kind: MutatingWebhookConfiguration
+      name: rancher-monitoring-admission
+      jsonPointers:
+        - /webhooks/0/clientConfig/caBundle
+    - apiVersion: admissionregistration.k8s.io/v1
+      kind: ValidatingWebhookConfiguration
+      name: rancher-monitoring-admission
+      jsonPointers:
+        - /webhooks/0/clientConfig/caBundle
+        - /webhooks/1/clientConfig/caBundle
+
 helm:
   # Rancher UI(クラスタ→Monitoring)のGrafanaプロキシ等がこのリリース名を
   # 前提にするため rancher-monitoring 固定。
