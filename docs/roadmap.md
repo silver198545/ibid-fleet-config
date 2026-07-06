@@ -38,19 +38,24 @@
 
 - **現状**: 1サイト=18Gi(wp-content 10Gi + DB 8Gi)× レプリカ3 = 実効約54Gi/サイト。
   数十サイトではクラスタあたり数TB規模になる。
-- **方針**: ノードのディスクサイズを確認し、Longhornの容量アラート(4.の監視と連動)を
-  設定する。サイトのPVCサイズ既定値(チャートvalues)の見直しも選択肢。
+- **方針**: ノードのディスクサイズを確認し、Longhornの容量アラート(4.の監視と連動、
+  **ノード使用率75%/90%のアラートは4.で実装済み**)を設定する。
+  サイトのPVCサイズ既定値(チャートvalues)の見直しも選択肢。
 - **トリガー**: サイト量産開始前に一度試算する。
 
 ## 🟠 優先度・中: 本番コンテンツが入る前に塞ぐ運用の穴
 
-### 4. 監視・アラートの導入
+### 4. 監視・アラートの導入 【済(2026-07-06、devから展開中)】
 
-- **現状**: サイトダウン・ノード障害・ディスク逼迫・バックアップ失敗、いずれも通知なし。
-- **方針**: Rancherの監視スタック(rancher-monitoring: Prometheus + Alertmanager +
-  Grafana)を `envs/<env>/infra/` のバンドルとしてGitOpsで導入。
-  最低限「全サイトのHTTP死活監視」と「Longhornバックアップ成否・容量」から始める。
-- **トリガー**: 本番に最初の実コンテンツが入る前。
+- **採用構成**: rancher-monitoring 109.0.3(+ blackbox-exporter)を
+  `envs/<env>/infra/monitoring*` の5バンドルとしてGitOps導入。
+  全サイトHTTP死活監視(Serviceの動的発見、サイト追加時の設定変更不要)、
+  Longhornバックアップ成否・容量アラート(3.の容量アラートを兼ねる)、
+  Slack通知(Webhook URLは環境別SealedSecret)。
+  運用手順: [manual-monitoring.md](manual-monitoring.md)
+- **残作業**: staging / production への展開PR(promoteは`sites/`のみ対象のため手動)。
+- 制約: probeはクラスタ内経由のため**LB IP経路の障害・IPPool枯渇は検知不可**。
+  1.のIngress化・2.のDNS導入時に外形監視を再検討する。
 
 ### 5. バックアップの3-2-1化
 
