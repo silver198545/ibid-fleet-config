@@ -1,0 +1,12 @@
+# 監視対象・アラートルールの宣言バンドル(ServiceMonitor / PrometheusRule)。
+# rancher-monitoring本体には依存しない(CRDさえあれば適用できる。
+# Prometheus Operatorが後から起動しても拾われる)。
+defaultNamespace: cattle-monitoring-system
+
+keepResources: true
+
+dependsOn:
+  - name: ibid-dev-envs-dev-infra-monitoring-crd
+
+helm:
+  releaseName: monitoring-config

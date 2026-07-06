@@ -1,0 +1,156 @@
+defaultNamespace: cattle-monitoring-system
+targetNamespace: cattle-monitoring-system
+
+# 監視スタックの削除がバンドル削除に連動しないようにする(infraバンドルの方針)。
+keepResources: true
+
+# ServiceMonitor等のCRDが先に必要(rancher-monitoring-crdのJob適用完了を待つ)。
+dependsOn:
+  - name: ibid-dev-envs-dev-infra-monitoring-crd
+
+helm:
+  # Rancher UI(クラスタ→Monitoring)のGrafanaプロキシ等がこのリリース名を
+  # 前提にするため rancher-monitoring 固定。
+  releaseName: rancher-monitoring
+  chart: rancher-monitoring
+  repo: https://charts.rancher.io
+  version: 109.0.3+up80.9.1-rancher.14
+  values:
+    # RKE2の制御プレーンコンポーネントのexporter(Rancher AppsがRKE2クラスタで
+    # 有効化するものと同等)。リソースが厳しくなったら無効化してよい。
+    rke2ControllerManager:
+      enabled: true
+    rke2Scheduler:
+      enabled: true
+    rke2Proxy:
+      enabled: true
+    rke2Etcd:
+      enabled: true
+    rke2IngressNginx:
+      enabled: true
+
+    alertmanager:
+      secret:
+        # falseだとチャートは既存Secretを見つけた時点でconfigの反映をスキップする
+        # (初回installでしか反映されない)。Gitを常に正とするためtrue必須。
+        # 代償としてRancher UIのRoutes/Receivers編集は次回適用で消える
+        # (Alertmanager設定はGit管理のみ — docs/manual-monitoring.md参照)。
+        recreateIfExists: true
+      alertmanagerSpec:
+        # /etc/alertmanager/secrets/alertmanager-slack-webhook/ にマウントされる。
+        # Secret実体は monitoring-secrets バンドル(SealedSecret)が供給する。
+        secrets:
+          - alertmanager-slack-webhook
+      config:
+        global:
+          resolve_timeout: 5m
+          # Webhook URLはGitに置かずSecretのファイル参照にする。
+          slack_api_url_file: /etc/alertmanager/secrets/alertmanager-slack-webhook/webhook-url
+        # 注意: このconfig以下のリスト(inhibit_rules等)はチャート既定と
+        # マージされず丸ごと置換される。以下4本はチャート既定の再掲
+        # (critical→warning/info、warning→info、InfoInhibitorの抑止)。
+        inhibit_rules:
+          - source_matchers:
+              - 'severity = critical'
+            target_matchers:
+              - 'severity =~ warning|info'
+            equal:
+              - 'namespace'
+              - 'alertname'
+          - source_matchers:
+              - 'severity = warning'
+            target_matchers:
+              - 'severity = info'
+            equal:
+              - 'namespace'
+              - 'alertname'
+          - source_matchers:
+              - 'alertname = InfoInhibitor'
+            target_matchers:
+              - 'severity = info'
+            equal:
+              - 'namespace'
+          - target_matchers:
+              - 'alertname = InfoInhibitor'
+        route:
+          group_by: ['namespace', 'alertname']
+          group_wait: 30s
+          group_interval: 5m
+          repeat_interval: 12h
+          receiver: slack-ibid
+          routes:
+            # Watchdog(常時発報の死活確認用)とinfo系はSlackに流さない。
+            - receiver: 'null'
+              matchers:
+                - 'alertname = "Watchdog"'
+            - receiver: 'null'
+              matchers:
+                - 'severity = info'
+        receivers:
+          - name: 'null'
+          - name: slack-ibid
+            slack_configs:
+              # channelは旧式Webhookでのみ有効。Slackアプリの
+              # Incoming WebhookはURL側でチャンネルが固定され、この値は無視される。
+              - channel: '#ibid-alerts'
+                send_resolved: true
+                title: '[{{ .CommonLabels.cluster }}] {{ .CommonLabels.alertname }} ({{ .Status }})'
+                text: >-
+                  {{ range .Alerts }}{{ if .Annotations.summary }}{{ .Annotations.summary }}{{ else }}{{ .Labels.alertname }}{{ end }}
+                  {{ end }}
+        templates:
+          - '/etc/alertmanager/config/*.tmpl'
+
+    prometheus:
+      prometheusSpec:
+        # Slack通知やGrafanaで環境を識別するためのラベル。
+        # 環境ごとに dev / staging / production に変える(env間差分)。
+        externalLabels:
+          cluster: dev
+        retention: 10d
+        retentionSize: 18GiB
+        storageSpec:
+          volumeClaimTemplate:
+            spec:
+              storageClassName: longhorn
+              accessModes:
+                - ReadWriteOnce
+              resources:
+                requests:
+                  storage: 20Gi
+        # 全WordPressサイトのHTTP死活監視。
+        # LB IPは動的割当でGitに無いため、Service(ClusterIP DNS)を
+        # kubernetes SDで動的発見して blackbox-exporter 経由でprobeする。
+        # サイトが増えても監視設定の追加は不要。
+        # クラスタ内経由のためLB IP経路の障害は検知できない点に注意
+        # (docs/manual-monitoring.md の残課題を参照)。
+        additionalScrapeConfigs:
+          - job_name: blackbox-wordpress-http
+            metrics_path: /probe
+            params:
+              module: [http_wordpress]
+            kubernetes_sd_configs:
+              - role: service
+            relabel_configs:
+              # wordpress-* namespaceのServiceのみ対象
+              - source_labels: [__meta_kubernetes_namespace]
+                regex: wordpress-.+
+                action: keep
+              # port名 http のみ(mariadb等のServiceを除外)
+              - source_labels: [__meta_kubernetes_service_port_name]
+                regex: http
+                action: keep
+              # 発見したService DNSをprobe対象URLにする
+              - source_labels: [__address__]
+                regex: (.+)
+                target_label: __param_target
+                replacement: http://$1/
+              - source_labels: [__param_target]
+                target_label: instance
+              - source_labels: [__meta_kubernetes_namespace]
+                target_label: namespace
+              - source_labels: [__meta_kubernetes_service_name]
+                target_label: service
+              # 実際のscrape先はblackbox-exporter
+              - target_label: __address__
+                replacement: monitoring-blackbox-exporter.cattle-monitoring-system.svc:9115

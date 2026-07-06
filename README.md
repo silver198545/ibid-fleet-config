@@ -18,7 +18,9 @@ dev → staging → production の3つのRKE2クラスタ(Harvester上、Rancher
 ## 構成
 
 - `envs/<env>/`: 環境別のFleetバンドル([envs/README.md](envs/README.md)参照)
-  - `infra/`: カタログ登録(Bitnami)・Longhorn CRD・Longhorn 本体
+  - `infra/`: カタログ登録(Bitnami)・Longhorn CRD・Longhorn 本体・
+    監視スタック(rancher-monitoring + blackbox-exporter + アラートルール、
+    [docs/manual-monitoring.md](docs/manual-monitoring.md)参照)
   - `sites/<site>/`: WordPressサイト(1サイト=1ディレクトリ、`fleet.yaml`)
 - `charts/ibid-wordpress/`: 全サイト共通デフォルトを内包したラッパーチャート
   (Bitnami `wordpress` を依存に持つ)。mainマージで `release-chart.yaml` がGHCRへ公開し、
@@ -31,6 +33,8 @@ dev → staging → production の3つのRKE2クラスタ(Harvester上、Rancher
   SealedSecretとして `envs/<env>/secrets/` に生成(パスワードはサイトごと・
   環境ごとにランダム生成。平文はGitに入らない)。
   `scripts/bootstrap-site-secrets.sh <site>` は緊急時用(クラスタへ直接作成)
+- `scripts/seal-monitoring-secret.sh <env>`: アラート通知用Slack Webhook URLを
+  SealedSecretとして `envs/<env>/infra/monitoring-secrets/` に生成
 - `scripts/deploy-wordpress.sh <env> <site>`: **緊急用(break-glass)**の手動デプロイ。
   通常の変更はPRマージ→Fleet適用で行う
 - `scripts/restore-wordpress.sh <site> <バックアップディレクトリ>`: 既存サイトの
@@ -43,6 +47,8 @@ dev → staging → production の3つのRKE2クラスタ(Harvester上、Rancher
 - `docs/manual-harvester-loadbalancer.md`: Harvester Cloud Provider の IPPool 作成手順
   (MetalLB は廃止し、Harvester Cloud Provider に一本化。クラスタごとに作成)
 - `docs/manual-wordpress.md`: WordPressサイトを追加する手順
+- `docs/manual-monitoring.md`: 監視・アラート(rancher-monitoring + Slack通知)の
+  導入・運用手順
 - `docs/manual-wordpress-restore.md`: 既存の別環境WordPressサイトからデータを移行
   (リストア)する手順
 - `docs/wordpress-site-delegation.md`: サイト管理権限を他チームへ委譲する際の
@@ -59,7 +65,9 @@ dev → staging → production の3つのRKE2クラスタ(Harvester上、Rancher
 2. [docs/manual-harvester-loadbalancer.md](docs/manual-harvester-loadbalancer.md) の手順で
    Harvester 管理クラスタにそのクラスタ用の IPPool を作成する。
 3. `fleet-bootstrap/gitrepo-<env>.yaml` を Rancher local クラスタへ適用する。
-4. Fleetが `envs/<env>/infra/`(カタログ登録 → Longhorn CRD → Longhorn 本体)を適用する。
+4. Fleetが `envs/<env>/infra/`(カタログ登録 → Longhorn CRD → Longhorn 本体 →
+   監視スタック)を適用する。監視のSlack通知には環境ごとのSealedSecret生成が必要
+   ([docs/manual-monitoring.md](docs/manual-monitoring.md))。
 
 詳細: [docs/manual-multi-env.md](docs/manual-multi-env.md)
 

@@ -9,7 +9,7 @@ Rancher側の3つのGitRepo([../fleet-bootstrap/](../fleet-bootstrap/)参照)が
 ```
 envs/
 ├── dev/
-│   ├── infra/    # catalog-repos / longhorn-crd / longhorn (基盤バンドル)
+│   ├── infra/    # catalog-repos / longhorn* / sealed-secrets / monitoring* (基盤バンドル)
 │   └── sites/    # WordPressサイト(1サイト=1ディレクトリ、fleet.yaml)
 ├── staging/      # 同構成
 └── production/   # 同構成
@@ -29,6 +29,11 @@ envs/
 - Gitでプロモーションするのは**構成のみ**(チャートバージョン、values、イメージ)。
   DBデータやwp-contentの実データは昇格しない
   ([../docs/manual-wordpress-restore.md](../docs/manual-wordpress-restore.md) の手順で個別に移送する)。
+
+- infraバンドル(monitoring系を含む)はpromoteワークフローの対象外
+  (`sites/` のみコピーされる)。環境への展開は手動PRで行い、監視のSlack通知用
+  SealedSecretは環境ごとに `scripts/seal-monitoring-secret.sh <env>` で生成し直す
+  ([../docs/manual-monitoring.md](../docs/manual-monitoring.md) 参照)。
 
 ## infra/ について
 

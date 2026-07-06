@@ -1,0 +1,16 @@
+# Alertmanager用Slack Webhook URLのSealedSecretバンドル。
+#
+# - defaultNamespaceを指定することでFleetがnamespaceを自動作成する
+#   (monitoring本体より先に適用されてよい。Alertmanager Podはこの
+#   Secretをマウントするため、むしろ先に存在するのが望ましい)。
+# - dependsOnは付けないこと。monitoring本体に依存させると
+#   「Secretが無い→Alertmanagerが起動しない→本体がReadyにならない→
+#   Secretが適用されない」のデッドロックになる。
+# - SealedSecret本体は scripts/seal-monitoring-secret.sh <env> で生成する
+#   (封印は環境ごと。他環境のファイルはコピーしても復号できない)。
+defaultNamespace: cattle-monitoring-system
+
+keepResources: true
+
+helm:
+  releaseName: monitoring-secrets
