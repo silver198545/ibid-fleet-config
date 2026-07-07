@@ -1,0 +1,17 @@
+# Alertmanager用Slack Webhook URLのSealedSecret(production環境)。
+# scripts/seal-monitoring-secret.sh で生成。封印された値はこの環境の
+# コントローラでのみ復号できる(他環境へのコピー不可。環境ごとに生成し直すこと)。
+# ローテーション手順は docs/manual-monitoring.md 参照。
+---
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: alertmanager-slack-webhook
+  namespace: cattle-monitoring-system
+spec:
+  encryptedData:
+    webhook-url: AgCIMfkCV4UAtZaGvvtX56lcuJAPPIKAcCJkmiiPQkY32pODMv/I0NyOPQYGatHeygr/Mdq7+h+jfto80vGksbCwelLW1kcHsG5lp+6zmVueS78RRuq+6Elq85RIy6dRybrl39AEXB4HIKk9mhQp9g7YyX0sJtRS8TauqqvbtXzNctrYEK3U8FjLtNEtBcvYMJW5xPur7K801S+Dq5mme2al6hexZMn1Ri8ndk2Ynhcm8hfTJVJkaFfjvuYMg4C6JwEfU8tMVSKdrg8JkLlDhG8vkTwJFYt7fZl9hyE0QHmDbVx7jRLpaXjcZHjHn3y4B2QTqfAFquzJ77nnKg9bye1jozL/juqCyvcFCYCCDqOw8tm174On6Z2Qk31Hs+mrIC3bivQmCoesKD6m0qhT4QPGJee9aNRuMpFLenEhE2f35fUpmGeO6FGBhFLbp0fh/GCZe6JrgHcm+zDfQbMCLo8HExpZr0Z8maSMZdN02CthON1psTQEyv+Rq3txlkn7/KtsQnJ4YnDCRci5RQ4VzpUK4JfRi+phRCdcaeyNnnxa0ytqiGZwJoa65NUFZe0iIGlwrnW/GBv9Pfx3AV7mhF615j9oci9/WKKx7GQoo3M/AKKeXtC7+BWxDhIRT8OKjbIB577DGBz9yrKQhAbFzecKi4a0mxIXkQk3i4VtwO67QCBovAbYsbtTMczRgMQcKI6eqb0Y58yyyhh32/RcBS+T7gmRXIOx971dWnIAezmNrc0J6r1Vv/TV41sBKYTDXDWmjlBm1LKd24fQKfK2+s6+ShQe3lF+O9wwg1NqDQ4K
+  template:
+    metadata:
+      name: alertmanager-slack-webhook
+      namespace: cattle-monitoring-system

@@ -45,7 +45,7 @@
 
 ## 🟠 優先度・中: 本番コンテンツが入る前に塞ぐ運用の穴
 
-### 4. 監視・アラートの導入 【済(2026-07-06、devから展開中)】
+### 4. 監視・アラートの導入 【済(dev: 2026-07-06、staging/production: 2026-07-07)】
 
 - **採用構成**: rancher-monitoring 109.0.3(+ blackbox-exporter)を
   `envs/<env>/infra/monitoring*` の5バンドルとしてGitOps導入。
@@ -53,7 +53,9 @@
   Longhornバックアップ成否・容量アラート(3.の容量アラートを兼ねる)、
   Slack通知(Webhook URLは環境別SealedSecret)。
   運用手順: [manual-monitoring.md](manual-monitoring.md)
-- **残作業**: staging / production への展開PR(promoteは`sites/`のみ対象のため手動)。
+- **残作業**: ~~staging / production への展開PR~~ 済(2026-07-07、手動PRで全環境展開。
+  Webhook URLは全環境で共通=同一Slackチャンネル。通知タイトルの`[cluster]`で環境を識別。
+  チャンネルを分けたくなったら環境ごとに再封印する — manual-monitoring.mdのローテーション手順)。
 - 制約: probeはクラスタ内経由のため**LB IP経路の障害・IPPool枯渇は検知不可**。
   1.のIngress化・2.のDNS導入時に外形監視を再検討する。
 
