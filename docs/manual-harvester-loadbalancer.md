@@ -66,7 +66,16 @@ kubectl --context rancher -n fleet-default patch clusters.provisioning.cattle.io
 > 実際に2026-07-07、chartValuesが空だったstaging1/prod1でノードプール入替を契機に
 > LBが `kubernetes-*` 名で再作成され、IPPool不一致でstagingの全サイトが外部到達不能になった
 > (prod1は既存LB CRが残っていたため無事故だったが同じ地雷を抱えていた)。
-> クラスタを新規作成・再構築したら、このchartValuesが入っていることを必ず確認すること。
+
+> **さらに重要: Rancher UIでのクラスタ設定変更(ノードプール編集等)は、この
+> chartValuesを黙って `{}` に消すことがある**。実例: 2026-07-07、朝まで設定が
+> 入っていたdev1が、ノードプールのディスク拡張編集後に `{}` になり、入替中に
+> `kubernetes-*` LBの作成・削除が繰り返される症状で発覚した(staging1/prod1に
+> 元から設定が無かったのも、過去のUI操作で消されたためと推定)。
+> **クラスタの新規作成・再構築・UI経由の設定変更をしたら、毎回
+> `kubectl --context rancher -n fleet-default get clusters.provisioning.cattle.io <クラスタ名> -o jsonpath='{.spec.rkeConfig.chartValues.harvester-cloud-provider}'`
+> で残存を確認すること。**症状(kubernetes-*名のLBが作成されては消える)が出たら
+> まずここを疑う。
 
 ### 既知の落とし穴: IPPoolの範囲にHarvester管理VIPを含めない
 
