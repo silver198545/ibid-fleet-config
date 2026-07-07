@@ -33,8 +33,10 @@ kubectl config delete-cluster dev1
 kubectl config get-users            # dev1という名前のuserが単独で残っていないか確認
 kubectl config delete-user dev1     # 単独であれば削除(rancher等と共有していれば消さない)
 
-KUBECONFIG=~/.kube/config:~/.kube/dev1.yaml kubectl config view --flatten > /tmp/merged-kubeconfig
-mv /tmp/merged-kubeconfig ~/.kube/config
+MERGED="$(mktemp)"
+KUBECONFIG=~/.kube/config:~/.kube/dev1.yaml kubectl config view --flatten > "$MERGED"
+install -m 600 "$MERGED" ~/.kube/config
+rm -f "$MERGED"
 kubectl config get-contexts
 ```
 

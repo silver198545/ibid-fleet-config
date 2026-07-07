@@ -28,11 +28,14 @@ CODEOWNERS承認も別途必要)が必要。
 
 ### kubectl
 
-クラスタ側(RKE2)のバージョンに近いクライアントを使うこと(現状 v1.35 系。
-`kubectl version -o yaml`で相互のバージョン差が±1マイナーバージョン以内かを確認する)。
+クラスタ側(RKE2)のバージョンに近いクライアントを使うこと。`stable.txt`(常に最新版)を
+そのまま使うとクラスタのバージョンと乖離しやすいため、対象クラスタの実際のサーバー
+バージョン(Rancher UIまたは`kubectl --context <既存context> version -o yaml`で確認)を
+`KUBECTL_VERSION`に明示してインストールする(±1マイナーバージョン以内が目安)。
 
 ```bash
-curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+KUBECTL_VERSION='v1.35.6'   # 対象クラスタのサーバーバージョンに合わせる
+curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
 chmod +x kubectl
 sudo mv kubectl /usr/local/bin/kubectl
 kubectl version --client
@@ -90,10 +93,15 @@ gh auth login
 (このリポジトリでは `local`→`rancher`、`dev1`、`staging1`、`prod1` のcontext名で統一)。
 
 ```bash
-KUBECONFIG=~/.kube/config:~/Downloads/<ダウンロードしたファイル> kubectl config view --flatten > /tmp/merged-kubeconfig
-mv /tmp/merged-kubeconfig ~/.kube/config
+MERGED="$(mktemp)"
+KUBECONFIG=~/.kube/config:~/Downloads/<ダウンロードしたファイル> kubectl config view --flatten > "$MERGED"
+install -m 600 "$MERGED" ~/.kube/config
+rm -f "$MERGED"
 kubectl config get-contexts
 ```
+`~/.kube/config`にはクラスタ認証用トークンが平文で入るため、`mktemp`で予測不可能な
+一時ファイルを使い、`install -m 600`で権限を600(自分のみ読み書き可)に固定してから
+配置する。
 
 **クラスタを削除して同名で作り直した場合は要注意**: 古いcontext/clusterが
 `~/.kube/config`に残っていると新しいkubeconfigのマージで衝突し、古い(存在しない)
