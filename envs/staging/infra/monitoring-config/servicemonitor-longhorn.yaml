@@ -1,0 +1,18 @@
+# Longhornのメトリクス(容量・バックアップ状態等)をPrometheusに取り込む。
+# longhornチャート側のmetrics.serviceMonitorは使わない:
+# 有効化するとlonghornバンドルがmonitoring CRDに依存してしまい、
+# DR再構築時(monitoring未導入の段階)にLonghornのhelm適用が失敗するため。
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: longhorn
+  namespace: cattle-monitoring-system
+spec:
+  selector:
+    matchLabels:
+      app: longhorn-manager
+  namespaceSelector:
+    matchNames:
+      - longhorn-system
+  endpoints:
+    - port: manager

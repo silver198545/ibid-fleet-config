@@ -1,0 +1,31 @@
+defaultNamespace: cattle-monitoring-system
+targetNamespace: cattle-monitoring-system
+
+keepResources: true
+
+helm:
+  releaseName: monitoring-blackbox
+  chart: prometheus-blackbox-exporter
+  repo: https://prometheus-community.github.io/helm-charts
+  version: 11.15.1
+  values:
+    # Prometheus側のadditionalScrapeConfigsが参照するService名を固定する。
+    fullnameOverride: monitoring-blackbox-exporter
+    config:
+      modules:
+        http_wordpress:
+          prober: http
+          timeout: 10s
+          http:
+            preferred_ip_protocol: ip4
+            # WordPressは設定URL(LB IP)への301リダイレクトを返すことがある。
+            # クラスタ内からLB IPへの追跡(ヘアピン)を避けるためリダイレクトは
+            # 追跡せず、3xx応答も「生存」とみなす。
+            follow_redirects: false
+            valid_status_codes: [200, 301, 302, 303, 307, 308]
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        memory: 64Mi

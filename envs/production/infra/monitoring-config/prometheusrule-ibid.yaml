@@ -1,0 +1,67 @@
+# ibid運用の独自アラートルール。
+# ノード障害・Pod異常等の汎用アラートはkube-prometheus-stack既定ルールが
+# カバーするため、ここには「サイト死活」「Longhorn容量・バックアップ」のみ置く。
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: ibid-alerts
+  namespace: cattle-monitoring-system
+spec:
+  groups:
+    - name: wordpress.uptime
+      rules:
+        - alert: WordPressSiteDown
+          expr: probe_success{job="blackbox-wordpress-http"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: 'WordPressサイト {{ $labels.namespace }} ({{ $labels.instance }}) がHTTP応答しません'
+        - alert: WordPressSiteSlow
+          expr: probe_duration_seconds{job="blackbox-wordpress-http"} > 5
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: 'WordPressサイト {{ $labels.namespace }} の応答が5秒を超えています({{ $value | humanizeDuration }})'
+
+    - name: longhorn.capacity
+      rules:
+        - alert: LonghornNodeStorageUsageWarning
+          expr: longhorn_node_storage_usage_bytes / longhorn_node_storage_capacity_bytes > 0.75
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: 'Longhornノード {{ $labels.node }} のストレージ使用率が75%を超えています({{ $value | humanizePercentage }})'
+        - alert: LonghornNodeStorageUsageCritical
+          expr: longhorn_node_storage_usage_bytes / longhorn_node_storage_capacity_bytes > 0.9
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: 'Longhornノード {{ $labels.node }} のストレージ使用率が90%を超えています({{ $value | humanizePercentage }})'
+
+    - name: longhorn.backup
+      rules:
+        # longhorn_backup_state のenum: 3=Completed はdev1実機で確認済み
+        # (正常バックアップのCR state=Completedがメトリクス値3)。
+        # Longhornソースのenum順により 0=New, 1=Pending, 2=InProgress,
+        # 3=Completed, 4=Error, 5=Unknown。
+        - alert: LonghornBackupError
+          expr: longhorn_backup_state == 4
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: 'Longhornバックアップがエラー状態です(volume: {{ $labels.volume }})'
+        # 日次バックアップ(backup-daily, JST 02:00)が26時間以上成功していない
+        # =「静かに動いていない」ことを検知する。
+        # CronJob名はLonghornがRecurringJob名そのままで生成する(dev1実機確認済み)。
+        - alert: LonghornDailyBackupStale
+          expr: time() - max(kube_cronjob_status_last_successful_time{namespace="longhorn-system", cronjob="backup-daily"}) > 26 * 60 * 60
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: 'Longhorn日次バックアップが26時間以上成功していません'
