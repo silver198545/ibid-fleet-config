@@ -15,6 +15,8 @@ dependsOn:
 
 # admission webhookのcaBundleはoperatorが実行時に注入するため、
 # そのままだとFleetが常にModified(ドリフト)と判定する。比較から除外する。
+# rules[].scopeも同様に、マニフェストで未指定でもAPIサーバーがデフォルト値"*"を
+# 補完して返すため、比較から除外する(2026-07-07 dev1のDR復元検証時に発覚)。
 diff:
   comparePatches:
     - apiVersion: admissionregistration.k8s.io/v1
@@ -22,12 +24,15 @@ diff:
       name: rancher-monitoring-admission
       jsonPointers:
         - /webhooks/0/clientConfig/caBundle
+        - /webhooks/0/rules/0/scope
     - apiVersion: admissionregistration.k8s.io/v1
       kind: ValidatingWebhookConfiguration
       name: rancher-monitoring-admission
       jsonPointers:
         - /webhooks/0/clientConfig/caBundle
         - /webhooks/1/clientConfig/caBundle
+        - /webhooks/0/rules/0/scope
+        - /webhooks/1/rules/0/scope
 
 helm:
   # Rancher UI(クラスタ→Monitoring)のGrafanaプロキシ等がこのリリース名を
