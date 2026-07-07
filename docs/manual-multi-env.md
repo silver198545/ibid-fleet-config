@@ -3,6 +3,9 @@
 数十のWordPressサイトを dev → staging → production の3つのRKE2クラスタで運用するための
 セットアップ手順と、既存の単一クラスタ(dev1)からの移行手順。
 
+作業端末にkubectl等のCLIツールがまだ無い場合は先に
+[manual-tooling-setup.md](manual-tooling-setup.md)を参照。
+
 ## 全体像
 
 | 役割 | 使うもの |

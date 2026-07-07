@@ -42,6 +42,8 @@ dev → staging → production の3つのRKE2クラスタ(Harvester上、Rancher
   ([docs/manual-wordpress-restore.md](docs/manual-wordpress-restore.md)参照)
 - `.github/workflows/`: `validate`(PR検証)、`release-chart`(チャート公開)、
   `build-wordpress-image`(イメージ公開)、`promote`(昇格PR生成)
+- `docs/manual-tooling-setup.md`: 作業端末に必要なCLIツール(kubectl/helm/kubeseal等)の
+  インストール手順とkubeconfigの準備
 - `docs/manual-multi-env.md`: マルチ環境のセットアップ・既存クラスタの移行・昇格運用・
   break-glass手順
 - `docs/manual-dr-troubleshooting.md`: DR復元(クラスタ全損からの復元)を実際に
