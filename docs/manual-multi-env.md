@@ -225,10 +225,15 @@ Fleet/GitHub/GHCRのいずれかが使えない、または即時の手動修復
      --type merge -p '{"spec":{"paused":false}}'
    ```
 
-## 8. DR: クラスタ全損からの復元手順(2026-07-05にstagingで実証済み)
+## 8. DR: クラスタ全損からの復元手順(2026-07-05にstagingで実証済み、2026-07-07にdev1でも実施)
 
 **前提の3点セット**: ①Gitリポジトリ ②封印鍵バックアップ(6.参照) ③LonghornのNFSバックアップ。
 この3つが揃っていれば、クラスタを丸ごと失っても以下の手順で完全復元できる。
+
+**手順通りに進まない場合**: kubeconfigの再取得やLonghornバックアップからの復元で
+実際に詰まりやすいポイントとその対処法を
+[manual-dr-troubleshooting.md](manual-dr-troubleshooting.md)にまとめている。
+特に手順3(kubeconfig取得)と手順7(fromBackupでのVolume復元)で問題が起きたら先に確認する。
 
 ### 平時の備え(これが無いと復元できない)
 
@@ -268,7 +273,11 @@ Fleet/GitHub/GHCRのいずれかが使えない、または即時の手動修復
    kubectl -n wordpress-<site> delete pvc wordpress-<site> data-wordpress-<site>-mariadb-0
    ```
    バックアップから復元ボリュームを作成(wp-content用は `accessMode: rwx`、
-   DB用は `rwo`。sizeは元と同じバイト数):
+   DB用は `rwo`。sizeは元と同じバイト数)。**`volume=`にはバックアップボリュームの
+   CRリソース名(末尾にランダムなハッシュが付く)ではなく、ハッシュを除いた実際の
+   ボリューム名(PV名と同じ)を指定すること**(詳細は
+   [manual-dr-troubleshooting.md](manual-dr-troubleshooting.md)の2.参照。
+   間違えるとadmission webhookに`backupVolumes "" not found`で即座に拒否される):
    ```yaml
    apiVersion: longhorn.io/v1beta2
    kind: Volume

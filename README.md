@@ -44,6 +44,9 @@ dev → staging → production の3つのRKE2クラスタ(Harvester上、Rancher
   `build-wordpress-image`(イメージ公開)、`promote`(昇格PR生成)
 - `docs/manual-multi-env.md`: マルチ環境のセットアップ・既存クラスタの移行・昇格運用・
   break-glass手順
+- `docs/manual-dr-troubleshooting.md`: DR復元(クラスタ全損からの復元)を実際に
+  やってみた際に詰まりやすいポイントの補足(kubeconfig再取得、Longhornの
+  fromBackup復元など)
 - `docs/manual-harvester-loadbalancer.md`: Harvester Cloud Provider の IPPool 作成手順
   (MetalLB は廃止し、Harvester Cloud Provider に一本化。クラスタごとに作成)
 - `docs/manual-wordpress.md`: WordPressサイトを追加する手順
