@@ -81,6 +81,12 @@ resource state with `kubectl`.
   WordPress and MariaDB PVCs are recreated — see `docs/manual-wordpress-restore.md`.
 - **RWX volumes require `nfs-common` on every worker node** (Longhorn RWX = NFSv4 Share Manager).
   Baked into Harvester node-pool cloud-init or installed manually (`docs/manual-wordpress.md`).
+- **Fleet bundle names are truncated at 53 chars** (`<gitrepo>-<path-with-dashes>`, longer names get a
+  hash suffix). With the `ibid-production-envs-production-infra-` prefix (38 chars), any production
+  infra directory name over 15 chars produces a truncated bundle name, and `dependsOn` by full name
+  silently fails with `no bundles matching labels`. Reference such bundles via fleet.yaml `labels:` +
+  `dependsOn.selector` instead (include an env label — all environments' bundles share fleet-default).
+  See `envs/production/infra/monitoring/fleet.yaml`.
 - Chart/image versions are pinned explicitly (chart `version` in each site fleet.yaml, image digests in
   the wrapper chart / Dockerfile). Bump deliberately, dev first, then promote.
 - The `validate` workflow rejects site fleet.yamls missing `keepResources`/`releaseName`/`version` or
