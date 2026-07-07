@@ -88,8 +88,9 @@ done
 
 ## 4. wp-content用PVCの削除が`Terminating`のまま進まない
 
-**症状**: `kubectl delete pvc wordpress-<site>`(wp-content用、Deployment側)を実行しても
-`Terminating`のまま消えない。対応するmariadb用PVC(StatefulSet側)は正常に消える。
+**症状**: `kubectl -n wordpress-<site> delete pvc wordpress-<site>`(wp-content用、
+Deployment側)を実行しても`Terminating`のまま消えない。対応するmariadb用PVC
+(StatefulSet側)は正常に消える。
 
 **原因**: `kubernetes.io/pvc-protection`ファイナライザは、そのPVCを参照する**Podオブジェクトが
 1つでも存在する限り**外れない。`Completed`状態のPodも対象になる。このチャートには
