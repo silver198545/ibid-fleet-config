@@ -9,9 +9,15 @@ keepResources: true
 #   初回適用時のPod Pending(Secret待ち)を避ける。
 #   逆方向(monitoring-secrets側からのdependsOn)は絶対に付けないこと
 #   (相互待ちのデッドロックになる)。
+# - secretsはパス由来のバンドル名が53文字制限で切り詰められるため
+#   完全名では参照できず、selector(monitoring-secrets/fleet.yamlのlabels)で
+#   参照する。crdは52文字で制限内のため完全名のまま。
 dependsOn:
   - name: ibid-production-envs-production-infra-monitoring-crd
-  - name: ibid-production-envs-production-infra-monitoring-secrets
+  - selector:
+      matchLabels:
+        ibid-role: monitoring-secrets
+        ibid-env: production
 
 # admission webhookのcaBundleはoperatorが実行時に注入するため、
 # そのままだとFleetが常にModified(ドリフト)と判定する。比較から除外する。

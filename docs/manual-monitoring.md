@@ -102,6 +102,12 @@ promoteワークフローは `sites/` しかコピーしないため、monitorin
 - `prometheus.prometheusSpec.externalLabels.cluster`(dev / staging / production)
 - SealedSecret(環境ごとに封印し直す。コピー不可)
 - productionはPVC/retention増を検討(例: 30Gi / 15d)
+- **productionのみ**: パス由来のバンドル名(`ibid-production-envs-production-infra-<dir>`)は
+  Fleetの53文字制限にかかり、`monitoring-secrets` 等は
+  `…-infra-monitorin-<hash>` に切り詰められる(2026-07-07の展開時に発覚)。
+  このため monitoring-secrets には `labels:` を付与し、monitoring本体の
+  `dependsOn` は完全名ではなく `selector` で参照している(全環境のバンドルが
+  fleet-defaultに同居するため、ラベルには `ibid-env: production` を含めること)。
 
 ## トラブルシューティング
 

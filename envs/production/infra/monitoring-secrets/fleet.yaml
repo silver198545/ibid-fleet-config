@@ -10,6 +10,15 @@
 #   (封印は環境ごと。他環境のファイルはコピーしても復号できない)。
 defaultNamespace: cattle-monitoring-system
 
+# productionはパス由来のバンドル名が53文字制限で切り詰められ
+# (ibid-production-envs-production-infra-monitorin-<hash> になる)、
+# monitoring本体からのdependsOnが完全名で参照できない。
+# そのためラベルを付与し、dependsOn.selectorで参照させる。
+# ibid-envはfleet-default上の全環境のバンドルが同居するため必須。
+labels:
+  ibid-role: monitoring-secrets
+  ibid-env: production
+
 keepResources: true
 
 helm:
