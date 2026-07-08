@@ -26,6 +26,9 @@ wp-contentの実データは昇格せず、必要な場合は [manual-wordpress-
    - Require a pull request before merging(承認1件以上)
    - Require review from Code Owners
    - Require status checks to pass: `validate`
+   - Do not allow bypassing the above settings(`enforce_admins: true`)。管理者自身も
+     直接pushやPRなしマージができないようにする(有効化前に管理者アカウントで直接pushして
+     しまい、`Bypassed rule violations` 警告が出た経緯があるため必須)。
    - **注意**: GitHub Freeの個人アカウントではprivateリポジトリでブランチ保護/rulesetsが
      使えない(GitHub Pro等へのアップグレードが必須)。本リポジトリは2026-07-08に
      Private化した際にこのルールが無効化されたことに気づかず運用しており、
