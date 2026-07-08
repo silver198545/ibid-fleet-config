@@ -89,9 +89,13 @@
 
 ## 🟡 優先度・低: 小さいが効く宿題
 
-- **リポジトリのprivate化の検討**: 現在publicで、構成・IP配置・NFSアドレスが
-  公開されている(SealedSecretは暗号化済みのため秘密情報の漏洩はない)。
-  意図的でなければprivate化する(GHCRパッケージはpublicのままで問題ない)。
+- **リポジトリのprivate化** 【済(2026-07-08)】: GitHubリポジトリをPrivate化。
+  Rancher local クラスタの3 GitRepo(dev/staging/production)にGitHub fine-grained
+  PAT(Contents:Read-only、Rancher UI経由で`clientSecretName`に設定、Secretは
+  `fleet-default`の`auth-55znx`を3環境で共有)を追加し、同期は継続稼働を確認済み。
+  PATに有効期限があるため、期限切れ前の再発行が必要
+  ([fleet-bootstrap/README.md](../fleet-bootstrap/README.md)参照)。
+  GHCRパッケージは引き続きpublicのまま。
 - **PROMOTE_TOKENの登録**: 未登録のため昇格PRでvalidateが自動起動せず、
   空コミットpushで凌いでいる。repo権限のPATをSecretsに登録すれば解消
   ([manual-multi-env.md](manual-multi-env.md) 1.参照)。
