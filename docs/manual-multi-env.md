@@ -259,10 +259,22 @@ Fleet/GitHub/GHCRのいずれかが使えない、または即時の手動修復
    入替前に `kubectl -n longhorn-system get volumes` で全ボリュームが
    `attached` であることを確認し、detachedがあればワークロードを起動するか
    手動バックアップを取ってから着手すること。
-2. **LB Serviceが再作成されるため、cloud providerの`clusterName`恒久設定が前提**
+2. **attach中のボリュームでも、入替のペースがレプリカ再構築より速いと全損する**
+   (実例: dev dnaのDBボリュームは、約10分間隔のノード削除に8Giの再構築が
+   追いつかず、3レプリカとも旧ノードごと消失した)。
+   **ノードが1台置き換わるごとに、全ボリュームが `attached/healthy`(degradedが
+   解消済み)であることを確認してから次のノードに進む**のが確実。
+   一括で流す場合は、入替前に全ボリュームの手動バックアップを取ること。
+3. **LB Serviceが再作成されるため、cloud providerの`clusterName`恒久設定が前提**
    ([manual-harvester-loadbalancer.md](manual-harvester-loadbalancer.md)の
    「クラスタ名が正しく名乗れていない」参照。未設定だとLBが`kubernetes-*`名で
    再作成されIP割当に失敗する)。
+4. **復元直後のボリュームは、初回の日次バックアップが走るまでバックアップが
+   1つも存在しない**(実例: dev DR検証で復元した翌日にdna DBが全損し、
+   そのボリューム自体のバックアップはゼロだった。旧ボリューム名の古い
+   バックアップから復元して事なきを得た)。**ボリュームを復元・新規作成したら、
+   ワークロード起動後ただちに手動でSnapshot CR→Backup CRを作成すること**
+   (SnapshotはボリュームがattachedでないとCRが黙って消える点に注意)。
 
 ### 手順
 
