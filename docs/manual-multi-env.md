@@ -26,14 +26,24 @@ wp-contentの実データは昇格せず、必要な場合は [manual-wordpress-
    - Require a pull request before merging(承認1件以上)
    - Require review from Code Owners
    - Require status checks to pass: `validate`
+   - **注意**: GitHub Freeの個人アカウントではprivateリポジトリでブランチ保護/rulesetsが
+     使えない(GitHub Pro等へのアップグレードが必須)。本リポジトリは2026-07-08に
+     Private化した際にこのルールが無効化されたことに気づかず運用しており、
+     PROMOTE_TOKEN確認時に発覚してpublicへ差し戻した経緯がある
+     ([roadmap.md](roadmap.md)「リポジトリのprivate化」参照)。private化を検討する際は
+     必ず先にPro化するか、ブランチ保護を諦めるかを判断すること。
 2. [.github/CODEOWNERS](../.github/CODEOWNERS) の本番承認者を実際の体制に合わせて更新する。
 3. **ActionsにPR作成を許可する**(Settings → Actions → General → Workflow permissions):
    「Allow GitHub Actions to create and approve pull requests」にチェック。
    無効のままだと promote.yaml がブランチをpushした後のPR作成で
    「GitHub Actions is not permitted to create or approve pull requests」で失敗する。
-4. (任意)`PROMOTE_TOKEN` をリポジトリSecretsに登録する(repo権限のPAT)。
+4. `PROMOTE_TOKEN` をリポジトリSecretsに登録する(fine-grained PAT、対象リポジトリのみ、
+   Contents: Read and write / Pull requests: Read and write)。【済(2026-07-08)】
    promote.yaml がデフォルトの `github.token` でPRを作ると `validate` が自動起動しない
    (GitHub Actionsの再帰防止仕様)ため、validateを必須チェックにするなら実質必須。
+   PATに有効期限があるため、期限切れ前の再発行が必要(fine-grained PATはブラウザでの
+   手動作成が必須、再発行後は `gh secret set PROMOTE_TOKEN --repo silver198545/ibid-fleet-config`
+   で更新)。
 5. **GHCRパッケージのpublic化**(初回のチャート公開・イメージ公開後に1回だけ):
    GitHubの Packages → `charts/ibid-wordpress` と `wordpress` → Package settings →
    Change visibility → Public。クラスタが匿名でpullできるようにするため。

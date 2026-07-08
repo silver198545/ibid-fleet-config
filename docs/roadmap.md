@@ -89,16 +89,23 @@
 
 ## 🟡 優先度・低: 小さいが効く宿題
 
-- **リポジトリのprivate化** 【済(2026-07-08)】: GitHubリポジトリをPrivate化。
-  Rancher local クラスタの3 GitRepo(dev/staging/production)にGitHub fine-grained
-  PAT(Contents:Read-only、Rancher UI経由で`clientSecretName`に設定、Secretは
-  `fleet-default`の`auth-55znx`を3環境で共有)を追加し、同期は継続稼働を確認済み。
-  PATに有効期限があるため、期限切れ前の再発行が必要
-  ([fleet-bootstrap/README.md](../fleet-bootstrap/README.md)参照)。
-  GHCRパッケージは引き続きpublicのまま。
-- **PROMOTE_TOKENの登録**: 未登録のため昇格PRでvalidateが自動起動せず、
-  空コミットpushで凌いでいる。repo権限のPATをSecretsに登録すれば解消
-  ([manual-multi-env.md](manual-multi-env.md) 1.参照)。
+- **リポジトリのprivate化 → publicへ差し戻し** 【2026-07-08 に revert】: 一度Private化した
+  (GitRepo認証をGitHub fine-grained PATで設定、`fleet-default`の`auth-55znx`を3環境で共有)。
+  その後 PROMOTE_TOKEN 登録の確認作業で、**GitHub Freeの個人アカウントではprivateリポジトリで
+  ブランチ保護/rulesetsが使えない**(GitHub Pro等へのアップグレードが必須)ことが判明し、
+  `main`のブランチ保護ルール(PR必須・CODEOWNERS必須・validate必須チェック)が
+  Private化と同時に消えていたことを発見。CODEOWNERS必須化という昇格ゲートの根幹の方が
+  重要と判断し、リポジトリをpublicへ差し戻してブランチ保護を再作成した(GitHub API経由、
+  設定内容は[manual-multi-env.md](manual-multi-env.md) 1.と同一)。
+  GitRepoのPAT認証設定はRancher UI側に残したまま(実害なし、再private化時に流用可)。
+  詳細は[fleet-bootstrap/README.md](../fleet-bootstrap/README.md)参照。GHCRパッケージは
+  引き続きpublicのまま。
+  **今後privateに戻したい場合は、先にGitHub Proへのアップグレード(個人アカウント、
+  月額数ドル)を検討すること。**
+- **PROMOTE_TOKENの登録** 【済(2026-07-08)】: fine-grained PAT(対象リポジトリのみ、
+  Contents/Pull requests: Read and write)をリポジトリSecretsに登録し、昇格PRで
+  validateが自動起動するようになった([manual-multi-env.md](manual-multi-env.md) 1.参照)。
+  PATに有効期限があるため、期限切れ前の再発行が必要。
 - **webサイトのstaging/production昇格**: devだけv0.2.1+プラグイン一覧で先行しており
   環境ドリフト状態。promoteで収束させる。
 - **secretsバンドルのnamespace順序問題の恒久修正**: DR時に `kubectl create ns` が

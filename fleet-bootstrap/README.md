@@ -19,13 +19,17 @@ kubectl --context <rancher-local> apply -f fleet-bootstrap/gitrepo-dev.yaml
   (先に適用しても対象0台で待機するだけだが、紛らわしいので推奨しない)
 - 旧GitRepo(`base-infra`)からの切り替え手順は
   [../docs/manual-multi-env.md](../docs/manual-multi-env.md) を参照
-- 本リポジトリはPrivateなため、各GitRepoに認証情報(GitHubのfine-grained PAT、
-  Contents:Read-only権限)が必要。現状はRancher UI(Continuous Delivery → Git Repos →
-  Edit → Authentication → HTTP Basic Auth)から設定しており、`fleet-default`
-  namespaceに `kubernetes.io/basic-auth` 型のSecret `auth-55znx` が自動生成され、
-  3環境のGitRepoすべてがこれを `clientSecretName` で参照している(3環境で共有)。
-  トークンは絶対にGitへコミットしない。PATには有効期限があるため、期限切れ前に
-  GitHub側で再発行し、Rancher UIの同じ画面からSecretの中身を更新すること。
+- 本リポジトリは一時Private化していたが、2026-07-08にpublicへ戻した(理由は
+  [../docs/roadmap.md](../docs/roadmap.md)の「リポジトリのprivate化」項目参照。
+  GitHub Freeの個人アカウントではprivateリポジトリでブランチ保護/rulesetsが
+  使えず、CODEOWNERS必須化などの昇格ゲートが無効化されてしまうため)。
+  そのため各GitRepoの認証情報(`auth-55znx` Secret、`clientSecretName`参照)は
+  現時点では不要だが、Rancher UI側の設定はそのまま残してある(害はなく、将来
+  再びprivate化する場合にすぐ使える)。撤去する場合はRancher UI
+  (Continuous Delivery → Git Repos → Edit → Authentication)で3環境それぞれ
+  「なし」に変更し、`fleet-default` namespaceの `auth-55znx` Secretを削除する。
+  残す場合、PATには有効期限があるため期限切れ前にGitHub側で再発行し、Rancher UIの
+  同じ画面からSecretの中身を更新すること。
 
   kubectlで直接作成・更新する場合(UIを使わない場合)は以下。PATをコマンドライン引数に
   直接書くとシェル履歴等に残るため、`read -s` で対話入力して変数経由で渡すこと:
