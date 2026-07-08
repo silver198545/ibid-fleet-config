@@ -26,9 +26,12 @@ wp-contentの実データは昇格せず、必要な場合は [manual-wordpress-
    - Require a pull request before merging(承認1件以上)
    - Require review from Code Owners
    - Require status checks to pass: `validate`
-   - Do not allow bypassing the above settings(`enforce_admins: true`)。管理者自身も
-     直接pushやPRなしマージができないようにする(有効化前に管理者アカウントで直接pushして
-     しまい、`Bypassed rule violations` 警告が出た経緯があるため必須)。
+   - `enforce_admins`(Do not allow bypassing the above settings)は**無効のまま**にする。
+     現状collaboratorが `@silver198545` 一人のため、有効化すると
+     GitHubが自分自身のPRへのApproveを許可しない仕様により、`main`へ何もマージできなくなる
+     (2026-07-08に実際に検証して確認済み)。将来2人目以降のcollaboratorを迎えたら、
+     その人のPRにはCODEOWNERS承認が正しく機能する。管理者アカウントは直接push/自己マージで
+     バイパスできてしまう点は許容する(ソロ運用の実質的な安全網は`validate`のCIチェック)。
    - **注意**: GitHub Freeの個人アカウントではprivateリポジトリでブランチ保護/rulesetsが
      使えない(GitHub Pro等へのアップグレードが必須)。本リポジトリは2026-07-08に
      Private化した際にこのルールが無効化されたことに気づかず運用しており、
