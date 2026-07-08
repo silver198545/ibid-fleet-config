@@ -53,21 +53,48 @@ kubectl -n kube-system get helmchartconfig harvester-cloud-provider -o jsonpath=
 `kubernetes`のまま名乗ってしまう。dev1は移行前の単一クラスタ時代に作られた
 名残でこの`clusterName`が入っていなかった実績がある。
 
-修正(ゲストクラスタ側):
+**恒久修正(Rancher localクラスタ側。2026-07-07に全3クラスタへ適用済み)**:
+クラスタ定義の `spec.rkeConfig.chartValues` に `clusterName` を明示する。
+ここが正(source of truth)で、HelmChartConfigはここから生成される。
 
 ```bash
-kubectl -n kube-system patch helmchartconfig harvester-cloud-provider --type merge -p \
-  '{"spec":{"valuesContent":"{\"global\":{\"cattle\":{\"clusterId\":\"<既存のclusterIdをそのまま>\",\"clusterName\":\"<正しいクラスタ名>\"}}}"}}'
-
-# HelmのreinstallジョブがChart values Secretを更新したのを確認してから、CCMを再起動して反映させる
-kubectl -n kube-system rollout restart deploy/harvester-cloud-provider
+kubectl --context rancher -n fleet-default patch clusters.provisioning.cattle.io <クラスタ名> --type merge \
+  -p '{"spec":{"rkeConfig":{"chartValues":{"harvester-cloud-provider":{"cloudConfigPath":"/var/lib/rancher/rke2/etc/config-files/cloud-provider-config","global":{"cattle":{"clusterName":"<クラスタ名>"}}}}}}}'
 ```
 
-> この`HelmChartConfig`はRKE2のAddon機構が管理しているため、Rancher側でクラスタの
-> Cloud Provider設定が再同期されるタイミングで`clusterName`が消えて再発する可能性がある。
-> 再発した場合は同じ手順で当て直す。恒久対策にするなら、本来はRancherのクラスタ設定
-> (Cluster Management → 対象クラスタ → Cloud Provider関連の設定)側で`clusterName`を
-> 明示できないか確認するのが望ましい。
+> ゲストクラスタ側のHelmChartConfigを直接patchする暫定対処は**再発する**。
+> 実際に2026-07-07、chartValuesが空だったstaging1/prod1でノードプール入替を契機に
+> LBが `kubernetes-*` 名で再作成され、IPPool不一致でstagingの全サイトが外部到達不能になった
+> (prod1は既存LB CRが残っていたため無事故だったが同じ地雷を抱えていた)。
+
+> **さらに重要: Rancher UIでのクラスタ設定変更(ノードプール編集等)は、この
+> chartValuesを黙って `{}` に消すことがある**。実例: 2026-07-07、朝まで設定が
+> 入っていたdev1が、ノードプールのディスク拡張編集後に `{}` になり、入替中に
+> `kubernetes-*` LBの作成・削除が繰り返される症状で発覚した(staging1/prod1に
+> 元から設定が無かったのも、過去のUI操作で消されたためと推定)。
+> **クラスタの新規作成・再構築・UI経由の設定変更をしたら、毎回
+> `kubectl --context rancher -n fleet-default get clusters.provisioning.cattle.io <クラスタ名> -o jsonpath='{.spec.rkeConfig.chartValues.harvester-cloud-provider}'`
+> で残存を確認すること。**症状(kubernetes-*名のLBが作成されては消える)が出たら
+> まずここを疑う。
+
+### 既知の落とし穴: IPPoolの範囲にHarvester管理VIPを含めない
+
+IPPoolの範囲が、Harvester管理クラスタ自身のUI用VIP(`kube-system/ingress-expose` Service)や
+他の使用中IPと重なっていると、そのIPがサイトLBに払い出された時点で**ARP flappingが起き、
+サイトとHarvester UIの両方が不安定になる**(症状: サイトのhttpsがRancher系UIの
+`/dashboard/` へのリダイレクトを返す、ARPテーブルのMACが交互に入れ替わる)。
+
+- 実例(2026-07-08解消): staging用pool2が `.60-.70` で、`.60` = Harvester UIのVIPだった。
+  dnaサイトに `.60` が割り当てられ衝突 → pool2を `.61-.70` に変更して解消。
+- VIPの確認: Harvester管理クラスタで `kubectl -n kube-system get svc ingress-expose`
+- 範囲変更の手順(割当済みIPを除外する場合、webhookに拒否されるため順序が重要):
+  1. 該当LB CRを削除(`kubectl -n harvester-public delete loadbalancer <名前>`)
+  2. 直後にIPPoolのrangeを変更(CCMが取り直す前に)
+  3. **CCMはServiceの既存status IPを維持しようとする**ため、旧IPが残る場合は
+     `kubectl -n <ns> patch svc <名前> --subresource=status --type merge -p '{"status":{"loadBalancer":{"ingress":[]}}}'`
+     でstatusをクリアし、LB CRを再度削除 → Serviceにアノテーションを付けて再同期を促す
+  4. サイトのWordPressがIP直URLをDBに焼き込んでいる場合はURL置換も必要
+     (`manual-wordpress-restore.md` 手順6)
 
 ### どのクラスタが「Harvester管理クラスタ」なのか迷ったら
 
