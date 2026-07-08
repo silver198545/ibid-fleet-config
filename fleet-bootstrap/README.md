@@ -27,13 +27,16 @@ kubectl --context <rancher-local> apply -f fleet-bootstrap/gitrepo-dev.yaml
   トークンは絶対にGitへコミットしない。PATには有効期限があるため、期限切れ前に
   GitHub側で再発行し、Rancher UIの同じ画面からSecretの中身を更新すること。
 
-  kubectlで直接作成・更新する場合(UIを使わない場合)は以下:
+  kubectlで直接作成・更新する場合(UIを使わない場合)は以下。PATをコマンドライン引数に
+  直接書くとシェル履歴等に残るため、`read -s` で対話入力して変数経由で渡すこと:
 
   ```bash
+  read -s -p "GitHub PAT: " GH_PAT && echo
   kubectl --context <rancher-local> create secret generic auth-55znx \
     --namespace fleet-default \
     --type kubernetes.io/basic-auth \
     --from-literal=username=<GitHubユーザー名> \
-    --from-literal=password=<PAT> \
+    --from-literal=password="$GH_PAT" \
     --dry-run=client -o yaml | kubectl --context <rancher-local> apply -f -
+  unset GH_PAT
   ```
