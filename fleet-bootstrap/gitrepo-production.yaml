@@ -12,6 +12,9 @@ metadata:
   namespace: fleet-default
 spec:
   repo: https://github.com/silver198545/ibid-fleet-config
+  # リポジトリがPrivateのため認証が必要。fleet-defaultにfine-grained PAT(Contents:Read-only)を
+  # kubernetes.io/basic-auth Secretとして事前作成しておくこと(トークン自体はGitに含めない)。
+  clientSecretName: auth-55znx
   branch: main
   paths:
     - envs/production
