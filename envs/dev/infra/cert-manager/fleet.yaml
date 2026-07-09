@@ -16,6 +16,8 @@ helm:
 
 # admission webhookのcaBundleはcert-manager自身が実行時に注入するため、
 # そのままだとFleetが常にModifiedと判定する(monitoring/fleet.yamlと同じ既知パターン)。
+# rules[].scopeも同様に、マニフェストで未指定でもAPIサーバーがデフォルト値"*"を
+# 補完して返すため、比較から除外する。
 diff:
   comparePatches:
     - apiVersion: admissionregistration.k8s.io/v1
@@ -23,8 +25,10 @@ diff:
       name: cert-manager-webhook
       jsonPointers:
         - /webhooks/0/clientConfig/caBundle
+        - /webhooks/0/rules/0/scope
     - apiVersion: admissionregistration.k8s.io/v1
       kind: ValidatingWebhookConfiguration
       name: cert-manager-webhook
       jsonPointers:
         - /webhooks/0/clientConfig/caBundle
+        - /webhooks/0/rules/0/scope
