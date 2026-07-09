@@ -13,3 +13,18 @@ helm:
     crds:
       enabled: true
       keep: true
+
+# admission webhookのcaBundleはcert-manager自身が実行時に注入するため、
+# そのままだとFleetが常にModifiedと判定する(monitoring/fleet.yamlと同じ既知パターン)。
+diff:
+  comparePatches:
+    - apiVersion: admissionregistration.k8s.io/v1
+      kind: MutatingWebhookConfiguration
+      name: cert-manager-webhook
+      jsonPointers:
+        - /webhooks/0/clientConfig/caBundle
+    - apiVersion: admissionregistration.k8s.io/v1
+      kind: ValidatingWebhookConfiguration
+      name: cert-manager-webhook
+      jsonPointers:
+        - /webhooks/0/clientConfig/caBundle
