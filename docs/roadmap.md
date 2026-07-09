@@ -28,12 +28,23 @@
   ドメイン設計・DNS・証明書(下記2.)とセットで検討すること。
 - **トリガー**: 本番サイト数が8を超える前に着手。
 
-### 2. TLS/ドメイン/公開経路の設計
+### 2. TLS/ドメイン/公開経路の設計 【進行中: dev環境で発行確認済み(2026-07-09)】
 
-- **現状**: 全サイトHTTP + IP直アクセス。実ユーザー公開には
-  DNS・TLS証明書(cert-manager + Let's Encrypt等)・`wordpressScheme: https` が必要。
-- **方針**: 1.のIngress化と一体で設計する。社内限定公開を続けるなら現状維持も可。
-- **トリガー**: 最初の「外部公開サイト」の要件が出た時点。
+- **決定事項**: 社内限定サイトはFreeIPA(`ibid.lan`)のACMEから証明書を発行する。
+  FreeIPA(v3333)→ゲストクラスタ(v140)は意図的なセグメント分離で到達不可のため、
+  HTTP-01ではなく**DNS-01(cert-manager標準のRFC2136ソルバー、FreeIPAのDNSへTXTレコードを
+  直接動的更新)**を採用。外部公開が必要なサイトは別ドメイン+外部NginxProxyManager経由とし、
+  本リポジトリのcert-manager/FreeIPA ACME連携の対象外(NPM側で独自にLet's Encrypt等を使う)。
+  ホスト名規約は`<site>.<env>.ibid.lan`。
+- **前提作業**: 3クラスタ全台に第2NIC(FreeIPA向けVLAN、Harvester側)を追加してFreeIPAへの
+  到達性を確保した。FreeIPA側ではTSIG鍵によるDNS動的更新の許可と、ACME機能自体の不完全な
+  セットアップ(CAプロファイル未移行・テンプレート変数未置換・エージェントグループ未所属)
+  を修復した。手順: [manual-cert-manager-freeipa-acme.md](manual-cert-manager-freeipa-acme.md)
+- **現状**: devにcert-manager + ClusterIssuer(`freeipa-acme`)を導入し、
+  `web.dev.ibid.lan`向け証明書の発行をsmoke testで確認済み。
+- **残作業**: ibidipa2側にも同種のACME不具合(プロファイル変数未置換・エージェントグループ
+  未所属)が無いか確認、cert-managerのstaging/production展開、各サイトのIngress化
+  (Traefik LoadBalancer化とセットで進める、下記1.参照)。
 
 ### 3. ストレージ容量計画
 
