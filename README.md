@@ -58,6 +58,8 @@ dev → staging → production の3つのRKE2クラスタ(Harvester上、Rancher
   (リストア)する手順
 - `docs/wordpress-site-delegation.md`: サイト管理権限を他チームへ委譲する際の
   運用設計(記事は本番直接編集、プラグインは申請→dev検査→本番反映、権限設計)
+- `docs/manual-cert-manager-freeipa-acme.md`: cert-manager + FreeIPA ACME(DNS-01/RFC2136)
+  によるTLS証明書自動発行の導入手順
 - `docs/roadmap.md`: 今後の開発方針(スケール前に決める設計判断、運用の穴、
   優先度とトリガー)
 

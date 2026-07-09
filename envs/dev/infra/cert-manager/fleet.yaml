@@ -1,0 +1,15 @@
+defaultNamespace: cert-manager
+targetNamespace: cert-manager
+
+# 発行済み証明書・ClusterIssuer等はバンドル削除で失われてはならない。
+keepResources: true
+
+helm:
+  releaseName: cert-manager
+  chart: cert-manager
+  repo: https://charts.jetstack.io
+  version: v1.21.0
+  values:
+    crds:
+      enabled: true
+      keep: true

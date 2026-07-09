@@ -1,0 +1,24 @@
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: freeipa-acme
+spec:
+  acme:
+    # ipa-ca.ibid.lan (CA複製へのラウンドロビンDNS)は本環境には存在しないため、
+    # ibidipa1を直接指定する。ibidipa1が落ちている間は新規発行・更新が止まる。
+    server: https://ibidipa1.ibid.lan/acme/directory
+    email: masanobu.uchida@riken.jp
+    privateKeySecretRef:
+      name: freeipa-acme-account-key
+    solvers:
+      # v3333(FreeIPA)→v140(ゲストクラスタ)への到達性は意図的なセグメント分離で
+      # 存在しないため、HTTP-01は使えない。DNS-01(FreeIPAのDNSへ直接TXTレコードを
+      # 動的更新)を使う。TSIG鍵の設定はdocs/manual-cert-manager-freeipa-acme.md参照。
+      - dns01:
+          rfc2136:
+            nameserver: 192.168.100.21:53
+            tsigKeyName: certmanager-key
+            tsigAlgorithm: HMACSHA256
+            tsigSecretSecretRef:
+              name: freeipa-rfc2136-tsig
+              key: secret
