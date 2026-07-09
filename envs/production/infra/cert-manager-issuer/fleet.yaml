@@ -1,0 +1,14 @@
+defaultNamespace: cert-manager
+targetNamespace: cert-manager
+
+# ClusterIssuer/Secretの削除は既存証明書の更新を止めてしまうため、
+# 他のinfraバンドルと同じ方針でリソースを残す。
+keepResources: true
+
+# cert-managerのCRD(ClusterIssuer等)が先に必要。
+# 注意: このバンドル自身(cert-manager-issuer、20文字)はibid-production-envs-production-infra-
+# プレフィックス(38文字)と合わせて53文字を超えるため名前が切り詰められるが、
+# 他バンドルからこのバンドル自体への依存は無いため実害はない
+# (依存先のcert-managerは12文字で切り詰め対象外、フルネームで参照可能)。
+dependsOn:
+  - name: ibid-production-envs-production-infra-cert-manager

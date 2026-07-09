@@ -1,0 +1,34 @@
+defaultNamespace: cert-manager
+targetNamespace: cert-manager
+
+# 発行済み証明書・ClusterIssuer等はバンドル削除で失われてはならない。
+keepResources: true
+
+helm:
+  releaseName: cert-manager
+  chart: cert-manager
+  repo: https://charts.jetstack.io
+  version: v1.21.0
+  values:
+    crds:
+      enabled: true
+      keep: true
+
+# admission webhookのcaBundleはcert-manager自身が実行時に注入するため、
+# そのままだとFleetが常にModifiedと判定する(monitoring/fleet.yamlと同じ既知パターン)。
+# rules[].scopeも同様に、マニフェストで未指定でもAPIサーバーがデフォルト値"*"を
+# 補完して返すため、比較から除外する。
+diff:
+  comparePatches:
+    - apiVersion: admissionregistration.k8s.io/v1
+      kind: MutatingWebhookConfiguration
+      name: cert-manager-webhook
+      jsonPointers:
+        - /webhooks/0/clientConfig/caBundle
+        - /webhooks/0/rules/0/scope
+    - apiVersion: admissionregistration.k8s.io/v1
+      kind: ValidatingWebhookConfiguration
+      name: cert-manager-webhook
+      jsonPointers:
+        - /webhooks/0/clientConfig/caBundle
+        - /webhooks/0/rules/0/scope
