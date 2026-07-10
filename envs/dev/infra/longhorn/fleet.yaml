@@ -20,3 +20,9 @@ helm:
       # クラスタ外NFSへのバックアップ先(環境ごとに別ディレクトリ)。
       # 定期実行は ../longhorn-jobs/ のRecurringJobで管理する。
       backupTarget: nfs://192.168.1.1:/data/nfs/longhorn/dev
+      # スケジュール可能枠 = (ディスク容量 - 予約) × この比率。
+      # 15サイト一斉追加(#55)で既定の100%では枠が尽きたため150%へ。
+      # wp-contentはthin-provisioningで実使用が数%と低く、実容量の逼迫は
+      # 監視(Longhorn容量アラート)で検知する。恒久策はノード専用ディスク増設
+      # (docs/roadmap.md 項目3、本番量産の計画時に判断)。
+      storageOverProvisioningPercentage: "150"
