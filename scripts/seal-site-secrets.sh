@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # WordPressサイト1つ分の認証情報Secret(3種)をSealedSecretとして
 # envs/<env>/secrets/<site>.yaml に出力する(Sealed Secrets運用。Phase 2)。
+# 出力にはサイトのNamespaceも含める(secretsバンドルが自力でnamespaceを
+# 作成できるようにし、DR時の手動 kubectl create ns を不要にする)。
 #
 # 2つのモードを自動判別する:
 #   1) 対象クラスタに3つのSecretが既に存在する → その値をそのまま封印(移行モード)。
@@ -87,8 +89,8 @@ if [[ $EXISTING -eq 3 ]]; then
   done
 elif [[ $EXISTING -eq 0 ]]; then
   echo "Secretが無いため新規パスワードを生成して封印します(新規サイトモード)。" >&2
-  kubectl --context "$CONTEXT" create namespace "$NAMESPACE" --dry-run=client -o yaml \
-    | kubectl --context "$CONTEXT" apply -f - >/dev/null
+  # namespaceの事前作成は不要(下記でバンドル自体にNamespaceを含めるため、
+  # マージ後にFleetが作成する)
 
   WP_PASSWORD="$(openssl rand -base64 24)"
   DB_ROOT_PASSWORD="$(openssl rand -base64 24)"
@@ -127,6 +129,14 @@ cat >"$OUT_FILE" <<EOF
 # scripts/seal-site-secrets.sh で生成。封印された値はこの環境のコントローラ
 # でのみ復号できる(他環境へのコピー不可。環境ごとに生成し直すこと)。
 # パスワードのローテーション手順は docs/manual-wordpress.md 参照。
+---
+# サイトのnamespace。SealedSecretより先に適用されるようバンドルに含める
+# (DR時の手動 kubectl create ns を不要にする)。既存namespaceの引き取りは
+# fleet.yaml の takeOwnership: true が担う。
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: $NAMESPACE
 EOF
 for s in "$CREDENTIALS_SECRET" "$MARIADB_SECRET" "$MARIADB_UPGRADE_SECRET"; do
   # kubesealの出力は先頭に"---"を含むことがあるため、除去してから
@@ -147,6 +157,9 @@ keepResources: true
 
 helm:
   releaseName: site-secrets
+  # 各<site>.yamlに含まれるNamespaceが既存(手動作成済み等)でも
+  # エラーにせず引き取れるようにする
+  takeOwnership: true
 EOF
   echo "作成しました: $FLEET_FILE" >&2
 fi

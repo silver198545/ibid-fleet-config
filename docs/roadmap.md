@@ -74,8 +74,8 @@
     今回staging/productionには適用していない(社内限定運用のため)。同様の公開が
     必要になった場合は[manual-wordpress-restore.md](manual-wordpress-restore.md)
     6b.の手順を参照。
-- **残作業**: ibidipa1/ibidipa2の`dnf-automatic`設定の見直し(FreeIPA管理者、上記の
-  障害の恒久対策)。
+- **残作業**: ~~ibidipa1/ibidipa2の`dnf-automatic`設定の見直し(FreeIPA管理者、上記の
+  障害の恒久対策)~~ 済(2026-07-11、FreeIPAサーバー側で対応済み)。
 
 ### 2. TLS/ドメイン/公開経路の設計 【済(3環境、2026-07-10)】
 
@@ -229,9 +229,12 @@
 - **webサイトのstaging/production昇格** 【済(2026-07-10、Ingress化の昇格と同時に解消)】:
   devだけv0.2.1+プラグイン一覧で先行していたドリフトは、Traefik Ingress化のpromoteで
   併せて収束させた。
-- **secretsバンドルのnamespace順序問題の恒久修正**: DR時に `kubectl create ns` が
-  手動で必要(runbook 8.の手順5)。seal-site-secrets.shの生成物にNamespaceを含め、
-  secretsバンドルに `takeOwnership: true` を付ける改修で自動化できる。
+- **secretsバンドルのnamespace順序問題の恒久修正** 【済(2026-07-11)】: DR時に
+  `kubectl create ns` が手動で必要だった(runbook 8.の旧手順5)。
+  seal-site-secrets.shの生成物にNamespaceを含め、secretsバンドルの
+  `helm.takeOwnership: true` で既存namespaceを引き取る改修を実施
+  (既存5サイト分の `<site>.yaml` にもNamespaceを追記。dev先行で検証後、
+  staging/productionへ展開)。
 - **一括バージョンアップ用ツール**: サイトが増えると全fleet.yamlのチャートversionや
   プラグイン版数の一括更新が手作業になる。数十サイト到達前に簡単なスクリプト化を検討。
 - **テスト痕跡の掃除**: dev1の `pre-fleet-adoption-*` スナップショット2件、
