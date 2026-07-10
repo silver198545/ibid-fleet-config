@@ -126,10 +126,21 @@
     staging/production未展開)、`charts/ibid-wordpress` v0.4.0(両PVCのstorageClass
     変更)。既存サイトの実データ移行手順は
     [manual-storage-migration.md](manual-storage-migration.md)参照。
-- **残作業**: `longhorn-r1`バンドルのstaging/production展開、既存サイト
-  (dev: web/dna、staging: web/dna、production: web)の実データ移行(1サイトずつ、
-  devから)。移行完了後、実際の容量削減効果を数値で再確認し、30サイト到達可否を
-  再試算する。
+- **dev実施結果(2026-07-10、web/dna完了)**: 移行前はdev1の5ノードとも
+  scheduled使用率55〜62%だったが、両サイト移行+旧ボリューム削除後は
+  **0〜49%(平均26%)まで低下**。移行後の1サイトあたりの footprint は
+  wp-content 10GiB(replica=1のみ)、MariaDBはゲストLonghornプールを一切消費しない
+  (0GiB)ため、旧来の54GiB/サイトから**実質10GiB/サイト**まで下がった。
+  移行作業で判明した実務上の注意点(Fleetの継続的な再同期が手動scaleを打ち消す→
+  事前にBundleをpausedにする必要がある等)はランブックに反映済み。
+  30サイト到達の再試算: 30サイト×10GiB + 監視90GiB(production想定) = 390GiB
+  nominal。90%ラインで確保するには実効プール≥433GiB(≒87GiB/ノード)必要
+  ——現状の61GiB/ノードから**about+26GiB/ノードの専用ディスク追加**で足りる計算
+  (旧設計での380GiB/ノード要求からは大幅に圧縮された)。Harvester側の新規物理
+  必要量も概算 585GiB程度(現状の空き約798GiBで収まる)。
+- **残作業**: `longhorn-r1`バンドルのstaging/production展開、staging(web/dna)・
+  production(web)の実データ移行。全環境完了後、上記の再試算を実測値で確定させ、
+  ノード専用ディスク追加の要否を最終判断する。
 - 監視スタック(Prometheus PVC)は対象外(サイト数と連動して増える容量ではないため)。
 
 ## 🟠 優先度・中: 本番コンテンツが入る前に塞ぐ運用の穴
