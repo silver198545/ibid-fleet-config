@@ -18,7 +18,7 @@
 
 ## 🔴 優先度・高: スケール前に決めるべき設計判断
 
-### 1. Ingress方式への転換(LoadBalancer IP枯渇対策) 【進行中: dev完了(2026-07-10)】
+### 1. Ingress方式への転換(LoadBalancer IP枯渇対策) 【済(3環境、2026-07-10)】
 
 - **現状**: 1サイト=1 LoadBalancer IPだった。IPPoolは dev 20個 / staging 10個(.61-.70、
   2026-07-08にHarvester UI VIPの.60を除外) / **本番11個(192.168.1.90-100)** しかなく、
@@ -56,13 +56,28 @@
   **恒久対策の宿題**: ibidipa1/ibidipa2の`dnf-automatic`が無人適用モード
   (`apply_updates=yes`相当)になっており、CAサービスを無警告で停止させ得ることが判明した。
   `notify`のみに変更し、月次メンテナンス日(6.参照)にまとめて適用する運用への見直しを検討。
-- **残作業**: 上記`dnf-automatic`設定の見直し(FreeIPA管理者)、staging/productionへの
-  同様の展開(各クラスタでTraefik LB化 + DNS登録 + サイトfleet.yaml昇格、既存の
-  promoteワークフローで実施)。
-- **トリガー(旧基準、達成済みにつき参考情報)**: 本番サイト数が8を超える前に着手
-  → 8サイトに達する前にdevで先行実施済み。
+- **staging/productionへの展開(2026-07-10完了)**:
+  - staging1のTraefikをLoadBalancer化(共有LB IP`192.168.1.63`、pool2)。
+    promoteワークフロー(dev→staging、site=all)でweb/dna両サイトを昇格
+    (これによりstagingが抱えていたチャートバージョン/プラグイン一覧の環境ドリフトも
+    同時に解消。低優先度の宿題「webサイトのstaging/production昇格」も併せて解消)。
+    Ingress・Certificate(FreeIPA CA発行)・HTTPS疎通(`web.staging.ibid.lan`/
+    `dna.staging.ibid.lan`)を確認済み。
+  - prod1のTraefikをLoadBalancer化(共有LB IP`192.168.1.91`、pool3)。
+    promoteワークフロー(staging→production、site=web)でwebサイトを昇格。
+    Ingress・Certificate・HTTPS疎通(`web.production.ibid.lan`)を確認済み。
+    productionには`dna`サイトは元々存在しないため対象外(現状維持)。
+  - promoteワークフローは環境間で`fleet.yaml`をファイルごとコピーするだけのため、
+    Ingressの`hostname`値(`<site>.<env>.ibid.lan`)は昇格後に手動で環境名部分を
+    修正する必要がある(自動では書き換わらない。今回はPRブランチに追いコミットで対応)。
+  - 外部リバースプロキシ経由の公開(dev「web」サイトのみ、`wpdev2.brc.riken.jp`)は
+    今回staging/productionには適用していない(社内限定運用のため)。同様の公開が
+    必要になった場合は[manual-wordpress-restore.md](manual-wordpress-restore.md)
+    6b.の手順を参照。
+- **残作業**: ibidipa1/ibidipa2の`dnf-automatic`設定の見直し(FreeIPA管理者、上記の
+  障害の恒久対策)。
 
-### 2. TLS/ドメイン/公開経路の設計 【cert-manager導入は済(3環境、2026-07-09)】
+### 2. TLS/ドメイン/公開経路の設計 【済(3環境、2026-07-10)】
 
 - **決定事項**: 社内限定サイトはFreeIPA(`ibid.lan`)のACMEから証明書を発行する。
   FreeIPA(v3333)→ゲストクラスタ(v140)は意図的なセグメント分離で到達不可のため、
@@ -79,8 +94,9 @@
   導入済み。devで`web.dev.ibid.lan`向け証明書発行のsmoke testを実施し、ibidipa1/ibidipa2
   双方のACMEエンドポイント経由での発行成功を確認済み。production導入後の疎通確認
   (cert-manager Pod Running、ClusterIssuer Ready、TSIG鍵SealedSecret Synced)も完了(2026-07-10)。
-  dev環境ではIngress化・DNS登録・Certificate発行(FreeIPA CA発行)まで一通り完了(上記1.参照)。
-- **残作業**: staging/productionへのIngress化展開(上記1.参照)。
+  3環境ともIngress化・DNS登録・Certificate発行(FreeIPA CA発行)まで一通り完了(上記1.参照)。
+- **残作業**: なし(サイト追加時は`<site>.<env>.ibid.lan`のIngress設定とDNS登録を
+  同じ手順で行うだけでよい)。
 
 ### 3. ストレージ容量計画
 
@@ -153,8 +169,9 @@
   Contents/Pull requests: Read and write)をリポジトリSecretsに登録し、昇格PRで
   validateが自動起動するようになった([manual-multi-env.md](manual-multi-env.md) 1.参照)。
   PATに有効期限があるため、期限切れ前の再発行が必要。
-- **webサイトのstaging/production昇格**: devだけv0.2.1+プラグイン一覧で先行しており
-  環境ドリフト状態。promoteで収束させる。
+- **webサイトのstaging/production昇格** 【済(2026-07-10、Ingress化の昇格と同時に解消)】:
+  devだけv0.2.1+プラグイン一覧で先行していたドリフトは、Traefik Ingress化のpromoteで
+  併せて収束させた。
 - **secretsバンドルのnamespace順序問題の恒久修正**: DR時に `kubectl create ns` が
   手動で必要(runbook 8.の手順5)。seal-site-secrets.shの生成物にNamespaceを含め、
   secretsバンドルに `takeOwnership: true` を付ける改修で自動化できる。
