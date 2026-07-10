@@ -28,7 +28,7 @@
   ドメイン設計・DNS・証明書(下記2.)とセットで検討すること。
 - **トリガー**: 本番サイト数が8を超える前に着手。
 
-### 2. TLS/ドメイン/公開経路の設計 【進行中: dev環境で発行確認済み(2026-07-09)】
+### 2. TLS/ドメイン/公開経路の設計 【cert-manager導入は済(3環境、2026-07-09)】
 
 - **決定事項**: 社内限定サイトはFreeIPA(`ibid.lan`)のACMEから証明書を発行する。
   FreeIPA(v3333)→ゲストクラスタ(v140)は意図的なセグメント分離で到達不可のため、
@@ -38,13 +38,17 @@
   ホスト名規約は`<site>.<env>.ibid.lan`。
 - **前提作業**: 3クラスタ全台に第2NIC(FreeIPA向けVLAN、Harvester側)を追加してFreeIPAへの
   到達性を確保した。FreeIPA側ではTSIG鍵によるDNS動的更新の許可と、ACME機能自体の不完全な
-  セットアップ(CAプロファイル未移行・テンプレート変数未置換・エージェントグループ未所属)
-  を修復した。手順: [manual-cert-manager-freeipa-acme.md](manual-cert-manager-freeipa-acme.md)
-- **現状**: devにcert-manager + ClusterIssuer(`freeipa-acme`)を導入し、
-  `web.dev.ibid.lan`向け証明書の発行をsmoke testで確認済み。
-- **残作業**: ibidipa2側にも同種のACME不具合(プロファイル変数未置換・エージェントグループ
-  未所属)が無いか確認、cert-managerのstaging/production展開、各サイトのIngress化
-  (Traefik LoadBalancer化とセットで進める、下記1.参照)。
+  セットアップ(CAプロファイル未移行・テンプレート変数未置換・エージェントグループ未所属)を
+  ibidipa1/ibidipa2の両CAサーバーで修復した。手順:
+  [manual-cert-manager-freeipa-acme.md](manual-cert-manager-freeipa-acme.md)
+- **現状**: dev/staging/production全環境にcert-manager + ClusterIssuer(`freeipa-acme`)を
+  導入済み。devで`web.dev.ibid.lan`向け証明書発行のsmoke testを実施し、ibidipa1/ibidipa2
+  双方のACMEエンドポイント経由での発行成功を確認済み。production導入後の疎通確認
+  (cert-manager Pod Running、ClusterIssuer Ready、TSIG鍵SealedSecret Synced)も完了(2026-07-10)。
+- **残作業**: 各サイトのIngress化(Traefik/LoadBalancer化とセットで進める、下記1.参照)。
+  Ingress化が完了するまでは、サイトのfleet.yamlに
+  `cert-manager.io/cluster-issuer: freeipa-acme` のannotationを付けても実際の証明書発行
+  経路(Ingress)が無いため効果がない。
 
 ### 3. ストレージ容量計画
 
