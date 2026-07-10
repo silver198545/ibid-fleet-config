@@ -40,16 +40,23 @@
     IngressはTraefikのLB IPに正しく紐付いた(`kubectl get ingress`でADDRESS確認済み)。
   - 監視(blackbox probe)はService(namespace正規表現+port名`http`)による動的発見のため
     無変更で動作継続。
-- **既知の障害(2026-07-10発見、本リポジトリのスコープ外)**: Certificateの発行が
-  `order is in "errored" state: Failed to create Order: 404`で失敗する。原因は
-  cert-managerやDNS未登録ではなく、**FreeIPA側のACMEディレクトリエンドポイント自体が
-  ibidipa1・ibidipa2の両方で404を返している**こと(`curl -k
-  https://ibidipa1.ibid.lan/acme/directory`で確認可能。ClusterIssuerのACMEアカウント登録
-  自体は2026-07-09時点でReady=Trueなので、その後に発生した可能性が高い)。
-  `ipa-acme-manage status`での確認・`ipa-acme-manage enable`の再実行など、FreeIPA管理者
-  権限での調査が必要(このセッションにはKerberosチケットがなく実施できなかった)。
-- **残作業**: 上記ACMEエンドポイント404の解消(FreeIPA管理者)、DNS Aレコード登録
-  (`ipa dnsrecord-add`、手順は下記2.参照、ユーザーが実行)、staging/productionへの
+  - DNS Aレコード登録(`web.dev.ibid.lan`/`dna.dev.ibid.lan` → Traefik LB IP)完了。
+  - Certificate発行完了(`web.dev.ibid.lan-tls`/`dna.dev.ibid.lan-tls`ともReady=True)。
+    `https://web.dev.ibid.lan/` / `https://dna.dev.ibid.lan/` でHTTPS 200・
+    FreeIPA CA発行証明書での応答を確認済み(2026-07-10)。
+- **解消済みの障害(2026-07-10発生・解消)**: Certificate発行が
+  `order is in "errored" state: Failed to create Order: 404`で失敗する事象が発生。
+  **原因はcert-manager側ではなく、ibidipa1で`dnf-automatic`が06:35 JSTに自動適用した
+  パッケージ更新をきっかけに、pki-tomcatd上のCA/ACME webappのホットリデプロイが失敗し
+  (`Unable to stop ACME engine: An invalid Lifecycle transition was attempted`)、
+  Tomcat自体は稼働中のままCA/ACME機能だけが404を返し続ける状態になっていたこと**
+  (ibidipa2でも同時刻`dnf-automatic`実行の形跡あり、同様の事象)。
+  `systemctl restart pki-tomcatd@pki-tomcat.service`を両CAサーバーで実行し復旧、
+  cert-manager側もCertificate/CertificateRequestを再作成して即時リトライさせ発行成功。
+  **恒久対策の宿題**: ibidipa1/ibidipa2の`dnf-automatic`が無人適用モード
+  (`apply_updates=yes`相当)になっており、CAサービスを無警告で停止させ得ることが判明した。
+  `notify`のみに変更し、月次メンテナンス日(6.参照)にまとめて適用する運用への見直しを検討。
+- **残作業**: 上記`dnf-automatic`設定の見直し(FreeIPA管理者)、staging/productionへの
   同様の展開(各クラスタでTraefik LB化 + DNS登録 + サイトfleet.yaml昇格、既存の
   promoteワークフローで実施)。
 - **トリガー(旧基準、達成済みにつき参考情報)**: 本番サイト数が8を超える前に着手
@@ -72,9 +79,8 @@
   導入済み。devで`web.dev.ibid.lan`向け証明書発行のsmoke testを実施し、ibidipa1/ibidipa2
   双方のACMEエンドポイント経由での発行成功を確認済み。production導入後の疎通確認
   (cert-manager Pod Running、ClusterIssuer Ready、TSIG鍵SealedSecret Synced)も完了(2026-07-10)。
-- **残作業**: DNS Aレコード登録(`ipa dnsrecord-add`、TSIG鍵はTXTのみ許可のため自動化不可、
-  ipa管理者権限で手動登録。手順は本ドキュメント内に追記済み)、staging/productionへの
-  Ingress化展開(上記1.参照)。
+  dev環境ではIngress化・DNS登録・Certificate発行(FreeIPA CA発行)まで一通り完了(上記1.参照)。
+- **残作業**: staging/productionへのIngress化展開(上記1.参照)。
 
 ### 3. ストレージ容量計画
 
