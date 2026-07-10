@@ -75,7 +75,7 @@ helm:
       ingress:
         enabled: true
         ingressClassName: traefik
-        hostname: dna.dev.ibid.lan
+        hostname: dna.staging.ibid.lan
         tls: true
         annotations:
           cert-manager.io/cluster-issuer: freeipa-acme
