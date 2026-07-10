@@ -1,0 +1,70 @@
+defaultNamespace: wordpress-cell
+targetNamespace: wordpress-cell
+
+# このサイトをGitから削除してもFleetにリソース(PVC=データ含む)を削除させない。
+# サイトの完全削除は docs/manual-wordpress.md の手順に従って手動で行う。
+keepResources: true
+
+helm:
+  # リリース名を明示する(Fleetのバンドル名由来の自動命名にしない)。
+  # 既存の手動デプロイ済みリリースをFleetが引き継ぐためにも必須。
+  releaseName: wordpress-cell
+  # 全サイト共通デフォルトを内包したラッパーチャート(charts/ibid-wordpress)。
+  # バージョンを上げる=このサイトへの変更適用。環境ごとに段階的に昇格させる。
+  chart: oci://ghcr.io/silver198545/charts/ibid-wordpress
+  version: "0.4.0"
+  # BitnamiのmariadbサブチャートはHelmアップグレード時、existingSecretを
+  # 使っていてもauth.rootPassword/auth.passwordの明示指定を要求してくる
+  # (PASSWORDS ERROR)。Gitにパスワードを書かないよう、
+  # scripts/seal-site-secrets.sh で生成したSealedSecret経由で注入する。
+  valuesFrom:
+    - secretKeyRef:
+        name: wordpress-cell-mariadb-upgrade-values
+        namespace: wordpress-cell
+        key: values.yaml
+  # 共通のデフォルト値はラッパーチャート側にまとめてある。ここにはこのサイト固有の
+  # 差分のみを書く。Bitnamiサブチャートへ渡す値は wordpress: 配下に、ラッパー
+  # チャート自身の設定(plugins等)は values 直下に置く。
+  values:
+    # このサイトが必要とするプラグイン(宣言的)。適用のたびにwp-cliのJobが
+    # インストール(バージョン固定)・有効化する。再現性のためversion明示を推奨。
+    # 一覧から消しても自動削除はしない(削除は手動)。docs/manual-wordpress.md参照。
+    # plugins:
+    #   - name: advanced-custom-fields
+    #     version: "6.8.4"
+    wordpress:
+      # 管理者パスワードはGitに含めず、事前に作成したSecretを参照する。
+      existingSecret: wordpress-cell-credentials
+      mariadb:
+        auth:
+          existingSecret: wordpress-cell-mariadb-credentials
+      # Traefik Ingress経由で公開する(docs/manual-harvester-loadbalancer.md参照)。
+      # チャートデフォルトの個別LoadBalancerではなく、共有Traefik LBの
+      # ホスト名ルーティングを使う。
+      service:
+        type: ClusterIP
+      ingress:
+        enabled: true
+        ingressClassName: traefik
+        hostname: cell.dev.ibid.lan
+        tls: true
+        annotations:
+          cert-manager.io/cluster-issuer: freeipa-acme
+
+# Kubernetes APIはNetworkPolicyのportsにprotocol: TCPを自動補完するが、
+# Bitnamiチャートのマニフェストには無いため、Fleetが常時「Modified」と
+# 誤検知する。ingress部分を差分比較の対象から除外して抑止する。
+diff:
+  comparePatches:
+    - apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      name: wordpress-cell
+      namespace: wordpress-cell
+      jsonPointers:
+        - /spec/ingress
+    - apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      name: wordpress-cell-mariadb
+      namespace: wordpress-cell
+      jsonPointers:
+        - /spec/ingress
