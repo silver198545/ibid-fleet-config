@@ -127,16 +127,17 @@
     変更)。既存サイトの実データ移行手順は
     [manual-storage-migration.md](manual-storage-migration.md)参照。
 - **dev実施結果(2026-07-10、web/dna完了)**: 移行前はdev1の5ノードとも
-  scheduled使用率55〜62%だったが、両サイト移行+旧ボリューム削除後は
+  Longhornの`Scheduled`使用率55〜62%だったが、両サイト移行+旧ボリューム削除後は
   **0〜49%(平均26%)まで低下**。移行後の1サイトあたりの footprint は
-  wp-content 10GiB(replica=1のみ)、MariaDBはゲストLonghornプールを一切消費しない
+  `wp-content` 10GiB(`replica=1`のみ)、MariaDBはゲストLonghornプールを一切消費しない
   (0GiB)ため、旧来の54GiB/サイトから**実質10GiB/サイト**まで下がった。
   移行作業で判明した実務上の注意点(Fleetの継続的な再同期が手動scaleを打ち消す→
   事前にBundleをpausedにする必要がある等)はランブックに反映済み。
-  30サイト到達の再試算: 30サイト×10GiB + 監視90GiB(production想定) = 390GiB
-  nominal。90%ラインで確保するには実効プール≥433GiB(≒87GiB/ノード)必要
-  ——現状の61GiB/ノードから**about+26GiB/ノードの専用ディスク追加**で足りる計算
-  (旧設計での380GiB/ノード要求からは大幅に圧縮された)。Harvester側の新規物理
+  30サイト到達の再試算: 30サイト×10GiB + 監視90GiB(サイト数に依存しない固定
+  オーバーヘッドとしてproduction想定の値を合算) = 390GiB nominal。90%ラインで
+  確保するには実効プール≥433GiB(≒87GiB/ノード)必要——現状の61GiB/ノードから
+  **約26GiB/ノードの専用ディスク追加**で足りる計算(旧設計での380GiB/ノード要求
+  からは大幅に圧縮された)。Harvester側の新規物理
   必要量も概算 585GiB程度(現状の空き約798GiBで収まる)。
 - **残作業**: `longhorn-r1`バンドルのstaging/production展開、staging(web/dna)・
   production(web)の実データ移行。全環境完了後、上記の再試算を実測値で確定させ、
