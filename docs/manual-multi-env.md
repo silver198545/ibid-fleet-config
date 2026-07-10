@@ -325,9 +325,12 @@ Fleet/GitHub/GHCRのいずれかが使えない、または即時の手動修復
    sealed-secretsコントローラ/バックアップ設定)が自動導入される。
    新規インストールでは `defaultSettings.backupTarget` がpatch不要で有効(実証済み)。
    バックアップ先がavailableになるとNFS上の旧バックアップ一覧も自動で見える。
-5. **サイトのnamespaceを手動作成**: `kubectl create ns wordpress-<site>`(サイト分)。
-   secretsバンドルは適用先namespaceを自分では作らないため、これをしないと
-   `namespaces not found` で止まる(既知の順序制約)。
+5. **サイトのnamespace作成は不要(2026-07-11改修済み)**: secretsバンドルの
+   各 `<site>.yaml` がNamespaceを含むようになったため、Fleetが自動作成する
+   (既存namespaceがあってもfleet.yamlの `takeOwnership: true` で引き取る)。
+   改修前に生成した `<site>.yaml`(Namespaceを含まないもの)を使う場合のみ、
+   従来どおり `kubectl create ns wordpress-<site>` の手動作成が必要
+   (しないと `namespaces not found` で止まる)。
 6. **封印鍵をリストア**(6.参照)。SealedSecretがSynced=Trueになり、Secretが復元されて
    sitesバンドルのデプロイが進む(エラーバックオフで止まったままの場合は
    GitRepoの `spec.forceSyncGeneration` を+1して再同期)。
