@@ -170,28 +170,55 @@ kubectl -n <namespace> get svc
 
 期待値は `TYPE=LoadBalancer` かつ `EXTERNAL-IP` に IPPool の範囲内のアドレスが入っていることです。
 
-## Traefik を LoadBalancer 化する必要はあるか
+## Traefik を LoadBalancer 化する(サイト数増加に伴うIngress方式への転換、2026-07-10〜)
 
-**WordPress は自分専用の `LoadBalancer` Service を直接持つ構成（`ingress.enabled: false`）のため、
-Traefik を経由しません。** WordPress を公開するためだけであれば、Traefik を LoadBalancer 化する
-必要はありません。
+1サイト=1 LoadBalancer IPのままだとIPPoolが枯渇するため（`docs/roadmap.md` 優先度・高の項目1）、
+**Traefik を1つの共有LoadBalancer IPで公開し、各WordPressサイトはホスト名ベースのIngressで
+振り分ける**方式に転換する。各サイトのcert-manager Ingress annotationについては
+[manual-cert-manager-freeipa-acme.md](manual-cert-manager-freeipa-acme.md) を参照。
 
-過去の手順（旧 `manual-metallb-and-traefik.md`）では Traefik も MetalLB で LoadBalancer 化していましたが、
-これは WordPress とは無関係な、別の目的（Rancher UI や他の Ingress ベースのアプリを Traefik 経由で
-公開する等）で設定されていたものです。そうした用途が無ければ、以下で元の `ClusterIP` に戻せます。
+### 設定方法(Rancher Cluster CR経由、Fleet管理外)
+
+`rke2-traefik`はRKE2組み込みのHelmChartConfigで管理されており、`harvester-cloud-provider`の
+`clusterName`修正と同じ理由で、**直接`kubectl patch svc`しても永続しない**
+（Rancherが定期的にHelmChartを再同期し上書きする）。source of truthは
+ゲストクラスタ側ではなくRancher local クラスタの`Cluster` CRの`spec.rkeConfig.chartValues`。
 
 ```bash
-# Traefik を元の ClusterIP に戻す
-kubectl -n kube-system patch svc rke2-traefik --type merge -p '{"spec":{"type":"ClusterIP"}}'
-
-# kube-vip.io/loadbalancerIPs アノテーションを付けていた場合は削除
-kubectl -n kube-system annotate svc rke2-traefik kube-vip.io/loadbalancerIPs-
+kubectl --context rancher -n fleet-default patch clusters.provisioning.cattle.io <クラスタ名> --type merge \
+  -p '{"spec":{"rkeConfig":{"chartValues":{"rke2-traefik":{"service":{"spec":{"type":"LoadBalancer"}}}}}}}'
 ```
 
-将来的に WordPress をドメイン名 + TLS でアクセスできるようにする場合は、
-`wordpress/fleet.yaml` の `ingress.enabled: true` に切り替えて Traefik 経由の Ingress に
-することも選択肢になります（[manual-wordpress.md](manual-wordpress.md) の補足を参照）。
-その場合は改めて Traefik を LoadBalancer 化してください。
+> **落とし穴: キーパスは `service.spec.type` であって `service.type` ではない。**
+> Traefik公式チャート(v40系、Rancherが`rke2-traefik`として再パッケージ)のvalues.yamlでは
+> Service関連の値が`service.spec`配下(K8s Service specへの素通し領域)にネストされており、
+> `service.type`を渡してもテンプレート側で読まれず黙って無視される(エラーにならない)。
+> `helm --kube-context <ctx> -n kube-system get values rke2-traefik`で意図通りの値が
+> user-suppliedとして反映されていても、`get manifest`のServiceが`ClusterIP`のままなら
+> このキーパス違いを疑うこと。
+
+反映確認:
+
+```bash
+# HelmChartConfigに反映されたか(数秒で反映)
+kubectl --context <クラスタ名> get helmchartconfig -n kube-system rke2-traefik -o jsonpath='{.spec.valuesContent}'
+# helm-install Jobが再実行されHelmアップグレードが走るまで待つ(概ね15〜30秒)
+kubectl --context <クラスタ名> get job -n kube-system helm-install-rke2-traefik
+# ServiceがLoadBalancerになりEXTERNAL-IPが付与されたか
+kubectl --context <クラスタ名> get svc rke2-traefik -n kube-system
+```
+
+`harvester-cloud-provider`と同様、**このchartValuesもノードプール編集等のRancher UI操作で
+黙って消えることがある**既知の問題を抱えている。ノード入替後は必ず
+`kubectl --context rancher -n fleet-default get clusters.provisioning.cattle.io <クラスタ名> -o jsonpath='{.spec.rkeConfig.chartValues.rke2-traefik}'`
+で残存を確認すること。
+
+払い出されたIP(dev1: `192.168.1.39`、pool1 `192.168.1.30-49`の範囲内)は、各サイトの
+ホスト名(`<site>.<env>.ibid.lan`)のDNS Aレコードとして登録する
+([manual-cert-manager-freeipa-acme.md](manual-cert-manager-freeipa-acme.md) 参照)。
+staging/productionへ展開する際も同じ手順を各クラスタに対して行い、環境ごとに異なる
+LB IPを払い出させる(pool2/pool3からそれぞれ1つずつ消費するだけで済み、
+サイトごとのIP消費は発生しなくなる)。
 
 ## 補足
 
