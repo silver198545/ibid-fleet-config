@@ -232,6 +232,88 @@ kubectl -n "wordpress-$SITE" get svc
 そのドメインをLBのEXTERNAL-IPに向けてください。動作確認だけなら
 ローカルPCの`hosts`ファイルへの一時的な追記でも代用できます。
 
+## 6b. 外部リバースプロキシ（RIKEN側nginx等）経由で公開する場合
+
+Traefik Ingress化（[manual-harvester-loadbalancer.md](manual-harvester-loadbalancer.md)参照）
+以降、サイトは`<site>.<env>.ibid.lan`というホスト名でTraefik経由の1つの共有LB IPに
+到達する構成になっている。外部公開が必要なサイトを、RIKEN側の既存nginx等の
+リバースプロキシ（別ドメイン、独自のLet's Encrypt証明書）からこの内部Ingressへ
+プロキシする場合、単純な移行元/移行先のドメイン置換（上記6.）だけでは不十分で、
+追加の設定が2箇所で必要になる。
+
+### 外部nginx側の設定
+
+TraefikはHTTPのHostヘッダ（SNIではない）でIngressのルーティング先を決定するため、
+上流（外部nginx）から届くHostヘッダが元の公開ドメインのままだとルーティングが
+一致せず失敗する。`proxy_pass`はIngressのホスト名を指定しつつ、`Host`ヘッダは
+その内部ホスト名に固定して送る必要がある。
+
+```nginx
+location / {
+    proxy_pass https://<site>.<env>.ibid.lan/;
+
+    # SNI送信に必須（Traefikは証明書選択にSNIを使う）
+    proxy_ssl_server_name on;
+    # FreeIPA内部CA発行の証明書のため、そのままだと検証失敗する
+    proxy_ssl_verify off;
+
+    proxy_http_version 1.1;
+
+    # 重要: $host(=外部公開ドメイン)のままだとTraefikのIngressルール
+    # (Host: <site>.<env>.ibid.lan)に一致せず404になる。
+    proxy_set_header Host <site>.<env>.ibid.lan;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+**`X-Forwarded-Host`で外部ドメインを伝搬させる方式は機能しない**（試して判明した点）。
+TraefikはデフォルトでUpstreamからの転送ヘッダを信頼しないため、`X-Forwarded-Host`を
+自分の値（内部ホスト名）で上書きしてしまう。Traefik側で`forwardedHeaders.trustedIPs`に
+外部nginxのIPを設定すれば伝搬できる可能性はあるが未検証。現状は下記のwp-config.php側の
+固定値方式で対処する。
+
+### WordPress側: wp-config.phpのWP_HOME/WP_SITEURLを固定する
+
+Bitnamiイメージの既定のwp-config.phpは、アクセスされた`$_SERVER['HTTP_HOST']`から
+動的に`WP_HOME`/`WP_SITEURL`を組み立てる（`define('WP_HOME', 'http://' .
+$_SERVER['HTTP_HOST'] . '/')`）。上記の通りTraefikへ届くHostヘッダは内部ホスト名固定の
+ため、**このままだと常に内部ホスト名（`https://<site>.<env>.ibid.lan/`）でURLが
+生成されてしまい、外部ドメインでは正しく表示されない（CSS等のアセットが内部ホスト名を
+指してしまう）**。
+
+`wp option update siteurl/home`は効果がない。PHPの`define()`はwp-config.php内の
+動的な定義が優先され、DBの値を上書きしてしまうため。ここで初めて気づく落とし穴なので
+明記しておく。
+
+`wordpressExtraConfigContent`（Helm値）で対処しようとしても効果がない。
+**wp-config.phpは一度生成されると永続ボリューム上に残り続け、既存インストールでは
+再生成されない**（手順2で既出の注意点と同じ）ため、稼働中サイトではHelm値の変更は
+反映されない。動作中のPodに対して直接wp-config.phpを書き換える必要がある。
+
+```bash
+POD=$(kubectl -n "wordpress-$SITE" get pod -l app.kubernetes.io/name=wordpress -o jsonpath='{.items[0].metadata.name}')
+
+kubectl -n "wordpress-$SITE" exec -c wordpress "$POD" -- sed -i \
+  -e "s|define( 'WP_HOME',.*|define( 'WP_HOME', 'https://<外部公開ドメイン>/' );|" \
+  -e "s|define( 'WP_SITEURL',.*|define( 'WP_SITEURL', 'https://<外部公開ドメイン>/' );|" \
+  /bitnami/wordpress/wp-config.php
+
+# 反映確認
+kubectl -n "wordpress-$SITE" exec -c wordpress "$POD" -- grep -n "WP_HOME\|WP_SITEURL" /bitnami/wordpress/wp-config.php
+```
+
+`wp-content`と同じRWX共有ボリューム上のファイルなので、1レプリカに適用すれば
+他のレプリカにも即座に反映される（レプリカ分の繰り返し実行は不要）。
+
+外部公開ドメインに固定すると、`https://<site>.<env>.ibid.lan/`への直接アクセス時にも
+リンク先は外部公開ドメインになる（内部確認用アクセスでは見た目上のリンクだけがずれるが、
+実運用では外部ドメインが正のURLなので問題ない）。
+
+**この設定はwp-config.phpに直接書き込むため、対象PVCを作り直した場合（手順2、または
+別クラスタへのDR復元）は再度この手順をやり直す必要がある。**
+
 ## 7. 動作確認
 
 - サイトのトップページが表示されるか
@@ -242,6 +324,9 @@ kubectl -n "wordpress-$SITE" get svc
 - メディア（`wp-content/uploads`）が表示されるか
 - プラグイン一覧でエラー表示がないか
   （旧WPコアバージョンとBitnamiが提供する新コアの差異で非互換警告が出ることがある）
+- 外部リバースプロキシ経由で公開するサイトの場合（6b.参照）、CSS/JS等のアセットURLが
+  外部公開ドメインを指しているか（`curl -sk https://<site>.<env>.ibid.lan/ | grep -o
+  'https://[^"'"'"']*\.css[^"'"'"']*'`で確認可能）
 
 ## トラブルシューティング
 
@@ -254,3 +339,6 @@ kubectl -n "wordpress-$SITE" get svc
   → 2.の「PVCごと作り直す」方法に切り替えてください。
 - **PVC削除後に`persistentvolumeclaim "..." not found`でPodがスケジュールされない**
   → `scripts/deploy-wordpress.sh <env> <site>`を再実行してPVCをチャートに作り直させてください。
+- **外部ドメインでアクセスすると404、または内部ホスト名(`*.ibid.lan`)のCSSが混ざる**
+  → 6b.参照。前者は外部nginxの`proxy_set_header Host`が内部ホスト名に固定されているか、
+  後者はwp-config.phpのWP_HOME/WP_SITEURLが外部ドメインに固定されているかを確認。
