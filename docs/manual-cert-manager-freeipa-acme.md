@@ -110,10 +110,47 @@ kubeseal --context <dev1|staging1|prod1> --format yaml < <平文Secretのyaml> \
 ## サイト側でのCertificate発行
 
 各サイトのfleet.yaml側でIngressに以下のannotationを付けると、cert-managerが自動でCertificateを
-発行する(Ingress化の詳細は別途)。
+発行する(Ingress化の詳細は[manual-harvester-loadbalancer.md](manual-harvester-loadbalancer.md)
+「Traefik を LoadBalancer 化する」章、サイト側fleet.yamlの書き方は
+[manual-wordpress.md](manual-wordpress.md)参照)。
 
 ```yaml
 metadata:
   annotations:
     cert-manager.io/cluster-issuer: freeipa-acme
 ```
+
+## サイトホスト名のDNS Aレコード登録(手動、環境ごとに1回)
+
+Ingress化により各サイトはTraefikの共有LoadBalancer IP(環境ごとに1つ)を経由するようになる。
+そのIPへ向けて、サイトのホスト名(`<site>.<env>.ibid.lan`)ごとにAレコードを登録する必要がある。
+
+TSIG鍵(`certmanager-key`)はTXTレコードのみ許可(`grant certmanager-key subdomain ibid.lan TXT`)
+のため、Aレコードの登録はcert-manager用の自動化経路を流用できない。**IPA管理者権限で
+`ipa dnsrecord-add`を使う**(nsupdate+TSIGではない)。
+
+```bash
+kinit admin
+# <env>には dev / staging / production、<TraefikのLB IP>は
+# manual-harvester-loadbalancer.md の手順で払い出されたIPを使う
+ipa dnsrecord-add ibid.lan <site>.<env> --a-rec <TraefikのLB IP>
+```
+
+例(dev、2026-07-10時点でTraefikのLB IPは`192.168.1.39`):
+
+```bash
+kinit admin
+ipa dnsrecord-add ibid.lan web.dev --a-rec 192.168.1.39
+ipa dnsrecord-add ibid.lan dna.dev --a-rec 192.168.1.39
+```
+
+登録後の確認:
+
+```bash
+dig @192.168.100.21 web.dev.ibid.lan +short
+dig @192.168.100.21 dna.dev.ibid.lan +short
+```
+
+同一環境の複数サイトが同じIPを指すのは正常(Traefikがホスト名で振り分けるため)。
+staging/productionへ昇格する際は、各環境のTraefik LB IP(環境ごとに異なる)へ向けて
+同様に登録すること。

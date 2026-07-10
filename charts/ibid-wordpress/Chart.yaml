@@ -16,7 +16,7 @@ description: >-
   Bitnami WordPressチャートに全サイト共通デフォルト(2レプリカ+Longhorn RWX共有、
   standalone MariaDB、LoadBalancer公開)を焼き込んだラッパーチャート
 type: application
-version: 0.2.1
+version: 0.3.0
 appVersion: "7.0.0"
 
 dependencies:

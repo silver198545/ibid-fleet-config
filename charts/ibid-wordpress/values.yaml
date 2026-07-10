@@ -33,6 +33,18 @@ wordpress:
   # ReadWriteMany ボリュームで全レプリカ間で共有する。
   replicaCount: 2
 
+  # 既定はLoadBalancer(サイト個別IP)。Traefik Ingress化する場合は各サイトの
+  # fleet.yamlでこのブロックとingressを下記例のように上書きする
+  # (docs/manual-harvester-loadbalancer.md「Traefikを LoadBalancer 化する」参照)。
+  # service:
+  #   type: ClusterIP
+  # ingress:
+  #   enabled: true
+  #   ingressClassName: traefik
+  #   hostname: <site>.<env>.ibid.lan
+  #   tls: true
+  #   annotations:
+  #     cert-manager.io/cluster-issuer: freeipa-acme
   service:
     type: LoadBalancer
 
