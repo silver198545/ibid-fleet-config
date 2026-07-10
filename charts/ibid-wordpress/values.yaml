@@ -48,9 +48,13 @@ wordpress:
   service:
     type: LoadBalancer
 
+  # ゲストクラスタ内Longhorn(3重化)+その上のVM仮想ディスク(Harvester側Longhornで
+  # さらに3重化)の二重増幅対策として、レプリカ数1の longhorn-r1 を使う
+  # (RWXが必要なためharvester StorageClass(RWO専用)には載せられない。
+  # docs/roadmap.md 項目3参照)。
   persistence:
     enabled: true
-    storageClass: longhorn
+    storageClass: longhorn-r1
     accessModes:
       - ReadWriteMany
     size: 10Gi
@@ -76,9 +80,12 @@ wordpress:
       database: bitnami_wordpress
       username: bn_wordpress
     primary:
+      # RWOのみのため、Harvester CSI driverが提供する harvester StorageClass に
+      # 直接乗せる。ゲストクラスタのLonghornを経由しないため二重増幅を避けられる
+      # (Harvester側の3重化のみになる。docs/roadmap.md 項目3参照)。
       persistence:
         enabled: true
-        storageClass: longhorn
+        storageClass: harvester
         accessModes:
           - ReadWriteOnce
         size: 8Gi

@@ -98,14 +98,39 @@
 - **残作業**: なし(サイト追加時は`<site>.<env>.ibid.lan`のIngress設定とDNS登録を
   同じ手順で行うだけでよい)。
 
-### 3. ストレージ容量計画
+### 3. ストレージ容量計画 【対応方針決定・既存サイト移行は作業中(2026-07-10)】
 
-- **現状**: 1サイト=18Gi(wp-content 10Gi + DB 8Gi)× レプリカ3 = 実効約54Gi/サイト。
-  数十サイトではクラスタあたり数TB規模になる。
-- **方針**: ノードのディスクサイズを確認し、Longhornの容量アラート(4.の監視と連動、
-  **ノード使用率75%/90%のアラートは4.で実装済み**)を設定する。
-  サイトのPVCサイズ既定値(チャートvalues)の見直しも選択肢。
-- **トリガー**: サイト量産開始前に一度試算する。
+- **試算で発覚した問題**: 本番30サイト目標を見据えて試算したところ、致命的な制約が
+  見つかった。ゲストノードVMのディスクは64GiBのrootディスク1枚のみで、Longhornの
+  専用データディスクがない。さらに、そのVM仮想ディスク自体がHarvester側Longhornで
+  3重化されている上に、ゲストクラスタ内のLonghorn(`numberOfReplicas: 3`)がさらに
+  3重化している——つまり**実データが3×3=9倍に物理増幅**されていた。
+  5ノード×クラスタの実効プールは約305GiBしかなく、現状(dev/staging: 2サイト+監視で
+  55%消費、production: 1サイト+監視で47%消費)から**あと2サイト追加した時点で
+  Longhornの90%アラートに到達**する計算だった。実データ使用率自体は
+  PVC割り当ての5〜11%程度と低く、逼迫していたのは「予約容量」の方だった。
+- **対応方針**: ハードウェア(Harvesterホストへの物理ディスク増設)を増やさず、
+  二重増幅そのものを解消する方向で対応する。
+  - **調査の結果、Harvester CSI driver(`driver.harvesterhci.io`)が3クラスタとも
+    既に導入済み**で、`harvester` StorageClassが使えることが判明した
+    (Rancherのharvesterノードドライバが標準で入れているもの)。ただし
+    `fsGroupPolicy: ReadWriteOnceWithFSType`のためRWO専用。
+  - **MariaDBのPVC(RWO)は`harvester` StorageClassへ移行**。ゲストクラスタの
+    Longhornを経由せずHarvesterの仮想ディスクに直接乗るため、増幅が9倍→3倍になり、
+    かつゲストノードのLonghornプールの消費がゼロになる。
+  - **wp-content(RWX、Web複数レプリカ共有)は`harvester`に載せられないため**、
+    新設した`longhorn-r1` StorageClass(既存`longhorn`と同パラメータ、
+    `numberOfReplicas`のみ1)へ移行。増幅は9倍→3倍(耐障害性はHarvester側の
+    3重化に委ねるトレードオフを許容)。
+  - 実施内容: `envs/<env>/infra/longhorn-r1/`(新StorageClassバンドル、dev導入済み、
+    staging/production未展開)、`charts/ibid-wordpress` v0.4.0(両PVCのstorageClass
+    変更)。既存サイトの実データ移行手順は
+    [manual-storage-migration.md](manual-storage-migration.md)参照。
+- **残作業**: `longhorn-r1`バンドルのstaging/production展開、既存サイト
+  (dev: web/dna、staging: web/dna、production: web)の実データ移行(1サイトずつ、
+  devから)。移行完了後、実際の容量削減効果を数値で再確認し、30サイト到達可否を
+  再試算する。
+- 監視スタック(Prometheus PVC)は対象外(サイト数と連動して増える容量ではないため)。
 
 ## 🟠 優先度・中: 本番コンテンツが入る前に塞ぐ運用の穴
 

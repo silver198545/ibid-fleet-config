@@ -1,0 +1,7 @@
+# ゲストクラスタ内Longhorn(3重化)+その上のVM仮想ディスク(Harvester側Longhornで
+# さらに3重化)という二重レプリケーションにより、実データが9倍に物理増幅されている
+# 問題への対応。既定の `longhorn` StorageClass(numberOfReplicas=3)と別に、
+# レプリカ数のみ1にした StorageClass を用意する(耐障害性はHarvester側の3重化に委ねる)。
+# wp-content(RWX、Web複数レプリカ共有)はharvester StorageClass(RWO専用)に載せられない
+# ため、こちらで増幅を9倍→3倍に抑える。docs/roadmap.md 項目3参照。
+keepResources: true
