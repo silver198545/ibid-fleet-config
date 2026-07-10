@@ -18,15 +18,42 @@
 
 ## 🔴 優先度・高: スケール前に決めるべき設計判断
 
-### 1. Ingress方式への転換(LoadBalancer IP枯渇対策)
+### 1. Ingress方式への転換(LoadBalancer IP枯渇対策) 【進行中: dev完了(2026-07-10)】
 
-- **現状**: 1サイト=1 LoadBalancer IP。IPPoolは dev 20個 / staging 10個(.61-.70、
+- **現状**: 1サイト=1 LoadBalancer IPだった。IPPoolは dev 20個 / staging 10個(.61-.70、
   2026-07-08にHarvester UI VIPの.60を除外) / **本番11個(192.168.1.90-100)** しかなく、
-  **本番は11サイト、stagingは10サイトで頭打ち**。
-- **方針**: サイト数が10に近づく前に、1つのLB IP + Ingressコントローラ
-  (ホスト名ベースのルーティング)+ TLS終端の構成へ転換する。
-  ドメイン設計・DNS・証明書(下記2.)とセットで検討すること。
-- **トリガー**: 本番サイト数が8を超える前に着手。
+  **本番は11サイト、stagingは10サイトで頭打ち**という制約があった。
+- **方針**: 1つのLB IP + Ingressコントローラ(ホスト名ベースのルーティング)+ TLS終端の
+  構成へ転換する。RKE2組み込みのTraefik(IngressClass名`traefik`)をそのまま使う
+  (追加のIngressコントローラ導入は不要)。
+- **実施内容(dev、2026-07-10)**:
+  - Traefik(`rke2-traefik`)をRancher `Cluster` CRの`chartValues`経由でLoadBalancer化
+    (`service.spec.type: LoadBalancer`、**キーパスが`service.type`ではなく
+    `service.spec.type`である落とし穴あり**)。dev1は共有LB IP`192.168.1.39`(pool1)を取得。
+    手順: [manual-harvester-loadbalancer.md](manual-harvester-loadbalancer.md)
+  - `charts/ibid-wordpress`をv0.3.0へ(Ingress移行時の値の書き方をコメントで用意、
+    チャート既定値はLoadBalancerのまま=未移行サイトに影響なし)。
+    bitnami/wordpressサブチャートが`ingress.*`をネイティブサポートしているため
+    カスタムIngressテンプレートは不要だった。
+  - dev既存2サイト(web, dna)を`service.type: ClusterIP` + `ingress.enabled: true`
+    (`cert-manager.io/cluster-issuer: freeipa-acme`アノテーション付き)へ移行。
+    IngressはTraefikのLB IPに正しく紐付いた(`kubectl get ingress`でADDRESS確認済み)。
+  - 監視(blackbox probe)はService(namespace正規表現+port名`http`)による動的発見のため
+    無変更で動作継続。
+- **既知の障害(2026-07-10発見、本リポジトリのスコープ外)**: Certificateの発行が
+  `order is in "errored" state: Failed to create Order: 404`で失敗する。原因は
+  cert-managerやDNS未登録ではなく、**FreeIPA側のACMEディレクトリエンドポイント自体が
+  ibidipa1・ibidipa2の両方で404を返している**こと(`curl -k
+  https://ibidipa1.ibid.lan/acme/directory`で確認可能。ClusterIssuerのACMEアカウント登録
+  自体は2026-07-09時点でReady=Trueなので、その後に発生した可能性が高い)。
+  `ipa-acme-manage status`での確認・`ipa-acme-manage enable`の再実行など、FreeIPA管理者
+  権限での調査が必要(このセッションにはKerberosチケットがなく実施できなかった)。
+- **残作業**: 上記ACMEエンドポイント404の解消(FreeIPA管理者)、DNS Aレコード登録
+  (`ipa dnsrecord-add`、手順は下記2.参照、ユーザーが実行)、staging/productionへの
+  同様の展開(各クラスタでTraefik LB化 + DNS登録 + サイトfleet.yaml昇格、既存の
+  promoteワークフローで実施)。
+- **トリガー(旧基準、達成済みにつき参考情報)**: 本番サイト数が8を超える前に着手
+  → 8サイトに達する前にdevで先行実施済み。
 
 ### 2. TLS/ドメイン/公開経路の設計 【cert-manager導入は済(3環境、2026-07-09)】
 
@@ -45,10 +72,9 @@
   導入済み。devで`web.dev.ibid.lan`向け証明書発行のsmoke testを実施し、ibidipa1/ibidipa2
   双方のACMEエンドポイント経由での発行成功を確認済み。production導入後の疎通確認
   (cert-manager Pod Running、ClusterIssuer Ready、TSIG鍵SealedSecret Synced)も完了(2026-07-10)。
-- **残作業**: 各サイトのIngress化(Traefik/LoadBalancer化とセットで進める、下記1.参照)。
-  Ingress化が完了するまでは、サイトのfleet.yamlに
-  `cert-manager.io/cluster-issuer: freeipa-acme` のannotationを付けても実際の証明書発行
-  経路(Ingress)が無いため効果がない。
+- **残作業**: DNS Aレコード登録(`ipa dnsrecord-add`、TSIG鍵はTXTのみ許可のため自動化不可、
+  ipa管理者権限で手動登録。手順は本ドキュメント内に追記済み)、staging/productionへの
+  Ingress化展開(上記1.参照)。
 
 ### 3. ストレージ容量計画
 
