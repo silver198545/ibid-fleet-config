@@ -19,6 +19,8 @@ dev → staging → production の3つのRKE2クラスタ(Harvester上、Rancher
 
 - `envs/<env>/`: 環境別のFleetバンドル([envs/README.md](envs/README.md)参照)
   - `infra/`: カタログ登録(Bitnami)・Longhorn CRD・Longhorn 本体・
+    低レプリカ用StorageClass(`longhorn-r1`、二重レプリケーション対策。
+    [docs/roadmap.md](docs/roadmap.md) 項目3参照)・
     監視スタック(rancher-monitoring + blackbox-exporter + アラートルール、
     [docs/manual-monitoring.md](docs/manual-monitoring.md)参照)
   - `sites/<site>/`: WordPressサイト(1サイト=1ディレクトリ、`fleet.yaml`)
@@ -56,6 +58,8 @@ dev → staging → production の3つのRKE2クラスタ(Harvester上、Rancher
   導入・運用手順
 - `docs/manual-wordpress-restore.md`: 既存の別環境WordPressサイトからデータを移行
   (リストア)する手順
+- `docs/manual-storage-migration.md`: 既存サイトのPVCをLonghornの二重増幅対策
+  (`longhorn-r1`/`harvester` StorageClass)へ移行する手順
 - `docs/wordpress-site-delegation.md`: サイト管理権限を他チームへ委譲する際の
   運用設計(記事は本番直接編集、プラグインは申請→dev検査→本番反映、権限設計)
 - `docs/manual-cert-manager-freeipa-acme.md`: cert-manager + FreeIPA ACME(DNS-01/RFC2136)
