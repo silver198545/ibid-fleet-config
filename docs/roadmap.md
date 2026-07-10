@@ -139,9 +139,16 @@
   **約26GiB/ノードの専用ディスク追加**で足りる計算(旧設計での380GiB/ノード要求
   からは大幅に圧縮された)。Harvester側の新規物理
   必要量も概算 585GiB程度(現状の空き約798GiBで収まる)。
-- **残作業**: `longhorn-r1`バンドルのstaging/production展開、staging(web/dna)・
-  production(web)の実データ移行。全環境完了後、上記の再試算を実測値で確定させ、
-  ノード専用ディスク追加の要否を最終判断する。
+- **staging実施結果(2026-07-10、web/dna完了)**: `longhorn-r1`バンドル展開・両サイト
+  移行・旧ボリューム削除まで完了。移行後のLonghorn`Scheduled`使用率は16〜33%
+  (5ノード平均約26%)で、devと同様の削減効果を確認。移行中、完了済みの
+  plugin-sync Job(wp-cliでのプラグイン同期用)がwp-content PVCを参照し続けて
+  削除がブロックされる事象が2サイトとも発生(Podは`Completed`でも
+  `persistentvolumeclaim`の`pvc-protection`finalizerは解放されない)。
+  Jobを削除すれば解消する(Fleetが再同期時に同名で再作成するため実害なし)。
+- **残作業**: `longhorn-r1`バンドルのproduction展開、production(web)の実データ移行。
+  全環境完了後、上記の再試算を実測値で確定させ、ノード専用ディスク追加の要否を
+  最終判断する。
 - 監視スタック(Prometheus PVC)は対象外(サイト数と連動して増える容量ではないため)。
 
 ## 🟠 優先度・中: 本番コンテンツが入る前に塞ぐ運用の穴
