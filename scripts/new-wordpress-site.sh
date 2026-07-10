@@ -22,7 +22,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # ラッパーチャート(charts/ibid-wordpress)の参照先。チャートを更新したら
 # ここではなく、各環境のfleet.yamlのhelm.versionを昇格させて追従する。
 CHART_REF="oci://ghcr.io/silver198545/charts/ibid-wordpress"
-CHART_VERSION="0.2.1"
+CHART_VERSION="0.4.0"
 
 if [[ $# -ne 2 ]]; then
   echo "使い方: $0 <env> <site>" >&2
@@ -95,6 +95,18 @@ helm:
       mariadb:
         auth:
           existingSecret: wordpress-$SITE-mariadb-credentials
+      # Traefik Ingress経由で公開する(docs/manual-harvester-loadbalancer.md参照)。
+      # チャートデフォルトの個別LoadBalancerではなく、共有Traefik LBの
+      # ホスト名ルーティングを使う。
+      service:
+        type: ClusterIP
+      ingress:
+        enabled: true
+        ingressClassName: traefik
+        hostname: $SITE.$ENV_NAME.ibid.lan
+        tls: true
+        annotations:
+          cert-manager.io/cluster-issuer: freeipa-acme
 
 # Kubernetes APIはNetworkPolicyのportsにprotocol: TCPを自動補完するが、
 # Bitnamiチャートのマニフェストには無いため、Fleetが常時「Modified」と
