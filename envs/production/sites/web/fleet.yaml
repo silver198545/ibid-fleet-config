@@ -85,7 +85,7 @@ helm:
       ingress:
         enabled: true
         ingressClassName: traefik
-        hostname: web.staging.ibid.lan
+        hostname: web.production.ibid.lan
         tls: true
         annotations:
           cert-manager.io/cluster-issuer: freeipa-acme
