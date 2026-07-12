@@ -48,6 +48,9 @@ dev → staging → production の3つのRKE2クラスタ(Harvester上、Rancher
   インストール手順とkubeconfigの準備
 - `docs/manual-multi-env.md`: マルチ環境のセットアップ・既存クラスタの移行・昇格運用・
   break-glass手順
+- `docs/operations-flow.md`: 3環境の日常運用フロー(devで互換性テスト→stagingで
+  本番コンテンツによる結合テスト→productionへ昇格。変更のバッチ化、テスト後の
+  リセット、本番反映前バックアップ)
 - `docs/manual-dr-troubleshooting.md`: DR復元(クラスタ全損からの復元)を実際に
   やってみた際に詰まりやすいポイントの補足(kubeconfig再取得、Longhornの
   fromBackup復元など)
