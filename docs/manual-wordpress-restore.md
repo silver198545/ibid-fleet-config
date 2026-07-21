@@ -314,6 +314,48 @@ kubectl -n "wordpress-$SITE" exec -c wordpress "$POD" -- grep -n "WP_HOME\|WP_SI
 **この設定はwp-config.phpに直接書き込むため、対象PVCを作り直した場合（手順2、または
 別クラスタへのDR復元）は再度この手順をやり直す必要がある。**
 
+### WP_HOME/WP_SITEURL固定後に無限リダイレクトになる場合
+
+上記のWP_HOME/WP_SITEURL固定を行うと、`https://<外部公開ドメイン>/`へのアクセスが
+`ERR_TOO_MANY_REDIRECTS`で無限ループになることがある。
+
+原因はWordPressコア機能`redirect_canonical()`（`wp-includes/canonical.php`）。
+トップページアクセス時、現在のリクエストURLが`home_url()`と完全一致しないと
+`home_url()`へ301リダイレクトする仕様がある。外部nginxはTraefikのIngressルーティング
+のため`Host`ヘッダを常に内部ホスト名（`<site>.<env>.ibid.lan`）に固定して転送しており
+（上記「外部nginx側の設定」参照）、かつTraefik→Pod間は平文HTTPなので、WordPressが
+実際に見るリクエストは常に`http://<site>.<env>.ibid.lan/`。これがWP_HOME固定値
+（`https://<外部公開ドメイン>/`）と食い違うため`redirect_canonical()`が発火し、
+リダイレクト先に再アクセスしても同じ食い違いが再現するため無限ループになる。
+
+`X-Forwarded-Host`をTraefikに伝搬させる方式は前述の通り機能しないため、
+`redirect_canonical`のフック自体を無効化するmu-plugin（配置するだけで自動読込され、
+有効化操作は不要）で回避する。
+
+```bash
+POD=$(kubectl -n "wordpress-$SITE" get pod -l app.kubernetes.io/name=wordpress -o jsonpath='{.items[0].metadata.name}')
+
+kubectl -n "wordpress-$SITE" exec -c wordpress "$POD" -- mkdir -p /bitnami/wordpress/wp-content/mu-plugins
+
+kubectl -n "wordpress-$SITE" exec -i -c wordpress "$POD" -- sh -c "cat > /bitnami/wordpress/wp-content/mu-plugins/disable-canonical-redirect.php" <<'EOF'
+<?php
+/**
+ * Plugin Name: Disable Canonical Redirect (reverse proxy fix)
+ */
+remove_action( 'template_redirect', 'redirect_canonical' );
+EOF
+
+# 反映確認
+kubectl -n "wordpress-$SITE" exec -c wordpress "$POD" -- cat /bitnami/wordpress/wp-content/mu-plugins/disable-canonical-redirect.php
+```
+
+`wp-content`と同じRWX共有ボリューム上のファイルなので、1レプリカに適用すれば
+他のレプリカにも即座に反映される。パーマリンク自体の正規化（カテゴリ/ID表記ゆれの
+是正）は失われるが、外部リバースプロキシ経由公開ではこちらを優先する。
+
+**この設定もwp-config.phpと同様、共有ボリューム上への直接配置のため、対象PVCを
+作り直した場合（手順2、または別クラスタへのDR復元）は再度この手順をやり直す必要がある。**
+
 ## 7. 動作確認
 
 - サイトのトップページが表示されるか
@@ -342,3 +384,6 @@ kubectl -n "wordpress-$SITE" exec -c wordpress "$POD" -- grep -n "WP_HOME\|WP_SI
 - **外部ドメインでアクセスすると404、または内部ホスト名(`*.ibid.lan`)のCSSが混ざる**
   → 6b.参照。前者は外部nginxの`proxy_set_header Host`が内部ホスト名に固定されているか、
   後者はwp-config.phpのWP_HOME/WP_SITEURLが外部ドメインに固定されているかを確認。
+- **WP_HOME/WP_SITEURL固定後、外部ドメインで`ERR_TOO_MANY_REDIRECTS`になる**
+  → 6b.「WP_HOME/WP_SITEURL固定後に無限リダイレクトになる場合」参照。
+  `redirect_canonical`無効化のmu-pluginを配置する。
