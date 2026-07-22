@@ -314,6 +314,24 @@ kubectl -n "wordpress-$SITE" exec -c wordpress "$POD" -- grep -n "WP_HOME\|WP_SI
 **この設定はwp-config.phpに直接書き込むため、対象PVCを作り直した場合（手順2、または
 別クラスタへのDR復元）は再度この手順をやり直す必要がある。**
 
+**上記sedを実行しただけでは反映が確認できない場合（PHP OPcacheの罠）:**
+BitnamiのApache+PHPはOPcacheが有効なため、稼働中のPodはコンテナ起動時点で
+コンパイル済みのwp-config.phpをキャッシュしている。ファイルを書き換えても、
+Apacheワーカーが再読み込みするとは限らず、ページのレンダリング結果（アセットURL等）
+が古い値（内部ホスト名）のままになることがある。`wp eval 'echo WP_HOME;'`
+（wp-cliは別プロセスなのでファイルを都度読み直す）では新しい値が正しく返るのに、
+ブラウザ/curlでのアクセス結果だけ食い違う場合はこれが原因。
+
+対処はPodの再起動（OPcacheはプロセスローカルなので、再起動すれば新しいファイル内容で
+再コンパイルされる）。
+
+```bash
+kubectl -n "wordpress-$SITE" delete pod -l app.kubernetes.io/name=wordpress
+```
+
+再起動後、アセットURLが外部公開ドメインを指しているか（このファイルの手順7参照）を
+再確認する。
+
 ### WP_HOME/WP_SITEURL固定後に無限リダイレクトになる場合
 
 上記のWP_HOME/WP_SITEURL固定を行うと、`https://<外部公開ドメイン>/`へのアクセスが
