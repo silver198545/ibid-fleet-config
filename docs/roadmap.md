@@ -207,6 +207,35 @@
   (コマンドは冪等なのでローテーションの有無を気にせず毎回実行してよい)。手順は
   [manual-multi-env.md](manual-multi-env.md) 6章参照。次回(初回)は2026-08-01。
 
+### 8. HarvesterのCSIドライバのバグで`harvester`StorageClassのPVC削除が詰まる
+
+- **現状**: `harvester`StorageClass(mariadb用PVC)のPVを削除しようとすると、
+  Harvester管理クラスタ側のCSIコントローラが`DeleteVolume`実行前に
+  `volumeremoterestores.harvesterhci.io`というリソースを参照するが、**このCRD自体が
+  このHarvesterクラスタに存在しない**ため、RBAC以前の問題として必ず失敗する
+  (`system:serviceaccount:harvester-public:<cluster>`権限を追加しても解決しない、
+  存在しないリソースへのアクセスになるだけ)。結果、削除したPVCの裏のPVが
+  `Released`のまま永久に残り、Harvester物理容量を消費し続ける。3クラスタ共通の
+  ClusterRole(`harvesterhci.io:csi-driver`)を使っているため、dev/staging/production
+  いずれでも同様に発生する。2026-07-23、stagingのdna削除作業で発覚
+  (dnaの結合テスト時に作成したmariadb PVCの削除で2件連続再現)。
+- **暫定対応(手動)**: 発生の都度、次の手順で個別に片付ける。
+  ```bash
+  # 1. Harvester管理クラスタ側のPVCを直接削除(データも消える。裏のLonghornボリュームごと削除される)
+  kubectl --context <harvester> -n harvester-public delete pvc <PV名>
+
+  # 2. ゲストクラスタ側で詰まっているPVのfinalizerを除去して削除
+  kubectl --context <env> patch pv <PV名> -p '{"metadata":{"finalizers":null}}' --type=merge
+  kubectl --context <env> delete pv <PV名>
+  ```
+  (`<PV名>`=削除したPVCの`spec.volumeName`。1と2の順序を守ること。手順1を飛ばすと
+  Harvester側にボリュームが孤児のまま残る)
+- **恒久対応(未着手)**: ゲストクラスタにデプロイされているharvester-csi-driver/
+  harvester-cloud-providerのバージョンと、Harvester管理クラスタ本体のAPIバージョンとの
+  互換性を調査し、スキューを解消する(アップグレードまたはダウングレード)。
+  `docs/operations-flow.md`の「stagingサイトの削除手順」を運用する上で、
+  この詰まりに毎回都度対応が必要な点に注意。
+
 ## 🟡 優先度・低: 小さいが効く宿題
 
 - **リポジトリのprivate化 → publicへ差し戻し** 【2026-07-08 に revert】: 一度Private化した
