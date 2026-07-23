@@ -35,29 +35,42 @@ stagingが結合テスト中にdev→stagingの昇格を重ねるとテストの
       ([manual-wordpress-restore.md](manual-wordpress-restore.md)。
       URL置換 `<site>.production.ibid.lan` → `<site>.staging.ibid.lan` を忘れない)
    2. プラグイン・バージョンアップ後の動作、記事表示、管理画面操作を確認する
-   3. **テスト終了後はサイトをリセットする**(下記「stagingのリセット手順」)。
+   3. **テスト終了後はサイトをstagingから削除する**(下記「stagingサイトの削除手順」)。
       本番コンテンツをstagingに残置しない
 4. **staging → production 昇格**: promoteワークフローでPRを生成。
    マージの**直前に必ず本番のバックアップを取得**(下記「本番反映前のバックアップ」)。
    CODEOWNERS承認のうえマージし、反映後に監視(HTTP probe)とサイト表示を確認する
 
-## stagingのリセット手順(結合テスト後)
+## stagingサイトの削除手順(結合テスト後)
 
-wp-config.phpはボリューム上に永続化され再生成されないため、「素の状態に戻す」は
-**WordPressとMariaDBのPVCを削除して作り直す**ことを意味する(中途半端にDBだけ消すと
-設定が残留する)。手順は [manual-wordpress-restore.md](manual-wordpress-restore.md) の
-PVC再作成の項を参照。要点:
+1サイトずつ順番にstagingで結合テストする運用では、待機中のサイトがstagingの
+容量を消費し続けないよう、**テストが終わったサイトはstagingから完全に削除する**
+(PVCの作り直しではなくサイトそのものの削除)。手順は
+[manual-wordpress.md](manual-wordpress.md)「サイトを削除する場合」がベース。
 
-- 事前に対象BundleをFleetでpausedにする(Fleetの再同期が手動操作を打ち消すため。
-  [manual-storage-migration.md](manual-storage-migration.md) で判明した注意点)
-- 完了済みplugin-sync JobがPVCを掴んで削除をブロックすることがある
-  → Jobを削除すれば解消(Fleetが再同期時に再作成するので実害なし)
-- リセット後はFleetの再同期でチャートが再インストールされ、新品のサイトに戻る
+1. Git側: `envs/staging/sites/<site>/` と `envs/staging/secrets/<site>.yaml`
+   を削除するPRを作成・マージ
+2. クラスタ側(手動。fleet.yamlの`keepResources: true`によりFleetはGit側の削除だけでは
+   リソースを消さないため):
+   ```bash
+   helm uninstall wordpress-<site> -n wordpress-<site>
+   kubectl delete namespace wordpress-<site>
+   ```
+   PVC(wp-content/mariadb)ごと削除され、Longhorn/Harvesterの容量が解放される
 
-なお、staging(3ノード運用)へ本番コンテンツをリストアすると実ディスク使用量が
-一時的に増える。Longhornはthin-provisioningのため予約枠上は見えない消費であり、
-実容量の逼迫はLonghorn容量アラート([manual-monitoring.md](manual-monitoring.md))で
-検知する前提。大きいサイトをリストアする際は意識すること。
+次にこのサイトをstagingでテストする際は、dev→staging昇格PRと
+`scripts/seal-site-secrets.sh staging <site>`を再度実施することになる
+(新規サイト追加と同じ手順)。
+
+なお、本番コンテンツをstagingへリストアすると実ディスク使用量が一時的に増える。
+Longhornはthin-provisioningのため予約枠上は見えない消費であり、実容量の逼迫は
+Longhorn容量アラート([manual-monitoring.md](manual-monitoring.md))で検知する前提。
+大きいサイトをリストアする際は意識すること。
+
+また、Harvester物理層の空き容量には既知の制約がある(devの15サイト一斉追加時に
+発覚。[roadmap.md](roadmap.md)項目3参照)。新規サイトのPVC作成がスケジュール待ちで
+詰まる場合は、その時点で空きのあるHarvesterホストが確保できるまで待つか、
+不要なリソース(検証用に一時的に追加したノード等)を削除して空きを作る。
 
 ## 本番反映前のバックアップ(必須)
 
