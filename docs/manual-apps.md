@@ -34,8 +34,16 @@
 
 1. `images/<app>/` にDockerfile・ビルドに必要なファイル(nginx.confなど)・
    `TAG`・(外部リポジトリのソースを取り込む場合は)`SRC_REF` を作成する。
+   ソース取得元がプライベートリポジトリの場合、認証情報をDockerイメージの
+   レイヤー履歴に残さないため、Dockerfile内で`git clone`せず、ワークフロー側の
+   `actions/checkout`(`repository:`/`token:`指定)でソースを取得し、
+   `COPY app/ .` でビルドコンテキストに取り込む(`.gitignore`にも
+   `/images/<app>/app/` を追加し、取得したソースが誤ってコミットされないようにする。
+   このリポジトリはpublicなので特に注意)。
 2. `.github/workflows/build-<app>-image.yaml` を追加する
    (`build-brc-advanced-search-image.yaml` をコピーしてアプリ名を置換すればよい)。
+   ソース取得元がプライベートリポジトリの場合、Contents: Read-onlyのfine-grained PAT
+   をこのリポジトリのActions Secretsに登録する(例: `BRC_ADVANCED_SEARCH_SOURCE_TOKEN`)。
 3. `envs/dev/apps/<app>/` に `fleet.yaml` とマニフェストを作成する。
    - Namespaceはアプリ名をそのまま使う。
    - 公開が必要なら、既存WordPressサイトと同様にTraefik Ingress + ホスト名

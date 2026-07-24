@@ -1,9 +1,13 @@
 # riken_brc_advanced_search (https://github.com/PENQEinc/riken_brc_advanced_search) を
 # 静的サイトとしてビルドし、nginxで配信するイメージ。
 #
-# ビルド元はこのリポジトリ管理外のアプリなので、images/wordpress と同様に
-# 「何が動いているか」をコミットSHAで固定する(SRC_REFファイル)。
-# GHCRへの公開は mainへのマージで .github/workflows/build-brc-advanced-search-image.yaml が行う:
+# ビルド元はこのリポジトリ管理外のアプリ(プライベートリポジトリ)。
+# 「何が動いているか」をコミットSHAで固定する運用は images/wordpress と同じだが、
+# 認証情報をDockerイメージのレイヤー履歴に残さないため、ソース取得は
+# Dockerfile内でgit cloneせず、.github/workflows/build-brc-advanced-search-image.yaml の
+# actions/checkoutステップ(SRC_REFファイルの内容をrefに指定)で行い、
+# ビルドコンテキストの app/ ディレクトリとして渡す。
+# GHCRへの公開は mainへのマージで同ワークフローが行う:
 #   ghcr.io/silver198545/brc-advanced-search:<TAGファイルの内容>
 #
 # 更新手順:
@@ -15,16 +19,8 @@
 #      docs/manual-apps.md の手順に従い手動でコピーする)
 FROM node:16-bullseye AS build
 
-# fibers (sass-loaderの依存)のネイティブビルドにはgit/python/make/g++が要る。
-# node:16-bullseyeにはpython3/make/g++が同梱済みのため、gitのみ追加する。
-RUN apt-get update && apt-get install -y --no-install-recommends git \
-    && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /src
-ARG SRC_REPO=https://github.com/PENQEinc/riken_brc_advanced_search.git
-ARG SRC_REF
-RUN test -n "$SRC_REF" && git clone "$SRC_REPO" . && git checkout "$SRC_REF"
-
+COPY app/ .
 RUN npm ci
 # SSRサーバーは立てず、静的サイトとして生成する。
 # 出力先(brc_advanced)とURLのベースパス(/advanced、NODE_ENV=production時)は
