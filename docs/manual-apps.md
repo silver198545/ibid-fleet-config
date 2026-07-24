@@ -91,7 +91,12 @@ DBを持たないアプリの場合はWordPressより手順が単純になる:
   が確定したら、Ingressのホスト名/パス設定を見直すこと。
 - アプリはNuxt 2 + `fibers`(sass-loaderの依存)を使うため、ビルドはNode 16系で
   行う(`images/brc-advanced-search/Dockerfile`)。
-- アプリ側の`package-lock.json`に壊れたエントリが1件混入しており(postcssの
-  version/resolvedが`"postcss@8.4.32"`のように二重結合され、semverとして不正)、
-  `npm ci`が`Invalid Version`で失敗する。Dockerfile内で`sed`により補正してビルドしている
-  (アプリ側リポジトリでのlockfile再生成が本来の直し方。PENQEinc側に報告・修正依頼を検討)。
+- アプリ側の`package-lock.json`に壊れたエントリが1件混入している
+  (`@vue/component-compiler-utils`が要求する`postcss@^7.0.36`ではなく、
+  トップレベルの`postcss@8.4.32`のエントリがそのまま誤って上書きされており、
+  versionフィールドも`"postcss@8.4.32"`のように二重結合されてsemverとして不正)。
+  文字列としての破損はDockerfile内で`sed`により補正しているが、バージョン不整合
+  (`lock file's postcss@8.4.32 does not satisfy postcss@7.0.39`)は`npm ci`の
+  「lockfileと完全一致」要求を満たせないため、`npm ci`ではなく`npm install`を使い
+  レジストリから再解決させている(アプリ側リポジトリでのlockfile再生成が本来の
+  直し方。PENQEinc側に報告・修正依頼を検討)。

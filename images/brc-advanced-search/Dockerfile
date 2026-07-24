@@ -21,14 +21,20 @@ FROM node:16-bullseye AS build
 
 WORKDIR /src
 COPY app/ .
-# package-lock.json に壊れたエントリが1件混入しており(postcssのversion/resolvedが
-# "postcss@8.4.32" のように二重結合されている)、そのままでは npm ci が
-# "Invalid Version" で失敗する。アプリ側リポジトリの修正を待たず、ここで補正する。
+# package-lock.json に壊れたエントリが1件混入している
+# (node_modules/@vue/component-compiler-utils/node_modules/postcss が、
+# 本来必要な postcss@^7.0.36 ではなくトップレベルのpostcss@8.4.32のコピーに
+# 誤って上書きされており、versionフィールドも "postcss@8.4.32" のように
+# 二重結合されて壊れている)。sedで文字列としては直せても、バージョン不整合
+# (lock file's postcss@8.4.32 does not satisfy postcss@7.0.39)はnpm ciの
+# 「lockfileと完全一致」要求を満たせず失敗するため、npm ciではなくnpm installを使い、
+# このエントリだけレジストリから正しいバージョンへ再解決させる。
+# アプリ側リポジトリの修正を待たない暫定対応。
 RUN sed -i \
     -e 's/"postcss@8\.4\.32"/"8.4.32"/' \
     -e 's/postcss-postcss@8\.4\.32\.tgz/postcss-8.4.32.tgz/' \
     package-lock.json
-RUN npm ci
+RUN npm install
 # SSRサーバーは立てず、静的サイトとして生成する。
 # 出力先(brc_advanced)とURLのベースパス(/advanced、NODE_ENV=production時)は
 # アプリ側 nuxt.config.js の generate.dir / router.base に由来する。
