@@ -17,21 +17,22 @@ spec:
         - name: ghcr-brc-advanced-search
       containers:
         - name: brc-advanced-search
-          image: ghcr.io/silver198545/brc-advanced-search:1.0.0-r1
+          image: ghcr.io/silver198545/brc-advanced-search:2.0.0-r0
           ports:
             - name: http
-              containerPort: 8080
+              containerPort: 3000
           resources:
             requests:
-              cpu: 10m
-              memory: 32Mi
+              cpu: 50m
+              memory: 128Mi
             limits:
-              memory: 64Mi
+              memory: 512Mi
+          # app.baseURL(nuxt.config.ts)が/advancedのため、ベアの"/"は404になる。
           readinessProbe:
             httpGet:
-              path: /
-              port: 8080
+              path: /advanced/en/
+              port: 3000
           livenessProbe:
             httpGet:
-              path: /
-              port: 8080
+              path: /advanced/en/
+              port: 3000
