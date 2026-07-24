@@ -8,7 +8,8 @@
 事故のもとになる。
 
 最初の例: [riken_brc_advanced_search](https://github.com/PENQEinc/riken_brc_advanced_search)
-(Nuxt.js製、DBなし。`npm run generate` で静的サイトを生成しnginxで配信する)。
+(`vue3-main-riken`ブランチ、Nuxt 3製、DBなし。`npm run build`でビルドし、
+NitroのSSRサーバー(`node .output/server/index.mjs`)を常駐実行する)。
 
 ## 構成
 
@@ -32,7 +33,7 @@
 
 ## 新しいアプリを追加する手順(例: brc-advanced-search)
 
-1. `images/<app>/` にDockerfile・ビルドに必要なファイル(nginx.confなど)・
+1. `images/<app>/` にDockerfile・ビルドに必要な付随ファイル(あれば)・
    `TAG`・(外部リポジトリのソースを取り込む場合は)`SRC_REF` を作成する。
    ソース取得元がプライベートリポジトリの場合、認証情報をDockerイメージの
    レイヤー履歴に残さないため、Dockerfile内で`git clone`せず、ワークフロー側の
@@ -105,21 +106,20 @@ DBを持たないアプリの場合はWordPressより手順が単純になる:
 
 ## brc-advanced-search 固有のメモ
 
-- アプリ側 `nuxt.config.js` の `router.base` が `NODE_ENV=production` 時に
-  `/advanced` 固定になっているため、生成物は `/advanced/` 配下に配置し、
-  nginx側で `/` → `/advanced/en/` にリダイレクトしている
-  (`images/brc-advanced-search/nginx.conf`)。実際の本番URL構造
-  (RIKEN BRC公式サイト配下の `/advanced` パスに載せるのか、専用ホスト名にするのか)
+- ソースは`vue3-main-riken`ブランチ(旧`main`はNuxt 2版で廃止。SRC_REFはこちらの
+  コミットSHAを指すこと)。Nuxt 3 + Viteのため、旧Nuxt 2版で踏んだNode 16固定・
+  `fibers`ネイティブビルド・package-lock.jsonの破損/integrity不整合の問題はない
+  (lockfileVersion 3、Node 20 + `npm install`で問題なく解決できる)。
+- **静的生成ではなくSSR(常駐Nodeサーバー)方式**にした。`npm run build`
+  (Nitro node-serverプリセット)で`.output/`配下にサーバー一式が出力され、
+  `node .output/server/index.mjs`で起動する(`images/brc-advanced-search/Dockerfile`)。
+  ビルドスクリプトが`NODE_OPTIONS=--max_old_space_size=8192`を指定しているため、
+  CIランナーのメモリ不足でビルドが落ちる場合は要調整。
+- Nitroはデフォルトで`0.0.0.0:3000`を待ち受けるが、`HOST`/`PORT`環境変数で明示している。
+  Service/Deploymentの`containerPort`/`targetPort`は3000。
+- アプリ側`nuxt.config.ts`の`app.baseURL`が`NODE_ENV=production`時に`/advanced`固定
+  (開発時は`/work3/advanced`)。ベアの`/`へのアクセスはアプリ側で自動リダイレクトされない
+  (Nuxt自体が`/advanced`配下のルートしか認識しない)ため、Deploymentの
+  readiness/livenessProbeは`/advanced/en/`を直接見ている。実際の本番URL構造
+  (RIKEN BRC公式サイト配下の`/advanced`パスに載せるのか、専用ホスト名にするのか)
   が確定したら、Ingressのホスト名/パス設定を見直すこと。
-- アプリはNuxt 2 + `fibers`(sass-loaderの依存)を使うため、ビルドはNode 16系で
-  行う(`images/brc-advanced-search/Dockerfile`)。
-- アプリ側の`package-lock.json`(2024年1月頃生成)は、npm側でのtarball再ハッシュ化により
-  integrityが現在のレジストリと食い違うパッケージが複数あり(axios@1.6.0で確認済み。
-  npmが過去に配布物を再gzip化した影響とみられる)、`npm ci`はもちろん`npm install`でも
-  `EINTEGRITY`で失敗する。加えて個別の破損エントリも混入している
-  (`@vue/component-compiler-utils`が要求する`postcss@^7.0.36`ではなく、
-  トップレベルの`postcss@8.4.32`のエントリがそのまま誤って上書きされている)。
-  1件ずつ補正するのは持続的でないため、`package-lock.json`を使わず(削除してから)
-  `npm install`でpackage.jsonから解決し直している
-  (`images/brc-advanced-search/Dockerfile`)。アプリ側でlockfileを再生成するのが
-  本来の直し方。PENQEinc側に報告・修正依頼を検討。

@@ -1,7 +1,8 @@
 # images/brc-advanced-search/ 配下の変更がmainにマージされたら、
-# riken_brc_advanced_search の静的サイトイメージをビルドしてGHCRへ公開する。
+# riken_brc_advanced_search (Nuxt 3, vue3-main-rikenブランチ)のSSRサーバーイメージを
+# ビルドしてGHCRへ公開する。
 # タグは images/brc-advanced-search/TAG の内容、取り込むアプリ側のコミットは
-# images/brc-advanced-search/SRC_REF の内容。
+# images/brc-advanced-search/SRC_REF の内容(vue3-main-rikenブランチのコミットを指定)。
 # 公開後、envs/<env>/apps/brc-advanced-search/deployment.yaml の image タグを
 # 切り替える(docs/manual-apps.md参照)。
 #
