@@ -21,6 +21,11 @@ FROM node:20-bullseye AS build
 
 WORKDIR /src
 COPY app/ .
+# @nuxtjs/i18n(SSR)は、Nitro側でリクエストごとの非同期コンテキストが有効でないと
+# "Nuxt I18n server context has not been set up yet" 500エラーになる既知の問題がある。
+# アプリ側nuxt.config.tsにexperimental.asyncContextの設定が無いため、ビルド前に補う。
+# アプリ側での恒久対応(nuxt.config.tsへの追記)が本来の直し方。
+RUN sed -i "s/^export default defineNuxtConfig({/export default defineNuxtConfig({\n  experimental: { asyncContext: true },/" nuxt.config.ts
 RUN npm install
 # ビルドスクリプトがNODE_OPTIONS=--max_old_space_size=8192を指定している
 # (Viteビルドがメモリを要求するため)。Nitroのnode-serverプリセットにより
