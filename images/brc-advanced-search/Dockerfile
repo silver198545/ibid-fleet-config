@@ -27,6 +27,9 @@ COPY app/ .
 # アプリ側での恒久対応(nuxt.config.tsへの追記)が本来の直し方。
 RUN sed -i "s/^export default defineNuxtConfig({/export default defineNuxtConfig({\n  experimental: { asyncContext: true },/" nuxt.config.ts
 RUN npm install
+# package-lock.json固定の@nuxtjs/i18n(10.3.0)には上記エラーの原因となる不具合があり、
+# 最新版(10.5.0時点)で解消するため個別に上げる。
+RUN npm install @nuxtjs/i18n@latest
 # ビルドスクリプトがNODE_OPTIONS=--max_old_space_size=8192を指定している
 # (Viteビルドがメモリを要求するため)。Nitroのnode-serverプリセットにより
 # .output/ 配下に実行可能なサーバー一式が出力される。

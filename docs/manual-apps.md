@@ -127,6 +127,9 @@ DBを持たないアプリの場合はWordPressより手順が単純になる:
   SSRリクエストごとの非同期コンテキストを取得できず全リクエストが
   `[500] Nuxt I18n server context has not been set up yet` になっていた
   (Nuxt3 + `@nuxtjs/i18n`の既知の問題)。Dockerfile内で`sed`により
-  `experimental: { asyncContext: true }` を`nuxt.config.ts`へ追記してから
-  ビルドする暫定対応にしている。アプリ側リポジトリでの恒久対応
-  (`nuxt.config.ts`への追記)をPENQEinc側に依頼すること。
+  `experimental: { asyncContext: true }` を`nuxt.config.ts`へ追記しているが、
+  それだけでは解消せず、`package-lock.json`固定の`@nuxtjs/i18n@10.3.0`自体に
+  該当の不具合があった。ビルド時に`npm install @nuxtjs/i18n@latest`で
+  個別に最新版へ上げることで解消している。アプリ側リポジトリでの恒久対応
+  (`package.json`の`@nuxtjs/i18n`バージョン更新、`nuxt.config.ts`への追記)を
+  PENQEinc側に依頼すること。
