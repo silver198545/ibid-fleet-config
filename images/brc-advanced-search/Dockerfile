@@ -21,20 +21,13 @@ FROM node:16-bullseye AS build
 
 WORKDIR /src
 COPY app/ .
-# package-lock.json に壊れたエントリが1件混入している
-# (node_modules/@vue/component-compiler-utils/node_modules/postcss が、
-# 本来必要な postcss@^7.0.36 ではなくトップレベルのpostcss@8.4.32のコピーに
-# 誤って上書きされており、versionフィールドも "postcss@8.4.32" のように
-# 二重結合されて壊れている)。sedで文字列としては直せても、バージョン不整合
-# (lock file's postcss@8.4.32 does not satisfy postcss@7.0.39)はnpm ciの
-# 「lockfileと完全一致」要求を満たせず失敗するため、npm ciではなくnpm installを使い、
-# このエントリだけレジストリから正しいバージョンへ再解決させる。
-# アプリ側リポジトリの修正を待たない暫定対応。
-RUN sed -i \
-    -e 's/"postcss@8\.4\.32"/"8.4.32"/' \
-    -e 's/postcss-postcss@8\.4\.32\.tgz/postcss-8.4.32.tgz/' \
-    package-lock.json
-RUN npm install
+# package-lock.json(2024年1月頃生成)には、npm側でのtarball再ハッシュ化により
+# integrityが現在のレジストリと食い違うパッケージが複数あり(axios@1.6.0で確認済み)、
+# さらに個別の破損エントリ(@vue/component-compiler-utils配下のpostcssが、本来必要な
+# postcss@^7.0.36ではなくトップレベルのpostcss@8.4.32のコピーに誤って上書きされ、
+# versionフィールドも"postcss@8.4.32"のように壊れている)も混入している。
+# 1件ずつ補正するのは持続的でないため、lockfileを使わずpackage.jsonから解決し直す。
+RUN rm -f package-lock.json && npm install
 # SSRサーバーは立てず、静的サイトとして生成する。
 # 出力先(brc_advanced)とURLのベースパス(/advanced、NODE_ENV=production時)は
 # アプリ側 nuxt.config.js の generate.dir / router.base に由来する。
