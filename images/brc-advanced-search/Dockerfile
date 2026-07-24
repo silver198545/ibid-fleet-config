@@ -17,7 +17,7 @@
 #      image タグを切り替え、dev確認後にstaging/productionへ手動で反映する
 #      (promoteワークフローは envs/<env>/sites/ のみが対象のため、apps/ は
 #      docs/manual-apps.md の手順に従い手動でコピーする)
-FROM node:20-bullseye AS build
+FROM node:22-bullseye AS build
 
 WORKDIR /src
 COPY app/ .
@@ -28,14 +28,15 @@ COPY app/ .
 RUN sed -i "s/^export default defineNuxtConfig({/export default defineNuxtConfig({\n  experimental: { asyncContext: true },/" nuxt.config.ts
 RUN npm install
 # package-lock.json固定の@nuxtjs/i18n(10.3.0)には上記エラーの原因となる不具合があり、
-# 最新版(10.5.0時点)で解消するため個別に上げる。
+# 最新版(10.5.0時点)で解消するため個別に上げる。最新版の依存(@intlify/core等)が
+# Node >= 22 を要求するため、ビルド/実行ともNode 22系にしている。
 RUN npm install @nuxtjs/i18n@latest
 # ビルドスクリプトがNODE_OPTIONS=--max_old_space_size=8192を指定している
 # (Viteビルドがメモリを要求するため)。Nitroのnode-serverプリセットにより
 # .output/ 配下に実行可能なサーバー一式が出力される。
 RUN npm run build
 
-FROM node:20-bullseye-slim
+FROM node:22-bullseye-slim
 WORKDIR /app
 ENV NODE_ENV=production
 # Nitro node-serverはデフォルトで0.0.0.0:3000を待ち受けるが、

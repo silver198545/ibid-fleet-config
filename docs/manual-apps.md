@@ -109,7 +109,9 @@ DBを持たないアプリの場合はWordPressより手順が単純になる:
 - ソースは`vue3-main-riken`ブランチ(旧`main`はNuxt 2版で廃止。SRC_REFはこちらの
   コミットSHAを指すこと)。Nuxt 3 + Viteのため、旧Nuxt 2版で踏んだNode 16固定・
   `fibers`ネイティブビルド・package-lock.jsonの破損/integrity不整合の問題はない
-  (lockfileVersion 3、Node 20 + `npm install`で問題なく解決できる)。
+  (lockfileVersion 3、`npm install`で問題なく解決できる)。ただし後述の
+  `@nuxtjs/i18n@latest`への個別更新が`@intlify/core`等でNode >= 22を要求するため、
+  ビルド/実行ともNode 22系にしている。
 - **静的生成ではなくSSR(常駐Nodeサーバー)方式**にした。`npm run build`
   (Nitro node-serverプリセット)で`.output/`配下にサーバー一式が出力され、
   `node .output/server/index.mjs`で起動する(`images/brc-advanced-search/Dockerfile`)。
