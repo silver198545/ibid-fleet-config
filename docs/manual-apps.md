@@ -91,3 +91,7 @@ DBを持たないアプリの場合はWordPressより手順が単純になる:
   が確定したら、Ingressのホスト名/パス設定を見直すこと。
 - アプリはNuxt 2 + `fibers`(sass-loaderの依存)を使うため、ビルドはNode 16系で
   行う(`images/brc-advanced-search/Dockerfile`)。
+- アプリ側の`package-lock.json`に壊れたエントリが1件混入しており(postcssの
+  version/resolvedが`"postcss@8.4.32"`のように二重結合され、semverとして不正)、
+  `npm ci`が`Invalid Version`で失敗する。Dockerfile内で`sed`により補正してビルドしている
+  (アプリ側リポジトリでのlockfile再生成が本来の直し方。PENQEinc側に報告・修正依頼を検討)。

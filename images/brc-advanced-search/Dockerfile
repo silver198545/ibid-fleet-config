@@ -21,6 +21,13 @@ FROM node:16-bullseye AS build
 
 WORKDIR /src
 COPY app/ .
+# package-lock.json に壊れたエントリが1件混入しており(postcssのversion/resolvedが
+# "postcss@8.4.32" のように二重結合されている)、そのままでは npm ci が
+# "Invalid Version" で失敗する。アプリ側リポジトリの修正を待たず、ここで補正する。
+RUN sed -i \
+    -e 's/"postcss@8\.4\.32"/"8.4.32"/' \
+    -e 's/postcss-postcss@8\.4\.32\.tgz/postcss-8.4.32.tgz/' \
+    package-lock.json
 RUN npm ci
 # SSRサーバーは立てず、静的サイトとして生成する。
 # 出力先(brc_advanced)とURLのベースパス(/advanced、NODE_ENV=production時)は
