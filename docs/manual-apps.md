@@ -91,12 +91,13 @@ DBを持たないアプリの場合はWordPressより手順が単純になる:
   が確定したら、Ingressのホスト名/パス設定を見直すこと。
 - アプリはNuxt 2 + `fibers`(sass-loaderの依存)を使うため、ビルドはNode 16系で
   行う(`images/brc-advanced-search/Dockerfile`)。
-- アプリ側の`package-lock.json`に壊れたエントリが1件混入している
+- アプリ側の`package-lock.json`(2024年1月頃生成)は、npm側でのtarball再ハッシュ化により
+  integrityが現在のレジストリと食い違うパッケージが複数あり(axios@1.6.0で確認済み。
+  npmが過去に配布物を再gzip化した影響とみられる)、`npm ci`はもちろん`npm install`でも
+  `EINTEGRITY`で失敗する。加えて個別の破損エントリも混入している
   (`@vue/component-compiler-utils`が要求する`postcss@^7.0.36`ではなく、
-  トップレベルの`postcss@8.4.32`のエントリがそのまま誤って上書きされており、
-  versionフィールドも`"postcss@8.4.32"`のように二重結合されてsemverとして不正)。
-  文字列としての破損はDockerfile内で`sed`により補正しているが、バージョン不整合
-  (`lock file's postcss@8.4.32 does not satisfy postcss@7.0.39`)は`npm ci`の
-  「lockfileと完全一致」要求を満たせないため、`npm ci`ではなく`npm install`を使い
-  レジストリから再解決させている(アプリ側リポジトリでのlockfile再生成が本来の
-  直し方。PENQEinc側に報告・修正依頼を検討)。
+  トップレベルの`postcss@8.4.32`のエントリがそのまま誤って上書きされている)。
+  1件ずつ補正するのは持続的でないため、`package-lock.json`を使わず(削除してから)
+  `npm install`でpackage.jsonから解決し直している
+  (`images/brc-advanced-search/Dockerfile`)。アプリ側でlockfileを再生成するのが
+  本来の直し方。PENQEinc側に報告・修正依頼を検討。
