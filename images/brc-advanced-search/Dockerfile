@@ -11,10 +11,21 @@
 #   ghcr.io/silver198545/brc-advanced-search:<TAGファイルの内容>
 #
 # 実運用(PENQEinc側サーバー)ではPM2 + `nuxt start`(node_modules込みのフル構成)で
-# 素のpackage.json/package-lock.jsonのまま動作実績がある。そのため
-# experimental.asyncContext追加・@nuxtjs/i18n強制アップグレード・Node22化は
-# 行わず、素の npm install + npm run build + nuxt start に合わせる
-# (K8sでのプロセス並列化はPM2のclusterモードではなくDeploymentのreplicasで行う)。
+# 稼働実績があり、K8sでのプロセス並列化もPM2のclusterモードではなくDeploymentの
+# replicasで行う方針にしている。
+#
+# 全リクエストが "Nuxt I18n server context has not been set up yet" で
+# 500になる問題の根本原因はアプリ側で特定済み: package.json固定の
+# @nuxtjs/i18n@^10.3.0(2026-05-19付のバージョンアップコミットで導入)が
+# Nuxt 4前提のバージョンで、本アプリのNuxt 3.14.1592とは非互換だった
+# (i18nのサーバープラグインがuseRuntimeConfig(event)を呼ぶ際に
+# event.context.nitroが未初期化のタイミングで実行され例外になる)。
+# @nuxtjs/i18n@8.5.6(Nuxt3互換)へ戻すことで解消することを確認済み。
+# アプリ側package.jsonの恒久修正はまだコミットされていないため、
+# 反映されるまでの暫定対応としてビルド時に個別バージョンへ上書きする。
+# アプリ側でpackage.json/package-lock.jsonの修正がコミットされたら、
+# このRUN npm install @nuxtjs/i18n@8.5.6 は削除しSRC_REFをそのコミットに
+# 更新すること。
 #
 # 更新手順:
 #   1. アプリ側(vue3-main-rikenブランチ)の取り込みたいコミットのSHAを SRC_REF に書く
@@ -28,6 +39,9 @@ FROM node:20-bullseye AS build
 WORKDIR /app
 COPY app/ .
 RUN npm install
+# 暫定対応(このDockerfile冒頭のコメント参照): Nuxt4前提の@nuxtjs/i18n@10.3.0を
+# Nuxt3互換の8.5.6へ個別に戻す。
+RUN npm install @nuxtjs/i18n@8.5.6
 # ビルドスクリプトがNODE_OPTIONS=--max_old_space_size=8192を指定している
 # (Viteビルドがメモリを要求するため)。
 RUN npm run build

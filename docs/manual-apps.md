@@ -115,6 +115,17 @@ DBを持たないアプリの場合はWordPressより手順が単純になる:
   一時Node 22化や`experimental.asyncContext`追加、`@nuxtjs/i18n@latest`への
   強制アップグレードを試したことがあるが、いずれも本質的な解決ではなく
   実サーバーの構成に合わせて元に戻した経緯がある。
+
+  **`Nuxt I18n server context has not been set up yet`(全リクエスト500)の
+  根本原因はアプリ側で特定済み**: `package.json`固定の`@nuxtjs/i18n@^10.3.0`
+  (2026-05-19付のバージョンアップコミットで導入)がNuxt 4前提のバージョンで、
+  本アプリのNuxt 3.14.1592とは非互換だった(i18nのサーバープラグインが
+  `useRuntimeConfig(event)`を呼ぶ際に`event.context.nitro`が未初期化のタイミングで
+  実行され例外になる)。`@nuxtjs/i18n@8.5.6`(Nuxt3互換)へ戻すことで解消する。
+  アプリ側`package.json`/`package-lock.json`の恒久修正はまだコミットされていないため、
+  `images/brc-advanced-search/Dockerfile`でビルド時に個別バージョンへ上書きする
+  暫定対応をしている。**アプリ側でこの修正がコミットされたら、Dockerfileの
+  `RUN npm install @nuxtjs/i18n@8.5.6`を削除し、SRC_REFをそのコミットへ更新すること。**
 - **静的生成ではなくSSR(常駐Nodeサーバー)方式**。`npm run build`で`.output/`が
   生成され、実サーバーと同じ`nuxt start`(`node_modules/.bin/nuxt start`)で
   起動する(`images/brc-advanced-search/Dockerfile`)。`npm prune --omit=dev`で
