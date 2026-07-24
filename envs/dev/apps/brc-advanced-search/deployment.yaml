@@ -13,6 +13,8 @@ spec:
       labels:
         app: brc-advanced-search
     spec:
+      imagePullSecrets:
+        - name: ghcr-brc-advanced-search
       containers:
         - name: brc-advanced-search
           image: ghcr.io/silver198545/brc-advanced-search:1.0.0-r0

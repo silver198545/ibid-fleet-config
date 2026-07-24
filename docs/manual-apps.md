@@ -55,11 +55,33 @@
    - 公開が必要なら、既存WordPressサイトと同様にTraefik Ingress + ホスト名
      (`<app>.<env>.ibid.lan`)+ cert-manager(`freeipa-acme`)で行う
      (WordPress専用LoadBalancer方式ではなくIngress方式)。
-4. PRを作成しマージすると、devクラスタのFleetが自動適用する
-   (パッケージの可視性を最初にpublicへ変更する必要あり。
-   `docs/roadmap.md`/各build-imageワークフローのコメント参照)。
+4. PRを作成しマージすると、devクラスタのFleetが自動適用する。
+   GHCRパッケージの可視性は次のいずれか:
+   - **公開してよい場合**: 初回のみGitHubのPackage設定でpublicに変更する
+     (`docs/roadmap.md`/各build-imageワークフローのコメント参照)。
+   - **公開できない場合**(brc-advanced-searchはこちら。ソースが外部組織の
+     プライベートリポジトリのため、ビルド済みイメージも非公開のままにする):
+     `read:packages` スコープのPersonal access token(専用に新規発行したものを
+     推奨。既存の広いスコープのPATを流用しない)で`kubernetes.io/dockerconfigjson`
+     Secretを作り、`scripts/seal-site-secrets.sh`と同じ要領で対象環境の
+     SealedSecretsコントローラ宛にkubesealで封印し、`envs/<env>/secrets/<app>.yaml`
+     としてコミットする(手元の端末で実行し、封印済みYAML以外は共有しないこと。
+     PATの生の値をコミットログやチャットに残さない)。
+     ```bash
+     kubectl create secret docker-registry ghcr-<app> \
+       -n <app> \
+       --docker-server=ghcr.io \
+       --docker-username=<GitHubユーザー名> \
+       --docker-password=<PAT> \
+       --docker-email=unused@example.com \
+       --dry-run=client -o json \
+     | kubeseal --context <kubectlコンテキスト> --format yaml
+     ```
+     生成したSecret名をDeploymentの`imagePullSecrets`に追加する
+     (`envs/dev/apps/brc-advanced-search/deployment.yaml`参照)。
 5. dev確認後、staging/productionへは上記「昇格についての注意」の手順で
-   手動PRを作成する。
+   手動PRを作成する(pull用SealedSecretは環境ごとに作り直しが必要。
+   他環境のSealedSecretはコピーできない)。
 
 ## staging結合テスト → 本番反映 → stagingクリーンアップ
 
