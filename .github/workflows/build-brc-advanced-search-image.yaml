@@ -1,0 +1,39 @@
+# images/brc-advanced-search/ 配下の変更がmainにマージされたら、
+# riken_brc_advanced_search の静的サイトイメージをビルドしてGHCRへ公開する。
+# タグは images/brc-advanced-search/TAG の内容、取り込むアプリ側のコミットは
+# images/brc-advanced-search/SRC_REF の内容。
+# 公開後、envs/<env>/apps/brc-advanced-search/deployment.yaml の image タグを
+# 切り替える(docs/manual-apps.md参照)。
+#
+# 初回のみ: 公開されたパッケージ(ghcr.io上の brc-advanced-search)の可視性を
+# GitHubのPackage設定で public にすること。
+name: build-brc-advanced-search-image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "images/brc-advanced-search/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: イメージをビルドしてGHCRへpush
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="$(tr -d '[:space:]' < images/brc-advanced-search/TAG)"
+          SRC_REF="$(tr -d '[:space:]' < images/brc-advanced-search/SRC_REF)"
+          IMAGE="ghcr.io/${{ github.repository_owner }}/brc-advanced-search:$TAG"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker build --build-arg SRC_REF="$SRC_REF" -t "$IMAGE" images/brc-advanced-search
+          docker push "$IMAGE"
+          echo "公開しました: $IMAGE"

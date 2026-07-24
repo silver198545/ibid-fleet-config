@@ -24,11 +24,17 @@ dev → staging → production の3つのRKE2クラスタ(Harvester上、Rancher
     監視スタック(rancher-monitoring + blackbox-exporter + アラートルール、
     [docs/manual-monitoring.md](docs/manual-monitoring.md)参照)
   - `sites/<site>/`: WordPressサイト(1サイト=1ディレクトリ、`fleet.yaml`)
+  - `apps/<app>/`: WordPress以外の自作アプリ(1アプリ=1ディレクトリ、`fleet.yaml`+素の
+    Kubernetesマニフェスト)。`sites/`とは性質が異なる(DBなし・ラッパーチャート未使用)ため
+    分離している。追加手順・昇格の注意点は [docs/manual-apps.md](docs/manual-apps.md) 参照
 - `charts/ibid-wordpress/`: 全サイト共通デフォルトを内包したラッパーチャート
   (Bitnami `wordpress` を依存に持つ)。mainマージで `release-chart.yaml` がGHCRへ公開し、
   各サイトの `helm.version` を上げることで環境ごとに取り込む
 - `images/wordpress/`: カスタムWordPressイメージ(digest固定。Bitnami無償イメージが
   `latest` のみになったことへの対策)。mainマージで `build-image.yaml` がGHCRへ公開
+- `images/<app>/`: WordPress以外の自作アプリのビルド定義(例: `images/brc-advanced-search/`)。
+  アプリ本体は別リポジトリのため `SRC_REF`(取り込むコミットSHA)で固定する。
+  詳細は [docs/manual-apps.md](docs/manual-apps.md) 参照
 - `fleet-bootstrap/`: 環境別GitRepo定義(Rancher localクラスタへ手動適用する控え)
 - `scripts/new-wordpress-site.sh <env> <site>`: サイトのFleetバンドルをひな形から生成
 - `scripts/seal-site-secrets.sh <env> <site>`: サイトの認証情報Secret(3種)を
@@ -43,7 +49,8 @@ dev → staging → production の3つのRKE2クラスタ(Harvester上、Rancher
   バックアップ(`yyyymmdd_hhmm.tar.lzo`/`.dump.lzo`)を指定サイトへリストア
   ([docs/manual-wordpress-restore.md](docs/manual-wordpress-restore.md)参照)
 - `.github/workflows/`: `validate`(PR検証)、`release-chart`(チャート公開)、
-  `build-wordpress-image`(イメージ公開)、`promote`(昇格PR生成)
+  `build-wordpress-image`(イメージ公開)、`build-brc-advanced-search-image`
+  (自作アプリのイメージ公開)、`promote`(昇格PR生成。`sites/`のみが対象)
 - `docs/manual-tooling-setup.md`: 作業端末に必要なCLIツール(kubectl/helm/kubeseal等)の
   インストール手順とkubeconfigの準備
 - `docs/manual-multi-env.md`: マルチ環境のセットアップ・既存クラスタの移行・昇格運用・
@@ -57,6 +64,8 @@ dev → staging → production の3つのRKE2クラスタ(Harvester上、Rancher
 - `docs/manual-harvester-loadbalancer.md`: Harvester Cloud Provider の IPPool 作成手順
   (MetalLB は廃止し、Harvester Cloud Provider に一本化。クラスタごとに作成)
 - `docs/manual-wordpress.md`: WordPressサイトを追加する手順
+- `docs/manual-apps.md`: WordPress以外の自作アプリ(`envs/<env>/apps/`)を追加する手順・
+  昇格時の注意点
 - `docs/manual-monitoring.md`: 監視・アラート(rancher-monitoring + Slack通知)の
   導入・運用手順
 - `docs/manual-wordpress-restore.md`: 既存の別環境WordPressサイトからデータを移行

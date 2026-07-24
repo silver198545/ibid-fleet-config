@@ -10,10 +10,17 @@ Rancher側の3つのGitRepo([../fleet-bootstrap/](../fleet-bootstrap/)参照)が
 envs/
 ├── dev/
 │   ├── infra/    # catalog-repos / longhorn* / sealed-secrets / monitoring* (基盤バンドル)
-│   └── sites/    # WordPressサイト(1サイト=1ディレクトリ、fleet.yaml)
+│   ├── sites/    # WordPressサイト(1サイト=1ディレクトリ、fleet.yaml)
+│   └── apps/     # WordPress以外の自作アプリ(1アプリ=1ディレクトリ、fleet.yaml)
 ├── staging/      # 同構成
 └── production/   # 同構成
 ```
+
+`apps/` は `sites/` と違いWordPressラッパーチャート・PVC・3種のSecretを前提としない
+(DBを持たないステートレスなアプリを想定)ため別ディレクトリに分けている。
+追加手順は [../docs/manual-apps.md](../docs/manual-apps.md) 参照。
+**`promote.yaml` は `sites/` しかコピーしない**ため、`apps/` の昇格は同ドキュメントの
+手順で手動PRを作成すること。
 
 ## 運用ルール
 

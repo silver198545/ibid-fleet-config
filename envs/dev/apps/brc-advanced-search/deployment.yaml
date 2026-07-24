@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: brc-advanced-search
+  namespace: brc-advanced-search
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: brc-advanced-search
+  template:
+    metadata:
+      labels:
+        app: brc-advanced-search
+    spec:
+      containers:
+        - name: brc-advanced-search
+          image: ghcr.io/silver198545/brc-advanced-search:1.0.0-r0
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
