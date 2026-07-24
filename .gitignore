@@ -1,0 +1,4 @@
+# CI(build-brc-advanced-search-image.yaml)がプライベートリポジトリ
+# (PENQEinc/riken_brc_advanced_search)のソースを展開する場所。
+# このリポジトリはpublicなので、誤って混入しないよう明示的に無視する。
+/images/brc-advanced-search/app/

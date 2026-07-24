@@ -5,6 +5,13 @@
 # 公開後、envs/<env>/apps/brc-advanced-search/deployment.yaml の image タグを
 # 切り替える(docs/manual-apps.md参照)。
 #
+# riken_brc_advanced_search はプライベートリポジトリのため、ソース取得には
+# Contents: Read-only のfine-grained PATを積んだ BRC_ADVANCED_SEARCH_SOURCE_TOKEN
+# シークレットが必要(このリポジトリのSettings > Secrets and variables > Actionsで
+# 事前に登録しておくこと)。認証情報をDockerイメージのビルドコンテキスト/
+# レイヤー履歴に残さないよう、cloneはDockerfile内ではなくこのワークフローの
+# actions/checkoutステップで行う。
+#
 # 初回のみ: 公開されたパッケージ(ghcr.io上の brc-advanced-search)の可視性を
 # GitHubのPackage設定で public にすること。
 name: build-brc-advanced-search-image
@@ -26,14 +33,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: SRC_REFを読み込む
+        id: src_ref
+        run: echo "ref=$(tr -d '[:space:]' < images/brc-advanced-search/SRC_REF)" >> "$GITHUB_OUTPUT"
+
+      - name: アプリ本体(プライベートリポジトリ)をSRC_REF固定で取得
+        uses: actions/checkout@v4
+        with:
+          repository: PENQEinc/riken_brc_advanced_search
+          ref: ${{ steps.src_ref.outputs.ref }}
+          token: ${{ secrets.BRC_ADVANCED_SEARCH_SOURCE_TOKEN }}
+          path: images/brc-advanced-search/app
+
       - name: イメージをビルドしてGHCRへpush
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="$(tr -d '[:space:]' < images/brc-advanced-search/TAG)"
-          SRC_REF="$(tr -d '[:space:]' < images/brc-advanced-search/SRC_REF)"
           IMAGE="ghcr.io/${{ github.repository_owner }}/brc-advanced-search:$TAG"
           echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          docker build --build-arg SRC_REF="$SRC_REF" -t "$IMAGE" images/brc-advanced-search
+          docker build -t "$IMAGE" images/brc-advanced-search
           docker push "$IMAGE"
           echo "公開しました: $IMAGE"
