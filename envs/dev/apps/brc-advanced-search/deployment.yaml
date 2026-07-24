@@ -17,7 +17,7 @@ spec:
         - name: ghcr-brc-advanced-search
       containers:
         - name: brc-advanced-search
-          image: ghcr.io/silver198545/brc-advanced-search:2.0.0-r1
+          image: ghcr.io/silver198545/brc-advanced-search:2.0.0-r2
           ports:
             - name: http
               containerPort: 3000
