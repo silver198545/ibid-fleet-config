@@ -6,11 +6,14 @@
 # 切り替える(docs/manual-apps.md参照)。
 #
 # riken_brc_advanced_search はプライベートリポジトリのため、ソース取得には
-# Contents: Read-only のfine-grained PATを積んだ BRC_ADVANCED_SEARCH_SOURCE_TOKEN
-# シークレットが必要(このリポジトリのSettings > Secrets and variables > Actionsで
-# 事前に登録しておくこと)。認証情報をDockerイメージのビルドコンテキスト/
-# レイヤー履歴に残さないよう、cloneはDockerfile内ではなくこのワークフローの
-# actions/checkoutステップで行う。
+# 読み取り専用のDeploy Key(riken_brc_advanced_search側に登録済み)に対応する
+# 秘密鍵を積んだ BRC_ADVANCED_SEARCH_DEPLOY_KEY シークレットが必要
+# (このリポジトリのSettings > Secrets and variables > Actionsで事前に登録しておくこと)。
+# fine-grained PAT + tokenでのHTTPS取得は、PENQEincがOrganizationのため
+# Organization側の承認/許可設定が別途必要になり試したところ403で失敗したため、
+# 承認が不要なDeploy Key(SSH)方式に変更した。
+# 認証情報をDockerイメージのビルドコンテキスト/レイヤー履歴に残さないよう、
+# cloneはDockerfile内ではなくこのワークフローのactions/checkoutステップで行う。
 #
 # 初回のみ: 公開されたパッケージ(ghcr.io上の brc-advanced-search)の可視性を
 # GitHubのPackage設定で public にすること。
@@ -42,7 +45,8 @@ jobs:
         with:
           repository: PENQEinc/riken_brc_advanced_search
           ref: ${{ steps.src_ref.outputs.ref }}
-          token: ${{ secrets.BRC_ADVANCED_SEARCH_SOURCE_TOKEN }}
+          ssh-key: ${{ secrets.BRC_ADVANCED_SEARCH_DEPLOY_KEY }}
+          persist-credentials: false
           path: images/brc-advanced-search/app
 
       - name: イメージをビルドしてGHCRへpush
