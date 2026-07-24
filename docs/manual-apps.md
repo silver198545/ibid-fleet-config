@@ -107,31 +107,29 @@ DBを持たないアプリの場合はWordPressより手順が単純になる:
 ## brc-advanced-search 固有のメモ
 
 - ソースは`vue3-main-riken`ブランチ(旧`main`はNuxt 2版で廃止。SRC_REFはこちらの
-  コミットSHAを指すこと)。Nuxt 3 + Viteのため、旧Nuxt 2版で踏んだNode 16固定・
-  `fibers`ネイティブビルド・package-lock.jsonの破損/integrity不整合の問題はない
-  (lockfileVersion 3、`npm install`で問題なく解決できる)。ただし後述の
-  `@nuxtjs/i18n@latest`への個別更新が`@intlify/core`等でNode >= 22を要求するため、
-  ビルド/実行ともNode 22系にしている。
-- **静的生成ではなくSSR(常駐Nodeサーバー)方式**にした。`npm run build`
-  (Nitro node-serverプリセット)で`.output/`配下にサーバー一式が出力され、
-  `node .output/server/index.mjs`で起動する(`images/brc-advanced-search/Dockerfile`)。
+  コミットSHAを指すこと)。実サーバー(PENQEinc側)ではPM2 + `nuxt start`
+  (`node_modules`込みのフル構成、`npm install`/`npm run build`は素の
+  package.json/package-lock.jsonのまま)で稼働実績があるため、Dockerfileも
+  それに合わせて素の状態でビルドする(Node 16固定・`fibers`ネイティブビルド・
+  lockfile破損/integrity不整合はNuxt2版の問題でありNuxt3版では発生しない)。
+  一時Node 22化や`experimental.asyncContext`追加、`@nuxtjs/i18n@latest`への
+  強制アップグレードを試したことがあるが、いずれも本質的な解決ではなく
+  実サーバーの構成に合わせて元に戻した経緯がある。
+- **静的生成ではなくSSR(常駐Nodeサーバー)方式**。`npm run build`で`.output/`が
+  生成され、実サーバーと同じ`nuxt start`(`node_modules/.bin/nuxt start`)で
+  起動する(`images/brc-advanced-search/Dockerfile`)。`npm prune --omit=dev`で
+  実行時に不要なdevDependenciesのみ落とし、`node_modules`自体は保持する
+  (Nitro standaloneの`.output`のみを直接起動する方式ではない)。
   ビルドスクリプトが`NODE_OPTIONS=--max_old_space_size=8192`を指定しているため、
   CIランナーのメモリ不足でビルドが落ちる場合は要調整。
-- Nitroはデフォルトで`0.0.0.0:3000`を待ち受けるが、`HOST`/`PORT`環境変数で明示している。
-  Service/Deploymentの`containerPort`/`targetPort`は3000。
+- PM2の`cluster`モード(1ホスト内で複数プロセス)に相当する並列化は、
+  K8sではDeploymentの`replicas`で行う(PM2はプロセス監視・自動再起動も担うが、
+  K8sではkubeletがその役割を担うため、コンテナ内にPM2を入れる必要はない)。
+- Nitro(nuxt start)はデフォルトで`0.0.0.0:3000`を待ち受けるが、`HOST`/`PORT`
+  環境変数で明示している。Service/Deploymentの`containerPort`/`targetPort`は3000。
 - アプリ側`nuxt.config.ts`の`app.baseURL`が`NODE_ENV=production`時に`/advanced`固定
   (開発時は`/work3/advanced`)。ベアの`/`へのアクセスはアプリ側で自動リダイレクトされない
   (Nuxt自体が`/advanced`配下のルートしか認識しない)ため、Deploymentの
   readiness/livenessProbeは`/advanced/en/`を直接見ている。実際の本番URL構造
   (RIKEN BRC公式サイト配下の`/advanced`パスに載せるのか、専用ホスト名にするのか)
   が確定したら、Ingressのホスト名/パス設定を見直すこと。
-- アプリ側`nuxt.config.ts`に`experimental.asyncContext`の設定が無く、`@nuxtjs/i18n`が
-  SSRリクエストごとの非同期コンテキストを取得できず全リクエストが
-  `[500] Nuxt I18n server context has not been set up yet` になっていた
-  (Nuxt3 + `@nuxtjs/i18n`の既知の問題)。Dockerfile内で`sed`により
-  `experimental: { asyncContext: true }` を`nuxt.config.ts`へ追記しているが、
-  それだけでは解消せず、`package-lock.json`固定の`@nuxtjs/i18n@10.3.0`自体に
-  該当の不具合があった。ビルド時に`npm install @nuxtjs/i18n@latest`で
-  個別に最新版へ上げることで解消している。アプリ側リポジトリでの恒久対応
-  (`package.json`の`@nuxtjs/i18n`バージョン更新、`nuxt.config.ts`への追記)を
-  PENQEinc側に依頼すること。

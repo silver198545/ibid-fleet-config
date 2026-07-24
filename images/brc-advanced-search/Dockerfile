@@ -10,6 +10,12 @@
 # GHCRへの公開は mainへのマージで同ワークフローが行う:
 #   ghcr.io/silver198545/brc-advanced-search:<TAGファイルの内容>
 #
+# 実運用(PENQEinc側サーバー)ではPM2 + `nuxt start`(node_modules込みのフル構成)で
+# 素のpackage.json/package-lock.jsonのまま動作実績がある。そのため
+# experimental.asyncContext追加・@nuxtjs/i18n強制アップグレード・Node22化は
+# 行わず、素の npm install + npm run build + nuxt start に合わせる
+# (K8sでのプロセス並列化はPM2のclusterモードではなくDeploymentのreplicasで行う)。
+#
 # 更新手順:
 #   1. アプリ側(vue3-main-rikenブランチ)の取り込みたいコミットのSHAを SRC_REF に書く
 #   2. TAG を上げる(例: 2.0.0-r0 → 2.0.0-r1)
@@ -17,33 +23,27 @@
 #      image タグを切り替え、dev確認後にstaging/productionへ手動で反映する
 #      (promoteワークフローは envs/<env>/sites/ のみが対象のため、apps/ は
 #      docs/manual-apps.md の手順に従い手動でコピーする)
-FROM node:22-bullseye AS build
+FROM node:20-bullseye AS build
 
-WORKDIR /src
+WORKDIR /app
 COPY app/ .
-# @nuxtjs/i18n(SSR)は、Nitro側でリクエストごとの非同期コンテキストが有効でないと
-# "Nuxt I18n server context has not been set up yet" 500エラーになる既知の問題がある。
-# アプリ側nuxt.config.tsにexperimental.asyncContextの設定が無いため、ビルド前に補う。
-# アプリ側での恒久対応(nuxt.config.tsへの追記)が本来の直し方。
-RUN sed -i "s/^export default defineNuxtConfig({/export default defineNuxtConfig({\n  experimental: { asyncContext: true },/" nuxt.config.ts
 RUN npm install
-# package-lock.json固定の@nuxtjs/i18n(10.3.0)には上記エラーの原因となる不具合があり、
-# 最新版(10.5.0時点)で解消するため個別に上げる。最新版の依存(@intlify/core等)が
-# Node >= 22 を要求するため、ビルド/実行ともNode 22系にしている。
-RUN npm install @nuxtjs/i18n@latest
 # ビルドスクリプトがNODE_OPTIONS=--max_old_space_size=8192を指定している
-# (Viteビルドがメモリを要求するため)。Nitroのnode-serverプリセットにより
-# .output/ 配下に実行可能なサーバー一式が出力される。
+# (Viteビルドがメモリを要求するため)。
 RUN npm run build
+# 実行時に不要なdevDependencies(histoire/typescript/vue-tsc等)を落とす。
+# nuxt自体はdependencies側なので残る。
+RUN npm prune --omit=dev
 
-FROM node:22-bullseye-slim
+FROM node:20-bullseye-slim
 WORKDIR /app
 ENV NODE_ENV=production
-# Nitro node-serverはデフォルトで0.0.0.0:3000を待ち受けるが、
-# コンテナ外(Service)からの到達性のため明示しておく。
+# nuxt startが待ち受けるホスト/ポート。Service/Deploymentからの到達性のため明示する。
 ENV HOST=0.0.0.0
 ENV PORT=3000
-COPY --from=build --chown=node:node /src/.output ./.output
+COPY --from=build --chown=node:node /app ./
 USER node
 EXPOSE 3000
-CMD ["node", ".output/server/index.mjs"]
+# 実サーバーのPM2設定(script: node_modules/nuxt/bin/nuxt.mjs, args: start)と
+# 同じ起動方式に合わせる。
+CMD ["node_modules/.bin/nuxt", "start"]
