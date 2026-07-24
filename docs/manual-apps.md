@@ -123,3 +123,10 @@ DBを持たないアプリの場合はWordPressより手順が単純になる:
   readiness/livenessProbeは`/advanced/en/`を直接見ている。実際の本番URL構造
   (RIKEN BRC公式サイト配下の`/advanced`パスに載せるのか、専用ホスト名にするのか)
   が確定したら、Ingressのホスト名/パス設定を見直すこと。
+- アプリ側`nuxt.config.ts`に`experimental.asyncContext`の設定が無く、`@nuxtjs/i18n`が
+  SSRリクエストごとの非同期コンテキストを取得できず全リクエストが
+  `[500] Nuxt I18n server context has not been set up yet` になっていた
+  (Nuxt3 + `@nuxtjs/i18n`の既知の問題)。Dockerfile内で`sed`により
+  `experimental: { asyncContext: true }` を`nuxt.config.ts`へ追記してから
+  ビルドする暫定対応にしている。アプリ側リポジトリでの恒久対応
+  (`nuxt.config.ts`への追記)をPENQEinc側に依頼すること。
