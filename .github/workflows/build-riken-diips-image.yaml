@@ -1,0 +1,65 @@
+# images/riken-diips/ 配下の変更がmainにマージされたら、
+# riken-diips (Next.js 15, mainブランチ)のSSRサーバーイメージをビルドして
+# GHCRへ公開する。
+# タグは images/riken-diips/TAG の内容、取り込むアプリ側のコミットは
+# images/riken-diips/SRC_REF の内容(mainブランチのコミットを指定)。
+# 公開後、envs/<env>/apps/riken-diips/deployment.yaml の image タグを
+# 切り替える(docs/manual-apps.md参照)。
+#
+# riken-diips はプライベートリポジトリのため、ソース取得には
+# 読み取り専用のDeploy Key(riken-diips側に登録済み)に対応する
+# 秘密鍵を積んだ RIKEN_DIIPS_DEPLOY_KEY シークレットが必要
+# (このリポジトリのSettings > Secrets and variables > Actionsで事前に登録しておくこと)。
+# fine-grained PAT + tokenでのHTTPS取得は、PENQEincがOrganizationのため
+# Organization側の承認/許可設定が別途必要になり試したところ403で失敗した実績が
+# brc-advanced-searchであるため、承認が不要なDeploy Key(SSH)方式に揃える。
+# 認証情報をDockerイメージのビルドコンテキスト/レイヤー履歴に残さないよう、
+# cloneはDockerfile内ではなくこのワークフローのactions/checkoutステップで行う。
+#
+# GHCR上の riken-diips パッケージは非公開のまま運用する
+# (ソースが非公開のOrganizationリポジトリのため)。devクラスタからのpullには
+# scripts/seal-site-secrets.shと同じ要領で作成したGHCR pull用SealedSecretが必要
+# (docs/manual-apps.md参照)。
+
+name: build-riken-diips-image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "images/riken-diips/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: SRC_REFを読み込む
+        id: src_ref
+        run: echo "ref=$(tr -d '[:space:]' < images/riken-diips/SRC_REF)" >> "$GITHUB_OUTPUT"
+
+      - name: アプリ本体(プライベートリポジトリ)をSRC_REF固定で取得
+        uses: actions/checkout@v4
+        with:
+          repository: PENQEinc/riken-diips
+          ref: ${{ steps.src_ref.outputs.ref }}
+          ssh-key: ${{ secrets.RIKEN_DIIPS_DEPLOY_KEY }}
+          persist-credentials: false
+          path: images/riken-diips/app
+
+      - name: イメージをビルドしてGHCRへpush
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="$(tr -d '[:space:]' < images/riken-diips/TAG)"
+          IMAGE="ghcr.io/${{ github.repository_owner }}/riken-diips:$TAG"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker build -t "$IMAGE" images/riken-diips
+          docker push "$IMAGE"
+          echo "公開しました: $IMAGE"

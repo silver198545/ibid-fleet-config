@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: riken-diips
+  namespace: riken-diips
+  annotations:
+    cert-manager.io/cluster-issuer: freeipa-acme
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - riken-diips.dev.ibid.lan
+      secretName: riken-diips-tls
+  rules:
+    - host: riken-diips.dev.ibid.lan
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: riken-diips
+                port:
+                  number: 80
