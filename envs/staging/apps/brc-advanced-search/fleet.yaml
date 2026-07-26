@@ -1,0 +1,11 @@
+# WordPressサイトではない自作アプリ(riken_brc_advanced_search)。
+# DBを持たないステートレスな静的サイトのため、sites/ とは分けてapps/配下に置く
+# (keepResources等WordPressサイト固有の注意点はここには適用されない)。
+# 詳細は docs/manual-apps.md 参照。
+defaultNamespace: brc-advanced-search
+targetNamespace: brc-advanced-search
+
+keepResources: true
+
+helm:
+  releaseName: brc-advanced-search
