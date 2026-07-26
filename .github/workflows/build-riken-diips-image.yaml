@@ -20,6 +20,15 @@
 # 認証情報をDockerイメージのビルドコンテキスト/レイヤー履歴に残さないよう、
 # cloneはDockerfile内ではなくこのワークフローのactions/checkoutステップで行う。
 #
+# 【実際に踏んだ問題】プライベートリポジトリに対してHTTPSのPersonal access token
+# (fine-grained/classic問わず)でSRC_REFのコミットSHAを直接ref指定してfetchすると
+# `remote: Write access to repository not granted.`で403になる。GitHubの仕様上、
+# 生のコミットSHA指定でのfetchはread権限では許可されず、書き込み権限相当が必要な
+# ため(ブランチ/タグ名でのfetchは通常のread権限で可能)。そのためこのワークフローは
+# 一旦`main`ブランチ名でfetchし、その後ローカルで`git checkout <SRC_REF>`することで
+# SRC_REFへのピン留めを行っている(SSH Deploy Key経由のbrc-advanced-searchでは
+# この制限を受けないため、生SHA指定のままでよい)。
+#
 # GHCR上の riken-diips パッケージは非公開のまま運用する
 # (ソースが非公開のOrganizationリポジトリのため)。devクラスタからのpullには
 # scripts/seal-site-secrets.shと同じ要領で作成したGHCR pull用SealedSecretが必要
@@ -48,14 +57,19 @@ jobs:
         id: src_ref
         run: echo "ref=$(tr -d '[:space:]' < images/riken-diips/SRC_REF)" >> "$GITHUB_OUTPUT"
 
-      - name: アプリ本体(プライベートリポジトリ)をSRC_REF固定で取得
+      - name: アプリ本体(プライベートリポジトリ)をmainブランチで取得
         uses: actions/checkout@v4
         with:
           repository: PENQEinc/riken-diips
-          ref: ${{ steps.src_ref.outputs.ref }}
+          ref: main
           token: ${{ secrets.RIKEN_DIIPS_ACCESS_TOKEN }}
           persist-credentials: false
+          fetch-depth: 0
           path: images/riken-diips/app
+
+      - name: SRC_REFのコミットへローカルで固定
+        working-directory: images/riken-diips/app
+        run: git checkout "${{ steps.src_ref.outputs.ref }}"
 
       - name: イメージをビルドしてGHCRへpush
         env:

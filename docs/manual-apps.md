@@ -235,6 +235,14 @@ DBを持たないアプリの場合はWordPressより手順が単純になる:
   そのアカウントが対象リポジトリへのアクセスを失う(Organizationを離脱する等)と
   ビルドが失敗する点に注意。他人が管理するリポジトリ、または長期間他者依存に
   したくない場合はDeploy Key方式を選ぶこと。
+  **実際に踏んだ問題**: `SRC_REF`のコミットSHAを直接`actions/checkout`の`ref:`に
+  渡すと`remote: Write access to repository not granted.`で403になった。プライベート
+  リポジトリに対する生のコミットSHA指定でのHTTPS fetchはread権限では許可されず
+  (ブランチ/タグ名でのfetchは通常のread権限で可）、書き込み権限相当が必要になる
+  というGitHub側の制約が原因(Deploy Key/SSH経由のbrc-advanced-searchはこの制限を
+  受けない)。対策として`build-riken-diips-image.yaml`では一旦`main`ブランチ名で
+  `fetch-depth: 0`fetchし、その後ローカルで`git checkout <SRC_REF>`することで
+  ピン留めしている。
 - **2026-07-26、devへの初回展開を実施**(`envs/dev/apps/riken-diips`一式、
   `images/riken-diips`、`build-riken-diips-image.yaml`を追加)。
   staging/productionへの昇格は未実施。
