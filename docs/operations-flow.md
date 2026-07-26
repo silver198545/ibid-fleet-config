@@ -40,6 +40,12 @@ stagingが結合テスト中にdev→stagingの昇格を重ねるとテストの
 4. **staging → production 昇格**: promoteワークフローでPRを生成。
    マージの**直前に必ず本番のバックアップを取得**(下記「本番反映前のバックアップ」)。
    CODEOWNERS承認のうえマージし、反映後に監視(HTTP probe)とサイト表示を確認する
+   - **注意**: promoteワークフローは`envs/staging/sites/<site>/`を丸ごと
+     `envs/production/sites/<site>/`へ上書きコピーする。production側だけに
+     恒久的に持たせている差分(`ingress.hostname`のホスト名、
+     `wordpress.replicaCount: 2`/`podAntiAffinityPreset: hard`によるproduction冗長化設定)
+     は生成されたPRの差分でいったん消えてしまうため、**マージ前に必ずPRのdiffを見て
+     これらが元に戻っていないか確認し、消えていれば手動で復元してからマージすること**
 
 ## stagingサイトの削除手順(結合テスト後)
 

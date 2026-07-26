@@ -29,9 +29,12 @@ wordpress:
     tag: latest
     digest: sha256:39d337946920c27adea7b0495692ab7c11734a2bd32564edb5a415d5ecf137bd
 
-  # Web層: 2レプリカで冗長化。wp-content は Longhorn の
-  # ReadWriteMany ボリュームで全レプリカ間で共有する。
-  replicaCount: 2
+  # Web層のデフォルトは1レプリカ(dev/staging向け)。production は冗長化のため
+  # 各サイトのfleet.yamlで replicaCount: 2 + podAntiAffinityPreset: hard を
+  # 上書きする(envs/production/sites/<site>/fleet.yaml参照)。wp-content は
+  # Longhorn の ReadWriteMany ボリュームで全レプリカ間共有するため、
+  # レプリカ数を変えてもマウント方式は変わらない。
+  replicaCount: 1
 
   # 既定はLoadBalancer(サイト個別IP)。Traefik Ingress化する場合は各サイトの
   # fleet.yamlでこのブロックとingressを下記例のように上書きする
