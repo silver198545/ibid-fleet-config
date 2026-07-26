@@ -7,12 +7,16 @@
 # 切り替える(docs/manual-apps.md参照)。
 #
 # riken-diips はプライベートリポジトリのため、ソース取得には
-# 読み取り専用のDeploy Key(riken-diips側に登録済み)に対応する
-# 秘密鍵を積んだ RIKEN_DIIPS_DEPLOY_KEY シークレットが必要
-# (このリポジトリのSettings > Secrets and variables > Actionsで事前に登録しておくこと)。
-# fine-grained PAT + tokenでのHTTPS取得は、PENQEincがOrganizationのため
-# Organization側の承認/許可設定が別途必要になり試したところ403で失敗した実績が
-# brc-advanced-searchであるため、承認が不要なDeploy Key(SSH)方式に揃える。
+# RIKEN_DIIPS_ACCESS_TOKEN シークレット(`repo`スコープのPersonal access token
+# (classic))が必要(このリポジトリのSettings > Secrets and variables > Actionsで
+# 事前に登録しておくこと)。
+# brc-advanced-searchではfine-grained PATがOrganization側の承認設定に阻まれ403に
+# なった実績がある(Organizationがfine-grained PATのアクセスを許可制にしている場合、
+# リポジトリ側がadminでも別途承認が必要)。classic PATはこの承認プロセスの対象外で、
+# トークン発行者のアカウントがリポジトリに対して持つ権限(最低read権限)がそのまま
+# 適用されるため、対象リポジトリへのアクセス権を持つアカウントであれば
+# Organization側の追加設定なしに取得できる。riken-diipsはこの条件を満たすため
+# classic PAT方式にしている(Deploy Key登録のような対象リポジトリ側の設定が不要)。
 # 認証情報をDockerイメージのビルドコンテキスト/レイヤー履歴に残さないよう、
 # cloneはDockerfile内ではなくこのワークフローのactions/checkoutステップで行う。
 #
@@ -49,7 +53,7 @@ jobs:
         with:
           repository: PENQEinc/riken-diips
           ref: ${{ steps.src_ref.outputs.ref }}
-          ssh-key: ${{ secrets.RIKEN_DIIPS_DEPLOY_KEY }}
+          token: ${{ secrets.RIKEN_DIIPS_ACCESS_TOKEN }}
           persist-credentials: false
           path: images/riken-diips/app
 
