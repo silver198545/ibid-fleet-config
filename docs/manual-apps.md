@@ -196,4 +196,17 @@ DBを持たないアプリの場合はWordPressより手順が単純になる:
   `brc-advanced-search.staging.ibid.lan`に変更、GHCR pull用SealedSecretを
   `staging1`向けに作り直し、DNS Aレコード
   (`ipa dnsrecord-add ibid.lan brc-advanced-search.staging --a-rec 192.168.1.63`)を
-  登録して問題なく稼働した。次はstagingでの結合テスト後、staging→productionの昇格。
+  登録して問題なく稼働した。
+- **2026-07-26、staging→productionの昇格・stagingクリーンアップまで完了**。
+  `envs/production/apps/brc-advanced-search`を作成し、ホスト名を
+  `brc-advanced-search.production.ibid.lan`に変更、GHCR pull用SealedSecretを
+  `prod1`向けに作り直し、DNS Aレコード
+  (`ipa dnsrecord-add ibid.lan brc-advanced-search.production --a-rec 192.168.1.91`)を
+  登録して本番で稼働確認済み。
+  その後stagingを削除(`envs/staging/apps/brc-advanced-search`・
+  `envs/staging/secrets/brc-advanced-search.yaml`をGitから削除するPRをマージし、
+  `kubectl --context staging1 delete namespace brc-advanced-search`)。
+  **注意点(実際に踏んだ)**: Git側の削除がマージされる前に`kubectl delete namespace`を
+  実行すると、stagingのGitRepoがまだ`fleet.yaml`を検知してFleetがnamespaceを
+  再作成してしまう。必ず「Gitの削除PRをマージ→その後にkubectl delete namespace」の
+  順序を守ること。
