@@ -235,14 +235,19 @@ DBを持たないアプリの場合はWordPressより手順が単純になる:
   そのアカウントが対象リポジトリへのアクセスを失う(Organizationを離脱する等)と
   ビルドが失敗する点に注意。他人が管理するリポジトリ、または長期間他者依存に
   したくない場合はDeploy Key方式を選ぶこと。
-  **実際に踏んだ問題**: `SRC_REF`のコミットSHAを直接`actions/checkout`の`ref:`に
-  渡すと`remote: Write access to repository not granted.`で403になった。プライベート
-  リポジトリに対する生のコミットSHA指定でのHTTPS fetchはread権限では許可されず
-  (ブランチ/タグ名でのfetchは通常のread権限で可）、書き込み権限相当が必要になる
-  というGitHub側の制約が原因(Deploy Key/SSH経由のbrc-advanced-searchはこの制限を
-  受けない)。対策として`build-riken-diips-image.yaml`では一旦`main`ブランチ名で
-  `fetch-depth: 0`fetchし、その後ローカルで`git checkout <SRC_REF>`することで
-  ピン留めしている。
-- **2026-07-26、devへの初回展開を実施**(`envs/dev/apps/riken-diips`一式、
-  `images/riken-diips`、`build-riken-diips-image.yaml`を追加)。
+  **実際に踏んだ問題**: `build-riken-diips-image`の初回実行が
+  `remote: Write access to repository not granted.`で403になった。当初は
+  「プライベートリポジトリへの生コミットSHA指定でのfetchはread権限では許可されない」
+  という仮説で`main`ブランチ名でのfetch+ローカル`git checkout <SRC_REF>`に変更したが、
+  ブランチ名指定でのfetchでも同じ403が再現し、この仮説は誤りだったと判明した。
+  **真因は`RIKEN_DIIPS_ACCESS_TOKEN`(classic PAT)に`repo`スコープが
+  付与されていなかったこと**(スコープ不足でも同じ`Write access to repository not
+  granted.`というメッセージになる)。トークンに`repo`スコープを追加したところ
+  即座に解消した。ブランチ名fetch+ローカルcheckoutへの変更自体は原因ではなかったが、
+  害もないためそのまま残している。**classic PATを発行する際は必ず`repo`スコープが
+  入っているか確認すること。**
+- **2026-07-26、devへの初回展開を完了**(`envs/dev/apps/riken-diips`一式、
+  `images/riken-diips`、`build-riken-diips-image.yaml`を追加、GHCR pull用
+  SealedSecret・DNS Aレコード登録済み)。`https://riken-diips.dev.ibid.lan/`で
+  200・`<title>DiiPS</title>`のレンダリングを確認済み。
   staging/productionへの昇格は未実施。
