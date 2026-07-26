@@ -62,6 +62,15 @@ helm:
       - name: wp-revisions-control
         version: "1.4.4"
     wordpress:
+      # production固有の冗長化設定(dev/stagingはreplicaCount: 1のまま)。
+      # 2レプリカをrequiredなPod Anti-Affinityで別ノードへ強制分散し、単一Pod障害・
+      # ノード障害時も他方が応答を継続できるようにする。wp-contentはLonghorn RWXで
+      # レプリカ間共有のため複数ノードでも問題なくマウントできる。
+      # 注意: promoteワークフローはenvs/staging/sites/をそのまま envs/production/sites/へ
+      # 上書きコピーするため、staging→production昇格PRをマージする際はこの2項目
+      # (と既存のingress.hostname)が消えていないか必ず確認し、消えていれば復元すること。
+      replicaCount: 2
+      podAntiAffinityPreset: hard
       # 管理者パスワードはGitに含めず、事前に作成したSecretを参照する。
       existingSecret: wordpress-dna-credentials
       mariadb:
