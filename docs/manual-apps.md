@@ -31,6 +31,37 @@ NitroのSSRサーバー(`node .output/server/index.mjs`)を常駐実行する)�
 `apps/` を継続的に追加していく場合は、promoteワークフローに `sites`/`apps` の
 対象切り替えを足すことを検討する([docs/roadmap.md](roadmap.md)参照)。
 
+### 手順(brc-advanced-searchのdev→staging昇格で実施・確認済み)
+
+昇格先の環境ディレクトリに`apps/`が無ければ作成しつつコピーする。
+
+```bash
+mkdir -p envs/staging/apps
+cp -r envs/dev/apps/<app> envs/staging/apps/<app>
+```
+
+コピーしただけでは昇格元環境のホスト名が残っているため、必ず以下を昇格先の値へ
+書き換える(忘れると昇格先のIngressが昇格元のホスト名で証明書発行を試みる):
+
+- `envs/<to>/apps/<app>/ingress.yaml`の`spec.tls[].hosts`と`spec.rules[].host`
+  (`<app>.<from>.ibid.lan` → `<app>.<to>.ibid.lan`)
+
+イメージが非公開でpull用SealedSecretがある場合(brc-advanced-searchはこちら)、
+上の「新しいアプリを追加する手順」の4番と同じ要領で**昇格先クラスタ向けに
+kubesealで作り直す**(`kubeseal --context <昇格先のkubectlコンテキスト>`。
+devのSealedSecretはコピー不可)。
+
+新しいホスト名は昇格先環境で初めて使うため、DNS Aレコード登録
+([manual-cert-manager-freeipa-acme.md](manual-cert-manager-freeipa-acme.md)参照)も
+このタイミングで行う必要がある(手順は次節)。
+
+PR作成・マージ後、昇格先環境のGitRepoが自動適用する。動作確認は:
+
+```bash
+kubectl --context <昇格先のkubectlコンテキスト> -n <app> get pods,ingress
+curl -k https://<app>.<to>.ibid.lan/<readinessProbeのpath>
+```
+
 ## 新しいアプリを追加する手順(例: brc-advanced-search)
 
 1. `images/<app>/` にDockerfile・ビルドに必要な付随ファイル(あれば)・
@@ -90,6 +121,21 @@ WordPressサイトと同じサイクル([operations-flow.md](operations-flow.md)
 DBを持たないアプリの場合はWordPressより手順が単純になる:
 
 1. **dev → staging**: 上記「昇格についての注意」の手順で手動PRを作成・マージ
+   - マージ前後どこかのタイミングで、新ホスト名(`<app>.staging.ibid.lan`)の
+     DNS AレコードをFreeIPAに登録しておく(未登録だとcert-managerの証明書発行が
+     進まず、Ingressへアクセスできない)。TSIG鍵はTXTレコードのみ許可のため
+     `ipa dnsrecord-add`をIPA管理者権限で直接実行する
+     ([manual-cert-manager-freeipa-acme.md](manual-cert-manager-freeipa-acme.md)参照)。
+     ```bash
+     kinit admin
+     # <TraefikのLB IP>はstagingクラスタのTraefik共有LB IP(2026-07-26時点で192.168.1.63)
+     ipa dnsrecord-add ibid.lan <app>.staging --a-rec <TraefikのLB IP>
+     ```
+     確認:
+     ```bash
+     dig @192.168.100.21 <app>.staging.ibid.lan +short
+     ```
+     (例: brc-advanced-searchでは `ipa dnsrecord-add ibid.lan brc-advanced-search.staging --a-rec 192.168.1.63`)
 2. **stagingで結合テスト**: `https://<app>.staging.ibid.lan/` 等で動作確認
    (WordPressと異なりDBが無いので、本番データのリストアは不要。
    Deploymentが上がりIngress経由で表示できれば十分)
@@ -144,3 +190,10 @@ DBを持たないアプリの場合はWordPressより手順が単純になる:
   readiness/livenessProbeは`/advanced/en/`を直接見ている。実際の本番URL構造
   (RIKEN BRC公式サイト配下の`/advanced`パスに載せるのか、専用ホスト名にするのか)
   が確定したら、Ingressのホスト名/パス設定を見直すこと。
+- **2026-07-26、dev→stagingの昇格を実施・確認済み**(このリポジトリで`apps/`昇格の
+  最初の実例)。上記「昇格(プロモーション)についての注意」の手順どおり
+  `envs/staging/apps/brc-advanced-search`を新規作成し、`ingress.yaml`のホスト名を
+  `brc-advanced-search.staging.ibid.lan`に変更、GHCR pull用SealedSecretを
+  `staging1`向けに作り直し、DNS Aレコード
+  (`ipa dnsrecord-add ibid.lan brc-advanced-search.staging --a-rec 192.168.1.63`)を
+  登録して問題なく稼働した。次はstagingでの結合テスト後、staging→productionの昇格。
