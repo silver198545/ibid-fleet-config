@@ -210,3 +210,31 @@ DBを持たないアプリの場合はWordPressより手順が単純になる:
   実行すると、stagingのGitRepoがまだ`fleet.yaml`を検知してFleetがnamespaceを
   再作成してしまう。必ず「Gitの削除PRをマージ→その後にkubectl delete namespace」の
   順序を守ること。
+
+## riken-diips 固有のメモ
+
+- ソースは[PENQEinc/riken-diips](https://github.com/PENQEinc/riken-diips)の`main`ブランチ
+  (Next.js 15 / React 18 / TypeScript製、DBなし)。`SRC_REF`は同ブランチのコミットSHAを指す。
+- `next.config.js`にbasePath指定がないため、brc-advanced-searchの`/advanced`のような制約は
+  なく、Deployment の readiness/livenessProbe はベアの`/`を見ている。
+- 非機密の環境変数`GOOGLE_ANALYTICS_ID`(アプリ側`.env`のデフォルト`G-XYZ`)のみ、
+  Deploymentの`env`にプレースホルダとして設定している。実際の計測IDが決まったら
+  `envs/<env>/apps/riken-diips/deployment.yaml`を書き換える。
+- ソースが非公開のOrganizationリポジトリのため、brc-advanced-searchと同様に
+  GHCRイメージも非公開のまま運用し、GHCR pull用SealedSecret
+  (`envs/<env>/secrets/riken-diips.yaml`)が必要。
+- **ソース取得はDeploy Keyではなくclassic PAT方式**(`RIKEN_DIIPS_ACCESS_TOKEN`)。
+  brc-advanced-searchで標準化したDeploy Key方式(上記「新しいアプリを追加する手順」の
+  1番)の代わりに、`repo`スコープのPersonal access token (classic)を
+  `actions/checkout`の`token:`に渡している。riken-diipsに対して既にread権限を持つ
+  アカウント(このリポジトリを運用しているアカウント自身)でトークンを発行した場合、
+  classic PATはOrganization側の追加承認を必要としない(fine-grained PATのみが
+  Organizationの許可制の対象になる)。対象リポジトリ側でDeploy Key登録という
+  管理操作が不要になる分、新しいアプリを追加する手順がシンプルになる。
+  ただしこの方式はトークン発行者アカウントの権限がそのまま使われるため、
+  そのアカウントが対象リポジトリへのアクセスを失う(Organizationを離脱する等)と
+  ビルドが失敗する点に注意。他人が管理するリポジトリ、または長期間他者依存に
+  したくない場合はDeploy Key方式を選ぶこと。
+- **2026-07-26、devへの初回展開を実施**(`envs/dev/apps/riken-diips`一式、
+  `images/riken-diips`、`build-riken-diips-image.yaml`を追加)。
+  staging/productionへの昇格は未実施。

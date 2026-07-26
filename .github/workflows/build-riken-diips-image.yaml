@@ -1,0 +1,69 @@
+# images/riken-diips/ 配下の変更がmainにマージされたら、
+# riken-diips (Next.js 15, mainブランチ)のSSRサーバーイメージをビルドして
+# GHCRへ公開する。
+# タグは images/riken-diips/TAG の内容、取り込むアプリ側のコミットは
+# images/riken-diips/SRC_REF の内容(mainブランチのコミットを指定)。
+# 公開後、envs/<env>/apps/riken-diips/deployment.yaml の image タグを
+# 切り替える(docs/manual-apps.md参照)。
+#
+# riken-diips はプライベートリポジトリのため、ソース取得には
+# RIKEN_DIIPS_ACCESS_TOKEN シークレット(`repo`スコープのPersonal access token
+# (classic))が必要(このリポジトリのSettings > Secrets and variables > Actionsで
+# 事前に登録しておくこと)。
+# brc-advanced-searchではfine-grained PATがOrganization側の承認設定に阻まれ403に
+# なった実績がある(Organizationがfine-grained PATのアクセスを許可制にしている場合、
+# リポジトリ側がadminでも別途承認が必要)。classic PATはこの承認プロセスの対象外で、
+# トークン発行者のアカウントがリポジトリに対して持つ権限(最低read権限)がそのまま
+# 適用されるため、対象リポジトリへのアクセス権を持つアカウントであれば
+# Organization側の追加設定なしに取得できる。riken-diipsはこの条件を満たすため
+# classic PAT方式にしている(Deploy Key登録のような対象リポジトリ側の設定が不要)。
+# 認証情報をDockerイメージのビルドコンテキスト/レイヤー履歴に残さないよう、
+# cloneはDockerfile内ではなくこのワークフローのactions/checkoutステップで行う。
+#
+# GHCR上の riken-diips パッケージは非公開のまま運用する
+# (ソースが非公開のOrganizationリポジトリのため)。devクラスタからのpullには
+# scripts/seal-site-secrets.shと同じ要領で作成したGHCR pull用SealedSecretが必要
+# (docs/manual-apps.md参照)。
+
+name: build-riken-diips-image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "images/riken-diips/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: SRC_REFを読み込む
+        id: src_ref
+        run: echo "ref=$(tr -d '[:space:]' < images/riken-diips/SRC_REF)" >> "$GITHUB_OUTPUT"
+
+      - name: アプリ本体(プライベートリポジトリ)をSRC_REF固定で取得
+        uses: actions/checkout@v4
+        with:
+          repository: PENQEinc/riken-diips
+          ref: ${{ steps.src_ref.outputs.ref }}
+          token: ${{ secrets.RIKEN_DIIPS_ACCESS_TOKEN }}
+          persist-credentials: false
+          path: images/riken-diips/app
+
+      - name: イメージをビルドしてGHCRへpush
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="$(tr -d '[:space:]' < images/riken-diips/TAG)"
+          IMAGE="ghcr.io/${{ github.repository_owner }}/riken-diips:$TAG"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker build -t "$IMAGE" images/riken-diips
+          docker push "$IMAGE"
+          echo "公開しました: $IMAGE"
