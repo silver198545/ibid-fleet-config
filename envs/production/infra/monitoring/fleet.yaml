@@ -143,6 +143,14 @@ helm:
         retentionSize: 27GiB
         storageSpec:
           volumeClaimTemplate:
+            metadata:
+              # TSDBの書き込み量が多くLonghornのdefaultスナップショットグループ
+              # (retain 4)だとノードディスクを圧迫するため、db-lightグループ
+              # (../longhorn-jobs/recurringjobs.yaml)に付け替える。
+              # 既存PVCには反映されないため、初回適用時は該当Volumeのラベルを
+              # 手動で付け替えること(docs/manual-dr-troubleshooting.md参照)。
+              annotations:
+                recurring-job-group.longhorn.io/db-light: enabled
             spec:
               storageClassName: longhorn
               accessModes:
