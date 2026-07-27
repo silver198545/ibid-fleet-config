@@ -55,6 +55,38 @@ devのSealedSecretはコピー不可)。
 ([manual-cert-manager-freeipa-acme.md](manual-cert-manager-freeipa-acme.md)参照)も
 このタイミングで行う必要がある(手順は次節)。
 
+ここまでの変更(コピーしたマニフェスト + 作り直したSealedSecret)をコミットし、
+`gh` CLIでPRを作成する(`promote.yaml`が自動化しているコミット/PR作成を
+`apps/`用に手動でなぞる形。ブランチ名・コミットメッセージ・PR本文は自由だが、
+以下は実例):
+
+```bash
+git checkout -b promote/<app>-<from>-to-<to>
+git add "envs/<to>/apps/<app>" "envs/<to>/secrets/<app>.yaml"
+git commit -m "feat: <app>を<to>環境へ昇格"
+git push -u origin promote/<app>-<from>-to-<to>
+
+gh pr create --title "feat: <app>を<to>環境へ昇格" --body "$(cat <<'EOF'
+## 昇格内容
+
+`envs/<from>/apps/<app>` → `envs/<to>/apps/<app>` (手動昇格。`promote.yaml`は`sites/`のみ対象のため`apps/`はこのPRで手動対応)
+
+- ホスト名を `<app>.<from>.ibid.lan` → `<app>.<to>.ibid.lan` に変更(`ingress.yaml`)
+- GHCR pull用SealedSecretを `<昇格先のkubectlコンテキスト>` 向けに作り直し(`envs/<to>/secrets/<app>.yaml`)
+
+## 前提(マージ前に完了済み)
+
+- [x] FreeIPAへ `<app>.<to>.ibid.lan` のDNS Aレコード登録
+- [x] <from>で<app>が正常稼働していることを確認済み
+
+## マージ後の確認
+
+- [ ] `kubectl --context <昇格先のkubectlコンテキスト> -n <app> get pods,ingress`
+- [ ] `curl -k https://<app>.<to>.ibid.lan/` で疎通確認
+EOF
+)"
+```
+
 PR作成・マージ後、昇格先環境のGitRepoが自動適用する。動作確認は:
 
 ```bash
@@ -250,4 +282,26 @@ DBを持たないアプリの場合はWordPressより手順が単純になる:
   `images/riken-diips`、`build-riken-diips-image.yaml`を追加、GHCR pull用
   SealedSecret・DNS Aレコード登録済み)。`https://riken-diips.dev.ibid.lan/`で
   200・`<title>DiiPS</title>`のレンダリングを確認済み。
-  staging/productionへの昇格は未実施。
+- **2026-07-27、dev→stagingの昇格PRを作成**(上記「昇格(プロモーション)についての
+  注意」の手順どおり`envs/staging/apps/riken-diips`を新規作成し、`ingress.yaml`の
+  ホスト名を`riken-diips.staging.ibid.lan`に変更、GHCR pull用SealedSecretを
+  `staging1`向けに作り直し、DNS Aレコード
+  (`ipa dnsrecord-add ibid.lan riken-diips.staging --a-rec 192.168.1.63`)を
+  登録のうえ[#88](https://github.com/silver198545/ibid-fleet-config/pull/88)を作成・マージ済み)。
+- **2026-07-27、staging→productionの昇格・冗長化・stagingクリーンアップまで完了**。
+  `envs/production/apps/riken-diips`を作成し、ホスト名を
+  `riken-diips.production.ibid.lan`に変更、GHCR pull用SealedSecretを`prod1`向けに
+  作り直して[#89](https://github.com/silver198545/ibid-fleet-config/pull/89)をマージ。
+  続けてbrc-advanced-search本番と揃える形で`replicas`を1→2に変更
+  ([#91](https://github.com/silver198545/ibid-fleet-config/pull/91))。
+  その後stagingを削除(`envs/staging/apps/riken-diips`・
+  `envs/staging/secrets/riken-diips.yaml`を削除する
+  [#92](https://github.com/silver198545/ibid-fleet-config/pull/92)をマージ後、
+  `kubectl --context staging1 delete namespace riken-diips`を実行)。
+  **実際に踏んだ問題**: PR #89マージ後(squash merge)、同じローカルブランチに
+  そのままreplicas変更のコミットを積んで#91用に作ろうとしたところ、mainとの
+  共通祖先がPR #89のマージ前に戻ってしまい、変更していないファイルまで
+  すべて`add/add`コンフリクトになった(squash mergeは新しいコミットハッシュを
+  作るため、マージ済みブランチの続きにコミットしても祖先関係が繋がらない)。
+  **squash mergeされたPRのブランチは使い捨てにし、追加の変更は必ずmainから
+  新しくブランチを切り直すこと。**
