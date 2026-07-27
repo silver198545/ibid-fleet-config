@@ -119,3 +119,21 @@ promoteワークフローは `sites/` しかコピーしないため、monitorin
   base64デコードしてGitのvaluesと比較する。
 - **Longhornメトリクスが無い**: ServiceMonitor `longhorn` と
   `longhorn-backend` Service(port `manager`)のラベル `app: longhorn-manager` を確認。
+- **PrometheusのPVCが乗るノードでLonghornディスクがunschedulableになる**:
+  Prometheus TSDBは書き込み量が多く、Longhornの`default`スナップショットグループ
+  (`envs/<env>/infra/longhorn-jobs/recurringjobs.yaml`、6時間毎retain 4)だと
+  スナップショット差分だけで実データサイズを超え、ノードディスクの空き容量が
+  Longhornの`storage-minimal-available-percentage`(既定25%)を割り込むことがある
+  (`kubectl -n longhorn-system get volumes.longhorn.io <pvc名> -o jsonpath='{.status.actualSize}'`
+  と実データ使用量を比較して確認)。
+  対策として`db-light`グループ(同ファイル、retain 1)を用意し、Prometheus用PVCの
+  `volumeClaimTemplate`にアノテーション`recurring-job-group.longhorn.io/db-light: enabled`
+  を設定済み(このfleet.yaml)。ただし**既存のPVC/Volumeには反映されない**ため、
+  初回適用時は該当VolumeのラベルをGit変更とは別に手動で付け替えること:
+  ```
+  kubectl --context=<env> -n longhorn-system label volumes.longhorn.io <prometheusのPVC名> \
+    recurring-job-group.longhorn.io/default- \
+    recurring-job-group.longhorn.io/db-light=enabled
+  ```
+  付け替え後、次回のcron実行(最大6時間以内)でdefault分のスナップショットが
+  自動的にtrimされ、ディスク使用量が回復する。

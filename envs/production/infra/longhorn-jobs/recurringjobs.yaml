@@ -28,3 +28,23 @@ spec:
   concurrency: 2
   groups:
     - default
+    - db-light
+---
+# Prometheus TSDBのような書き込み量が多いボリューム専用の軽量スナップショット。
+# defaultグループ(retain 4)だとスナップショット差分だけでノードディスクを
+# 圧迫する(6時間毎のスナップショット1世代で実データサイズを超える差分になり得る)ため、
+# 対象ボリュームはVolumeラベルでdefaultグループから外しdb-lightに付け替える。
+# バックアップ(オフサイト保全)はbackup-dailyのgroupsにdb-lightを追加して従来通り継続。
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: snapshot-6h-light
+  namespace: longhorn-system
+spec:
+  name: snapshot-6h-light
+  task: snapshot
+  cron: "0 */6 * * *"
+  retain: 1
+  concurrency: 2
+  groups:
+    - db-light
