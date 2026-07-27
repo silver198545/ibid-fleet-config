@@ -287,5 +287,21 @@ DBを持たないアプリの場合はWordPressより手順が単純になる:
   ホスト名を`riken-diips.staging.ibid.lan`に変更、GHCR pull用SealedSecretを
   `staging1`向けに作り直し、DNS Aレコード
   (`ipa dnsrecord-add ibid.lan riken-diips.staging --a-rec 192.168.1.63`)を
-  登録のうえ[#88](https://github.com/silver198545/ibid-fleet-config/pull/88)を作成)。
-  productionへの昇格は未実施。
+  登録のうえ[#88](https://github.com/silver198545/ibid-fleet-config/pull/88)を作成・マージ済み)。
+- **2026-07-27、staging→productionの昇格・冗長化・stagingクリーンアップまで完了**。
+  `envs/production/apps/riken-diips`を作成し、ホスト名を
+  `riken-diips.production.ibid.lan`に変更、GHCR pull用SealedSecretを`prod1`向けに
+  作り直して[#89](https://github.com/silver198545/ibid-fleet-config/pull/89)をマージ。
+  続けてbrc-advanced-search本番と揃える形で`replicas`を1→2に変更
+  ([#91](https://github.com/silver198545/ibid-fleet-config/pull/91))。
+  その後stagingを削除(`envs/staging/apps/riken-diips`・
+  `envs/staging/secrets/riken-diips.yaml`を削除する
+  [#92](https://github.com/silver198545/ibid-fleet-config/pull/92)をマージ後、
+  `kubectl --context staging1 delete namespace riken-diips`を実行)。
+  **実際に踏んだ問題**: PR #89マージ後(squash merge)、同じローカルブランチに
+  そのままreplicas変更のコミットを積んで#91用に作ろうとしたところ、mainとの
+  共通祖先がPR #89のマージ前に戻ってしまい、変更していないファイルまで
+  すべて`add/add`コンフリクトになった(squash mergeは新しいコミットハッシュを
+  作るため、マージ済みブランチの続きにコミットしても祖先関係が繋がらない)。
+  **squash mergeされたPRのブランチは使い捨てにし、追加の変更は必ずmainから
+  新しくブランチを切り直すこと。**
