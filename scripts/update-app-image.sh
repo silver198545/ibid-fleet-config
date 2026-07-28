@@ -18,6 +18,9 @@
 # WEBアクセス200等)を確認してから次を手動で実行する運用を想定している。
 #
 # サブコマンド:
+#   latest-src-ref <app>               取り込み元リポジトリ(upstream_repo_for/upstream_branch_for
+#                                       で登録済みのブランチ)のHEADコミットSHAとメッセージを表示する。
+#                                       set-imageのsrc_refに使う値を手打ちしないためのもの。
 #   set-image <app> <tag> <src_ref>    images/<app>/{TAG,SRC_REF}を更新しPR作成、CI完了を待つ。
 #                                       マージ後 build-<app>-image.yaml が自動発火する。
 #   deploy-dev <app>                   build-<app>-image.yamlの最新実行が成功していることを確認した上で、
@@ -38,6 +41,8 @@
 #                                       マージ後に実行するkubectl delete namespaceコマンドを表示する。
 #
 # 使い方の例(brc-advanced-searchをイメージ更新する場合):
+#   scripts/update-app-image.sh latest-src-ref brc-advanced-search
+#   (表示された内容を確認し、それが新TAGとして取り込みたいコミットか判断する)
 #   scripts/update-app-image.sh set-image brc-advanced-search 2.0.0-r6 <新SRC_REF(コミットSHA)>
 #   (PRをマージし、build-brc-advanced-search-imageの成功を確認)
 #   git pull
@@ -91,6 +96,22 @@ for cmd in git gh curl kubectl; do
     exit 1
   fi
 done
+
+upstream_repo_for() {
+  case "$1" in
+    brc-advanced-search) echo "PENQEinc/riken_brc_advanced_search" ;;
+    riken-diips) echo "PENQEinc/riken-diips" ;;
+    *) echo "エラー: ${1} の取り込み元リポジトリが未登録です(このスクリプトの upstream_repo_for/upstream_branch_for に追記してください)。" >&2; exit 1 ;;
+  esac
+}
+
+upstream_branch_for() {
+  case "$1" in
+    brc-advanced-search) echo "vue3-main-riken" ;;
+    riken-diips) echo "main" ;;
+    *) echo "エラー: ${1} の取り込み元ブランチが未登録です。" >&2; exit 1 ;;
+  esac
+}
 
 context_for_env() {
   case "$1" in
@@ -148,6 +169,31 @@ commit_push_pr() {
   else
     echo "警告: CIチェックが失敗、またはタイムアウトしました。内容を確認してください: $pr_url" >&2
   fi
+}
+
+cmd_latest_src_ref() {
+  local repo branch result sha
+  repo="$(upstream_repo_for "$APP")"
+  branch="$(upstream_branch_for "$APP")"
+
+  if ! result="$(gh api "repos/${repo}/commits/${branch}" --jq '[.sha, .commit.author.date, (.commit.message | split("\n")[0])] | @tsv' 2>&1)"; then
+    echo "エラー: ${repo}(${branch})の最新コミット取得に失敗しました。" >&2
+    echo "$result" >&2
+    echo "ghが${repo}への読み取り権限を持つアカウントで認証されているか確認してください(gh auth status)。" >&2
+    exit 1
+  fi
+
+  IFS=$'\t' read -r sha date message <<< "$result"
+  echo "リポジトリ: ${repo} (${branch}ブランチ)" >&2
+  echo "コミット日時: ${date}" >&2
+  echo "コミットメッセージ: ${message}" >&2
+  echo "SRC_REF: ${sha}" >&2
+  echo "" >&2
+  echo "内容を確認した上で、以下のように使ってください:" >&2
+  echo "  scripts/update-app-image.sh set-image ${APP} <新TAG> ${sha}" >&2
+  echo "" >&2
+  # 標準出力にはSHAのみを出す(他コマンドへの $(...) 渡しを想定)
+  echo "$sha"
 }
 
 cmd_set_image() {
@@ -361,6 +407,7 @@ cmd_cleanup_staging() {
 }
 
 case "$SUBCOMMAND" in
+  latest-src-ref)            cmd_latest_src_ref ;;
   set-image)                 cmd_set_image "$@" ;;
   deploy-dev)                cmd_deploy_dev ;;
   check-dev)                 cmd_check dev ;;
