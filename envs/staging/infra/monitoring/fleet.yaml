@@ -42,6 +42,18 @@ helm:
   repo: https://charts.rancher.io
   version: 109.0.3+up80.9.1-rancher.14
   values:
+    # RancherのApps&MarketplaceからインストールするとRancherが自動注入する値だが、
+    # Fleet(GitOps)経由だと注入されず空文字列のままになる。その場合Grafanaの
+    # nginxプロキシがappSubUrlを"/k8s/clusters//api/v1/..."(クラスタID抜け)で
+    # 焼き込み、Rancher UIのMetricsタブがローディングのまま止まる
+    # (2026-07-28 dev1/staging1/prod1全クラスタで発生、確認済み)。
+    # 値はRancher local clusterで
+    #   kubectl get clusters.management.cattle.io -o custom-columns=NAME:.metadata.name,DISPLAY:.spec.displayName
+    # を実行して該当クラスタのNAME(c-m-xxxxx)を確認する。
+    global:
+      cattle:
+        clusterId: c-m-xl46zxzm
+
     # RKE2の制御プレーンコンポーネントのexporter(Rancher AppsがRKE2クラスタで
     # 有効化するものと同等)。リソースが厳しくなったら無効化してよい。
     rke2ControllerManager:
