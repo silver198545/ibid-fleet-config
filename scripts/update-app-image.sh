@@ -27,15 +27,21 @@
 #                                       envs/dev/apps/<app>/deployment.yamlのイメージタグを
 #                                       images/<app>/TAGに合わせて更新しPR作成。
 #   check-dev <app>                    devのrollout状況とWEBアクセス(readinessProbeのpathで200か)を確認。
-#   promote-staging <app>              envs/dev/apps/<app> を envs/staging/apps/<app> へコピーし
-#                                       ホスト名を書き換える(ブランチ作成のみ、コミットはしない)。
-#                                       SealedSecret作成コマンドを表示して停止する。
+#   promote-staging <app>              【初回昇格専用】envs/dev/apps/<app> を envs/staging/apps/<app> へ
+#                                       新規コピーしホスト名を書き換える(ブランチ作成のみ、コミットはしない)。
+#                                       SealedSecret作成コマンドを表示して停止する。envs/staging/apps/<app>が
+#                                       既にある場合はエラーになる(2回目以降のイメージ更新はdeploy-stagingを使うこと)。
 #   promote-staging-finish <app>       promote-stagingでSealedSecretを手動作成した後に実行。
 #                                       コミット・PR作成まで行う。
+#   deploy-staging <app>               【2回目以降】既にstagingにある<app>のイメージタグだけを
+#                                       images/<app>/TAGに合わせて更新しPR作成(deploy-devのstaging版)。
 #   check-staging <app>                stagingのWEBアクセスを確認。
-#   promote-production <app>           envs/staging/apps/<app> を envs/production/apps/<app> へ
-#                                       コピー。SealedSecret作成コマンドを表示して停止する。
+#   promote-production <app>           【初回昇格専用】envs/staging/apps/<app> を envs/production/apps/<app> へ
+#                                       新規コピー。SealedSecret作成コマンドを表示して停止する。既にある場合は
+#                                       エラーになる(2回目以降のイメージ更新はdeploy-productionを使うこと)。
 #   promote-production-finish <app>    コミット・PR作成のみ。
+#   deploy-production <app>            【2回目以降】既にproductionにある<app>のイメージタグだけを
+#                                       images/<app>/TAGに合わせて更新しPR作成(deploy-devのproduction版)。
 #   check-production <app>             productionのWEBアクセスを確認。
 #   cleanup-staging <app>              本番反映確認後、staging側のGit定義を削除するPRを作成。
 #                                       マージ後に実行するkubectl delete namespaceコマンドを表示する。
@@ -63,6 +69,19 @@
 #   git pull
 #   scripts/update-app-image.sh check-production brc-advanced-search
 #   scripts/update-app-image.sh cleanup-staging brc-advanced-search
+#
+# 2回目以降のイメージ更新(productionは初回昇格後も envs/production/apps/<app> が残り続けるため、
+# promote-productionは使えず必ずエラーになる。stagingはcleanup-stagingで毎回消す運用のため、
+# 通常はpromote-stagingで問題ないが、cleanup-staging未実施のまま次サイクルに入った場合は
+# 同様にdeploy-stagingを使う):
+#   scripts/update-app-image.sh set-image brc-advanced-search 2.0.0-r7 <新SRC_REF>
+#   (PRをマージし、build-brc-advanced-search-imageの成功を確認)
+#   git pull && scripts/update-app-image.sh deploy-dev brc-advanced-search
+#   (PRをマージ) git pull && scripts/update-app-image.sh check-dev brc-advanced-search
+#   scripts/update-app-image.sh promote-staging brc-advanced-search   # 既にあればdeploy-stagingを使う
+#   ...(以下は初回と同様)...
+#   scripts/update-app-image.sh deploy-production brc-advanced-search  # promote-productionではなくこちら
+#   (PRをマージ) git pull && scripts/update-app-image.sh check-production brc-advanced-search
 #
 # 前提: gh CLIが認証済み、kubectl/kubesealのコンテキスト(dev1/staging1/prod1)が
 # ~/.kube/config にマージ済みであること(docs/manual-tooling-setup.md参照)。
@@ -237,9 +256,16 @@ EOF
   echo "  scripts/update-app-image.sh deploy-dev ${APP}"
 }
 
-cmd_deploy_dev() {
-  local dep_file="envs/dev/apps/${APP}/deployment.yaml"
-  [[ -f "$dep_file" ]] || { echo "エラー: ${dep_file} が見つかりません。" >&2; exit 1; }
+cmd_deploy() {
+  local env="$1"
+  local dep_file="envs/${env}/apps/${APP}/deployment.yaml"
+  [[ -f "$dep_file" ]] || {
+    echo "エラー: ${dep_file} が見つかりません。" >&2
+    if [[ "$env" != "dev" ]]; then
+      echo "${env}にまだ${APP}が昇格されていない可能性があります。先に promote-${env} / promote-${env}-finish を実行してください。" >&2
+    fi
+    exit 1
+  }
   local tag
   tag="$(tr -d '[:space:]' < "images/${APP}/TAG")"
 
@@ -255,18 +281,18 @@ cmd_deploy_dev() {
   ensure_clean_worktree
   require_main_uptodate
 
-  open_branch "deploy-dev/${APP}-${tag}"
+  open_branch "deploy-${env}/${APP}-${tag}"
   sed -i -E "s#(ghcr\.io/${GH_OWNER}/${APP}):[^\"[:space:]]+#\1:${tag}#" "$dep_file"
   echo "更新後のimage行: $(grep 'image:' "$dep_file")"
   git add "$dep_file"
 
   commit_push_pr \
-    "feat: dev環境の${APP}を${tag}に更新" \
-    "envs/dev/apps/${APP}/deployment.yamlのイメージタグを${tag}に更新。マージ後devクラスタのFleetが自動適用します。"
+    "feat: ${env}環境の${APP}を${tag}に更新" \
+    "envs/${env}/apps/${APP}/deployment.yamlのイメージタグを${tag}に更新。マージ後${env}クラスタのFleetが自動適用します。"
 
   echo ""
   echo "マージ後、次で確認してください:"
-  echo "  git pull && scripts/update-app-image.sh check-dev ${APP}"
+  echo "  git pull && scripts/update-app-image.sh check-${env} ${APP}"
 }
 
 cmd_check() {
@@ -307,7 +333,12 @@ cmd_promote_prepare() {
   local from_dir="envs/${from_env}/apps/${APP}"
   local to_dir="envs/${to_env}/apps/${APP}"
   [[ -d "$from_dir" ]] || { echo "エラー: ${from_dir} がありません。" >&2; exit 1; }
-  [[ -d "$to_dir" ]] && { echo "エラー: ${to_dir} は既に存在します。既存の昇格が進行中でないか確認してください。" >&2; exit 1; }
+  [[ -d "$to_dir" ]] && {
+    echo "エラー: ${to_dir} は既に存在します。既存の昇格が進行中でないか確認してください。" >&2
+    echo "既に${to_env}へ初回昇格済みで、イメージバージョンを更新したいだけの場合は" >&2
+    echo "promote-${to_env}ではなく deploy-${to_env} ${APP} を使ってください。" >&2
+    exit 1
+  }
 
   ensure_clean_worktree
   require_main_uptodate
@@ -410,13 +441,15 @@ cmd_cleanup_staging() {
 case "$SUBCOMMAND" in
   latest-src-ref)            cmd_latest_src_ref ;;
   set-image)                 cmd_set_image "$@" ;;
-  deploy-dev)                cmd_deploy_dev ;;
+  deploy-dev)                cmd_deploy dev ;;
   check-dev)                 cmd_check dev ;;
   promote-staging)           cmd_promote_prepare dev staging ;;
   promote-staging-finish)    cmd_promote_finish staging ;;
+  deploy-staging)            cmd_deploy staging ;;
   check-staging)             cmd_check staging ;;
   promote-production)        cmd_promote_prepare staging production ;;
   promote-production-finish) cmd_promote_finish production ;;
+  deploy-production)         cmd_deploy production ;;
   check-production)          cmd_check production ;;
   cleanup-staging)           cmd_cleanup_staging ;;
   *) usage ;;

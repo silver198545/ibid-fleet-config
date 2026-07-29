@@ -31,6 +31,14 @@ NitroのSSRサーバー(`node .output/server/index.mjs`)を常駐実行する)�
 `apps/` を継続的に追加していく場合は、promoteワークフローに `sites`/`apps` の
 対象切り替えを足すことを検討する([docs/roadmap.md](roadmap.md)参照)。
 
+**`scripts/update-app-image.sh`の`promote-staging`/`promote-production`は初回昇格専用**
+(`envs/<to>/apps/<app>`を新規作成しホスト名書き換え・SealedSecret作り直しまで行う)。
+2回目以降、既に昇格済みの環境へイメージバージョンだけを反映したい場合は
+`deploy-staging`/`deploy-production`(`deploy-dev`と同じくイメージタグの書き換えのみ)を使う。
+特にproductionは`cleanup-staging`に相当する削除ステップが無く`envs/production/apps/<app>`が
+昇格後も残り続けるため、2回目以降の更新は必ず`deploy-production`を使うこと
+(`promote-production`をもう一度実行すると「既に存在します」エラーになる)。
+
 ### 手順(brc-advanced-searchのdev→staging昇格で実施・確認済み)
 
 昇格先の環境ディレクトリに`apps/`が無ければ作成しつつコピーする。

@@ -50,12 +50,14 @@ WEB疎通)を確認→次のサブコマンドを手動実行」という運用�
 | `set-image` | `set-image` | `latest-src-ref`確認後。PR作成・CI待ち |
 | `deploy-dev` | `deploy-dev` | `set-image`のPRマージ・イメージビルド成功確認後 |
 | `check-dev` | `check-dev` | `deploy-dev`のPRマージ後 |
-| `promote-staging` | `promote-staging` | dev確認後。**実行後は下記「dirty worktree」注意を参照** |
+| `promote-staging` | `promote-staging` | **初回昇格のみ**。dev確認後。実行後は下記「dirty worktree」注意を参照。`envs/staging/apps/<app>`が既にある場合はエラーになるので`deploy-staging`を使う |
 | `promote-staging-finish` | `promote-staging-finish` | `promote-staging`後、kubesealでSecretを手動作成した後 |
-| `check-staging` | `check-staging` | `promote-staging-finish`のPRマージ後 |
-| `promote-production` | `promote-production` | staging確認後。**実行後は下記「dirty worktree」注意を参照** |
+| `deploy-staging` | `deploy-staging` | **2回目以降**。既にstagingにある`<app>`のイメージタグだけ更新(`deploy-dev`のstaging版) |
+| `check-staging` | `check-staging` | `promote-staging-finish`/`deploy-staging`のPRマージ後 |
+| `promote-production` | `promote-production` | **初回昇格のみ**。staging確認後。実行後は下記「dirty worktree」注意を参照。`envs/production/apps/<app>`が既にある場合はエラーになるので`deploy-production`を使う |
 | `promote-production-finish` | `promote-production-finish` | `promote-production`後、kubesealでSecretを手動作成した後 |
-| `check-production` | `check-production` | `promote-production-finish`のPRマージ後(**CODEOWNERS承認必須、マージは人手**) |
+| `deploy-production` | `deploy-production` | **2回目以降**。既にproductionにある`<app>`のイメージタグだけ更新(`deploy-dev`のproduction版)。productionは`cleanup-staging`に相当する削除ステップが無く`envs/production/apps/<app>`が昇格後も残り続けるため、2回目以降は必ずこちらを使う |
+| `check-production` | `check-production` | `promote-production-finish`/`deploy-production`のPRマージ後(**CODEOWNERS承認必須、マージは人手**) |
 | `cleanup-staging` | `cleanup-staging` | `check-production`確認後 |
 
 ## 注意: promote系ジョブの間はrepo_pathがdirty worktreeのまま残る
@@ -67,7 +69,8 @@ WEB疎通)を確認→次のサブコマンドを手動実行」という運用�
 
 - `promote-staging-finish`/`promote-production-finish`を実行し終えるまで、
   同じ`repo_path`に対する他のジョブ(特に`main`ブランチであることを前提とする
-  `sync-repo`・`set-image`・`deploy-dev`・`cleanup-staging`等)を実行しないこと。
+  `sync-repo`・`set-image`・`deploy-dev`・`deploy-staging`・`deploy-production`・
+  `cleanup-staging`等)を実行しないこと。
 - 同じ`repo_path`を複数人・複数ジョブから同時に使うと、ブランチ状態を壊し合う
   (このスクリプトはもともと単一操作者の1作業ツリーを前提にした設計)。並行して
   別アプリの昇格作業を行う場合は、`repo_path`を分けた別クローンを使うこと。

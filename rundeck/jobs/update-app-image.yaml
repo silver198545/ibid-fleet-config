@@ -232,6 +232,38 @@
     commands:
       - exec: cd ${option.repo_path} && scripts/update-app-image.sh promote-staging-finish ${option.app}
 
+- name: deploy-staging
+  group: app-image-update
+  description: |
+    既にstagingに昇格済みの<app>のイメージタグだけを更新するPRを作成する(deploy-devのstaging版)。
+    envs/staging/apps/<app>がまだ無い(初回昇格がまだの)場合はpromote-stagingを使うこと
+    (このジョブは対象ディレクトリが存在することが前提で、無ければエラーになる)。
+  loglevel: INFO
+  executionEnabled: true
+  multipleExecutions: false
+  timeout: 30m
+  nodefilters:
+    filter: 'tags: app-image-ops'
+  options:
+    - name: app
+      description: 対象アプリ名
+      required: true
+      value: brc-advanced-search
+      values:
+        - brc-advanced-search
+        - riken-diips
+      valuesListDelimiter: ','
+      enforced: false
+    - name: repo_path
+      description: 踏み台端末上のibid-fleet-configクローンパス(要編集)
+      required: true
+      value: /opt/ibid/ibid-fleet-config
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+      - exec: cd ${option.repo_path} && scripts/update-app-image.sh deploy-staging ${option.app}
+
 - name: check-staging
   group: app-image-update
   description: |
@@ -324,6 +356,39 @@
     strategy: node-first
     commands:
       - exec: cd ${option.repo_path} && scripts/update-app-image.sh promote-production-finish ${option.app}
+
+- name: deploy-production
+  group: app-image-update
+  description: |
+    既にproductionに昇格済みの<app>のイメージタグだけを更新するPRを作成する(deploy-devのproduction版)。
+    envs/production/apps/<app>は初回昇格後も削除されず残り続けるため、2回目以降の更新は
+    promote-productionではなく必ずこちらを使うこと(promote-productionは既存ディレクトリがあると
+    エラーになる)。
+  loglevel: INFO
+  executionEnabled: true
+  multipleExecutions: false
+  timeout: 30m
+  nodefilters:
+    filter: 'tags: app-image-ops'
+  options:
+    - name: app
+      description: 対象アプリ名
+      required: true
+      value: brc-advanced-search
+      values:
+        - brc-advanced-search
+        - riken-diips
+      valuesListDelimiter: ','
+      enforced: false
+    - name: repo_path
+      description: 踏み台端末上のibid-fleet-configクローンパス(要編集)
+      required: true
+      value: /opt/ibid/ibid-fleet-config
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+      - exec: cd ${option.repo_path} && scripts/update-app-image.sh deploy-production ${option.app}
 
 - name: check-production
   group: app-image-update
