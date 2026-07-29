@@ -3,16 +3,15 @@
 # 前提・使い方: docs/manual-rundeck-app-image.md を参照。
 # 取り込み方法(例): rd jobs load -p <プロジェクト名> -f rundeck/jobs/update-app-image.yaml --format yaml
 #
-# 各ジョブとも、実行前に以下2点を必ず環境に合わせて編集すること:
-#   - nodefilters.filter: "tags: app-image-ops" のタグを実際の踏み台端末のノードタグに置き換える
-#     (またはノード名指定に変更する)
-#   - option "repo_path" の value: 踏み台端末上のibid-fleet-configクローンの絶対パスに置き換える
+# 各ジョブの実行対象は以下の2点で決まる(別環境へ持っていく場合はここを編集すること):
+#   - nodefilters.filter: "tags: rancher"(踏み台端末=rancherホストのRundeckノードタグ)
+#   - option "repo_path" の value: /home/uchida/ibid-fleet-config(踏み台端末上のクローンパス)
 #
 # 実行順序はscripts/update-app-image.sh冒頭コメントの使用例と同一。各ジョブの後、
 # 出力(rollout状況・WEB疎通・PR URL等)を人が確認してから次のジョブを手動実行する運用を
 # 前提としており、複数ジョブを自動連結するワークフローは意図的に作っていない。
 
-- name: sync-repo
+- name: 01-sync-repo
   group: app-image-update
   description: |
     repo_path のローカルmainブランチをorigin/mainに同期する(git checkout main && git pull --ff-only)。
@@ -22,29 +21,29 @@
   executionEnabled: true
   multipleExecutions: false
   nodefilters:
-    filter: 'tags: app-image-ops'
+    filter: 'tags: rancher'
   options:
     - name: repo_path
       description: 踏み台端末上のibid-fleet-configクローンパス(要編集)
       required: true
-      value: /opt/ibid/ibid-fleet-config
+      value: /home/uchida/ibid-fleet-config
   sequence:
     keepgoing: false
     strategy: node-first
     commands:
       - exec: cd ${option.repo_path} && git checkout main && git pull --ff-only origin main
 
-- name: latest-src-ref
+- name: 02-latest-src-ref
   group: app-image-update
   description: |
     取り込み元リポジトリ(upstream_repo_for/upstream_branch_forに登録済みのブランチ)の
     最新コミットSHA・コミットメッセージを表示する(書き込みなし)。
-    次のset-imageジョブのsrc_refに使う値を、この出力を見て人が判断する。
+    次の03-set-imageジョブのsrc_refに使う値を、この出力を見て人が判断する。
   loglevel: INFO
   executionEnabled: true
   multipleExecutions: false
   nodefilters:
-    filter: 'tags: app-image-ops'
+    filter: 'tags: rancher'
   options:
     - name: app
       description: 対象アプリ名
@@ -58,24 +57,24 @@
     - name: repo_path
       description: 踏み台端末上のibid-fleet-configクローンパス(要編集)
       required: true
-      value: /opt/ibid/ibid-fleet-config
+      value: /home/uchida/ibid-fleet-config
   sequence:
     keepgoing: false
     strategy: node-first
     commands:
       - exec: cd ${option.repo_path} && scripts/update-app-image.sh latest-src-ref ${option.app}
 
-- name: set-image
+- name: 03-set-image
   group: app-image-update
   description: |
     images/<app>/TAG・SRC_REFを更新するPRを作成し、CIチェック完了まで待つ(マージはしない)。
-    src_refには必ずlatest-src-refジョブの出力(コミットSHA)を使うこと。
+    src_refには必ず02-latest-src-refジョブの出力(コミットSHA)を使うこと。
   loglevel: INFO
   executionEnabled: true
   multipleExecutions: false
   timeout: 30m
   nodefilters:
-    filter: 'tags: app-image-ops'
+    filter: 'tags: rancher'
   options:
     - name: app
       description: 対象アプリ名
@@ -90,21 +89,21 @@
       description: '新しいイメージタグ(例: 2.0.0-r7)'
       required: true
     - name: src_ref
-      description: 取り込み元コミットSHA(16進数7〜40文字。latest-src-refジョブの出力を使う)
+      description: 取り込み元コミットSHA(16進数7〜40文字。02-latest-src-refジョブの出力を使う)
       required: true
       regex: '^[0-9a-f]{7,40}$'
     - name: repo_path
       description: 踏み台端末上のibid-fleet-configクローンパス(要編集)
       required: true
-      value: /opt/ibid/ibid-fleet-config
+      value: /home/uchida/ibid-fleet-config
   sequence:
     keepgoing: false
     strategy: node-first
     commands:
       - exec: cd ${option.repo_path} && scripts/update-app-image.sh set-image ${option.app} ${option.tag} ${option.src_ref}
 
-- name: deploy-dev
-  group: app-image-update
+- name: 01-deploy-dev
+  group: app-image-update/dev
   description: |
     set-imageのPRマージ後、build-<app>-image.yamlの成功を確認したうえで実行する。
     envs/dev/apps/<app>/deployment.yamlのイメージタグを更新するPRを作成する。
@@ -113,7 +112,7 @@
   multipleExecutions: false
   timeout: 30m
   nodefilters:
-    filter: 'tags: app-image-ops'
+    filter: 'tags: rancher'
   options:
     - name: app
       description: 対象アプリ名
@@ -127,22 +126,22 @@
     - name: repo_path
       description: 踏み台端末上のibid-fleet-configクローンパス(要編集)
       required: true
-      value: /opt/ibid/ibid-fleet-config
+      value: /home/uchida/ibid-fleet-config
   sequence:
     keepgoing: false
     strategy: node-first
     commands:
       - exec: cd ${option.repo_path} && scripts/update-app-image.sh deploy-dev ${option.app}
 
-- name: check-dev
-  group: app-image-update
+- name: 02-check-dev
+  group: app-image-update/dev
   description: |
-    deploy-devのPRマージ後に実行。devのrollout状況とWEB疎通(readinessProbeのpathで200か)を確認する。
+    01-deploy-devのPRマージ後に実行。devのrollout状況とWEB疎通(readinessProbeのpathで200か)を確認する。
   loglevel: INFO
   executionEnabled: true
   multipleExecutions: false
   nodefilters:
-    filter: 'tags: app-image-ops'
+    filter: 'tags: rancher'
   options:
     - name: app
       description: 対象アプリ名
@@ -156,15 +155,15 @@
     - name: repo_path
       description: 踏み台端末上のibid-fleet-configクローンパス(要編集)
       required: true
-      value: /opt/ibid/ibid-fleet-config
+      value: /home/uchida/ibid-fleet-config
   sequence:
     keepgoing: false
     strategy: node-first
     commands:
       - exec: cd ${option.repo_path} && scripts/update-app-image.sh check-dev ${option.app}
 
-- name: promote-staging
-  group: app-image-update
+- name: 01-promote-staging
+  group: app-image-update/staging
   description: |
     envs/dev/apps/<app>をenvs/staging/apps/<app>へコピーし、ホスト名を書き換える
     (ブランチ作成・変更のみでコミットはしない)。
@@ -174,13 +173,13 @@
     DNS Aレコードが未登録なら合わせて登録する。
 
     注意: このジョブ実行後、repo_pathの作業ツリーはpromoteブランチ・未コミット状態のまま残る。
-    promote-staging-finishジョブを実行し終えるまで、同じrepo_pathに対する他のジョブ
-    (特にsync-repoやcleanup-staging等、mainブランチを前提とするもの)を実行しないこと。
+    02-promote-staging-finishジョブを実行し終えるまで、同じrepo_pathに対する他のジョブ
+    (特に01-sync-repoや05-cleanup-staging等、mainブランチを前提とするもの)を実行しないこと。
   loglevel: INFO
   executionEnabled: true
   multipleExecutions: false
   nodefilters:
-    filter: 'tags: app-image-ops'
+    filter: 'tags: rancher'
   options:
     - name: app
       description: 対象アプリ名
@@ -194,24 +193,24 @@
     - name: repo_path
       description: 踏み台端末上のibid-fleet-configクローンパス(要編集)
       required: true
-      value: /opt/ibid/ibid-fleet-config
+      value: /home/uchida/ibid-fleet-config
   sequence:
     keepgoing: false
     strategy: node-first
     commands:
       - exec: cd ${option.repo_path} && scripts/update-app-image.sh promote-staging ${option.app}
 
-- name: promote-staging-finish
-  group: app-image-update
+- name: 02-promote-staging-finish
+  group: app-image-update/staging
   description: |
-    promote-stagingジョブでenvs/staging/secrets/<app>.yamlをkubesealにより手動作成済みであることが前提。
+    01-promote-stagingジョブでenvs/staging/secrets/<app>.yamlをkubesealにより手動作成済みであることが前提。
     コミット・PR作成・CIチェック待ちまで行う(マージはしない)。
   loglevel: INFO
   executionEnabled: true
   multipleExecutions: false
   timeout: 30m
   nodefilters:
-    filter: 'tags: app-image-ops'
+    filter: 'tags: rancher'
   options:
     - name: app
       description: 対象アプリ名
@@ -223,27 +222,27 @@
       valuesListDelimiter: ','
       enforced: false
     - name: repo_path
-      description: 踏み台端末上のibid-fleet-configクローンパス(要編集。promote-stagingと同一パスであること)
+      description: 踏み台端末上のibid-fleet-configクローンパス(要編集。01-promote-stagingと同一パスであること)
       required: true
-      value: /opt/ibid/ibid-fleet-config
+      value: /home/uchida/ibid-fleet-config
   sequence:
     keepgoing: false
     strategy: node-first
     commands:
       - exec: cd ${option.repo_path} && scripts/update-app-image.sh promote-staging-finish ${option.app}
 
-- name: deploy-staging
-  group: app-image-update
+- name: 03-deploy-staging
+  group: app-image-update/staging
   description: |
     既にstagingに昇格済みの<app>のイメージタグだけを更新するPRを作成する(deploy-devのstaging版)。
-    envs/staging/apps/<app>がまだ無い(初回昇格がまだの)場合はpromote-stagingを使うこと
+    envs/staging/apps/<app>がまだ無い(初回昇格がまだの)場合は01-promote-stagingを使うこと
     (このジョブは対象ディレクトリが存在することが前提で、無ければエラーになる)。
   loglevel: INFO
   executionEnabled: true
   multipleExecutions: false
   timeout: 30m
   nodefilters:
-    filter: 'tags: app-image-ops'
+    filter: 'tags: rancher'
   options:
     - name: app
       description: 対象アプリ名
@@ -257,22 +256,22 @@
     - name: repo_path
       description: 踏み台端末上のibid-fleet-configクローンパス(要編集)
       required: true
-      value: /opt/ibid/ibid-fleet-config
+      value: /home/uchida/ibid-fleet-config
   sequence:
     keepgoing: false
     strategy: node-first
     commands:
       - exec: cd ${option.repo_path} && scripts/update-app-image.sh deploy-staging ${option.app}
 
-- name: check-staging
-  group: app-image-update
+- name: 04-check-staging
+  group: app-image-update/staging
   description: |
-    promote-staging-finishのPRマージ後に実行。stagingのWEB疎通を確認する。
+    02-promote-staging-finish/03-deploy-stagingのPRマージ後に実行。stagingのWEB疎通を確認する。
   loglevel: INFO
   executionEnabled: true
   multipleExecutions: false
   nodefilters:
-    filter: 'tags: app-image-ops'
+    filter: 'tags: rancher'
   options:
     - name: app
       description: 対象アプリ名
@@ -286,26 +285,26 @@
     - name: repo_path
       description: 踏み台端末上のibid-fleet-configクローンパス(要編集)
       required: true
-      value: /opt/ibid/ibid-fleet-config
+      value: /home/uchida/ibid-fleet-config
   sequence:
     keepgoing: false
     strategy: node-first
     commands:
       - exec: cd ${option.repo_path} && scripts/update-app-image.sh check-staging ${option.app}
 
-- name: promote-production
-  group: app-image-update
+- name: 01-promote-production
+  group: app-image-update/production
   description: |
     envs/staging/apps/<app>をenvs/production/apps/<app>へコピー。
     実行後、ジョブ出力に表示されるkubesealコマンドを踏み台端末上で人が手動実行すること。
 
-    注意: promote-stagingと同様、実行後repo_pathはpromoteブランチ・未コミット状態のまま残る。
-    promote-production-finishを実行し終えるまで、同じrepo_pathに対する他のジョブを実行しないこと。
+    注意: 01-promote-stagingと同様、実行後repo_pathはpromoteブランチ・未コミット状態のまま残る。
+    02-promote-production-finishを実行し終えるまで、同じrepo_pathに対する他のジョブを実行しないこと。
   loglevel: INFO
   executionEnabled: true
   multipleExecutions: false
   nodefilters:
-    filter: 'tags: app-image-ops'
+    filter: 'tags: rancher'
   options:
     - name: app
       description: 対象アプリ名
@@ -319,24 +318,24 @@
     - name: repo_path
       description: 踏み台端末上のibid-fleet-configクローンパス(要編集)
       required: true
-      value: /opt/ibid/ibid-fleet-config
+      value: /home/uchida/ibid-fleet-config
   sequence:
     keepgoing: false
     strategy: node-first
     commands:
       - exec: cd ${option.repo_path} && scripts/update-app-image.sh promote-production ${option.app}
 
-- name: promote-production-finish
-  group: app-image-update
+- name: 02-promote-production-finish
+  group: app-image-update/production
   description: |
-    promote-productionジョブでenvs/production/secrets/<app>.yamlを手動作成済みであることが前提。
+    01-promote-productionジョブでenvs/production/secrets/<app>.yamlを手動作成済みであることが前提。
     コミット・PR作成のみ行う。productionはCODEOWNERS承認必須のため、マージは必ず人手でレビューのうえ実施する。
   loglevel: INFO
   executionEnabled: true
   multipleExecutions: false
   timeout: 30m
   nodefilters:
-    filter: 'tags: app-image-ops'
+    filter: 'tags: rancher'
   options:
     - name: app
       description: 対象アプリ名
@@ -348,28 +347,28 @@
       valuesListDelimiter: ','
       enforced: false
     - name: repo_path
-      description: 踏み台端末上のibid-fleet-configクローンパス(要編集。promote-productionと同一パスであること)
+      description: 踏み台端末上のibid-fleet-configクローンパス(要編集。01-promote-productionと同一パスであること)
       required: true
-      value: /opt/ibid/ibid-fleet-config
+      value: /home/uchida/ibid-fleet-config
   sequence:
     keepgoing: false
     strategy: node-first
     commands:
       - exec: cd ${option.repo_path} && scripts/update-app-image.sh promote-production-finish ${option.app}
 
-- name: deploy-production
-  group: app-image-update
+- name: 03-deploy-production
+  group: app-image-update/production
   description: |
     既にproductionに昇格済みの<app>のイメージタグだけを更新するPRを作成する(deploy-devのproduction版)。
     envs/production/apps/<app>は初回昇格後も削除されず残り続けるため、2回目以降の更新は
-    promote-productionではなく必ずこちらを使うこと(promote-productionは既存ディレクトリがあると
+    01-promote-productionではなく必ずこちらを使うこと(01-promote-productionは既存ディレクトリがあると
     エラーになる)。
   loglevel: INFO
   executionEnabled: true
   multipleExecutions: false
   timeout: 30m
   nodefilters:
-    filter: 'tags: app-image-ops'
+    filter: 'tags: rancher'
   options:
     - name: app
       description: 対象アプリ名
@@ -383,22 +382,22 @@
     - name: repo_path
       description: 踏み台端末上のibid-fleet-configクローンパス(要編集)
       required: true
-      value: /opt/ibid/ibid-fleet-config
+      value: /home/uchida/ibid-fleet-config
   sequence:
     keepgoing: false
     strategy: node-first
     commands:
       - exec: cd ${option.repo_path} && scripts/update-app-image.sh deploy-production ${option.app}
 
-- name: check-production
-  group: app-image-update
+- name: 04-check-production
+  group: app-image-update/production
   description: |
-    promote-production-finishのPRマージ後に実行。productionのWEB疎通を確認する。
+    02-promote-production-finish/03-deploy-productionのPRマージ後に実行。productionのWEB疎通を確認する。
   loglevel: INFO
   executionEnabled: true
   multipleExecutions: false
   nodefilters:
-    filter: 'tags: app-image-ops'
+    filter: 'tags: rancher'
   options:
     - name: app
       description: 対象アプリ名
@@ -412,17 +411,17 @@
     - name: repo_path
       description: 踏み台端末上のibid-fleet-configクローンパス(要編集)
       required: true
-      value: /opt/ibid/ibid-fleet-config
+      value: /home/uchida/ibid-fleet-config
   sequence:
     keepgoing: false
     strategy: node-first
     commands:
       - exec: cd ${option.repo_path} && scripts/update-app-image.sh check-production ${option.app}
 
-- name: cleanup-staging
-  group: app-image-update
+- name: 05-cleanup-staging
+  group: app-image-update/staging
   description: |
-    production昇格確認(check-production)後に実行。stagingのGit定義を削除するPRを作成する。
+    production昇格確認(04-check-production)後に実行。stagingのGit定義を削除するPRを作成する。
 
     注意: マージ後、ジョブ出力に表示されるkubectl delete namespaceコマンドを踏み台端末上で
     人が手動実行すること。keepResources: trueのためGit側の削除だけではnamespaceは消えない。
@@ -433,7 +432,7 @@
   multipleExecutions: false
   timeout: 30m
   nodefilters:
-    filter: 'tags: app-image-ops'
+    filter: 'tags: rancher'
   options:
     - name: app
       description: 対象アプリ名
@@ -447,7 +446,7 @@
     - name: repo_path
       description: 踏み台端末上のibid-fleet-configクローンパス(要編集)
       required: true
-      value: /opt/ibid/ibid-fleet-config
+      value: /home/uchida/ibid-fleet-config
   sequence:
     keepgoing: false
     strategy: node-first
