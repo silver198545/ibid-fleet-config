@@ -66,6 +66,9 @@ dev → staging → production の3つのRKE2クラスタ(Harvester上、Rancher
 - `docs/manual-wordpress.md`: WordPressサイトを追加する手順
 - `docs/manual-apps.md`: WordPress以外の自作アプリ(`envs/<env>/apps/`)を追加する手順・
   昇格時の注意点
+- `docs/manual-rundeck-app-image.md`: `scripts/update-app-image.sh`をRundeckから実行する
+  ためのジョブ定義([rundeck/jobs/update-app-image.yaml](rundeck/jobs/update-app-image.yaml))
+  の取り込み手順・実行順序
 - `docs/manual-monitoring.md`: 監視・アラート(rancher-monitoring + Slack通知)の
   導入・運用手順
 - `docs/manual-wordpress-restore.md`: 既存の別環境WordPressサイトからデータを移行
