@@ -255,6 +255,16 @@ DBを持たないアプリの場合はWordPressより手順が単純になる:
 - ソースが非公開のOrganizationリポジトリのため、brc-advanced-searchと同様に
   GHCRイメージも非公開のまま運用し、GHCR pull用SealedSecret
   (`envs/<env>/secrets/riken-diips.yaml`)が必要。
+- **`RIKEN_DIIPS_ACCESS_TOKEN`が期限切れになった場合**: コード変更は不要、Secretの値を
+  差し替えるだけでよい。
+  1. `PENQEinc/riken-diips`へのread権限を持つアカウントで新しいclassic PATを発行
+     (`repo`スコープ必須。抜けていると下記「実際に踏んだ問題」と同じ
+     `Write access to repository not granted.`エラーになり、期限切れと紛らわしいので注意)。
+  2. `gh secret set RIKEN_DIIPS_ACCESS_TOKEN --repo silver198545/ibid-fleet-config`
+     で値を更新する(GitHub UIのSettings > Secrets and variables > Actionsからでも可)。
+  3. `build-riken-diips-image.yaml`は`workflow_dispatch`対応なので、
+     `gh workflow run build-riken-diips-image.yaml --repo silver198545/ibid-fleet-config`
+     で`images/riken-diips/TAG`を変えずに再実行して疎通確認できる。
 - **ソース取得はDeploy Keyではなくclassic PAT方式**(`RIKEN_DIIPS_ACCESS_TOKEN`)。
   brc-advanced-searchで標準化したDeploy Key方式(上記「新しいアプリを追加する手順」の
   1番)の代わりに、`repo`スコープのPersonal access token (classic)を
