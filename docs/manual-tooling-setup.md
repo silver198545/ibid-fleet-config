@@ -85,6 +85,12 @@ sudo apt install -y git gh openssl python3 lzop tar gzip coreutils
 ```bash
 gh auth login
 ```
+トークン期限切れ等で`gh api`/`gh pr create`等が401/403になった場合は、
+`gh auth status`で状態を確認のうえ`gh auth logout && gh auth login`で入れ直す。
+`scripts/update-app-image.sh`をRundeck経由(SSH実行)で使っている場合、認証情報は
+Rundeckがそのノードへ接続するOSユーザーのホームディレクトリ(`~/.config/gh/hosts.yml`)に
+保存されるため、**そのユーザーで**再認証すること(手元の個人アカウントで
+`gh auth login`し直しても反映されない)。
 
 ## kubeconfigの準備
 
