@@ -286,7 +286,8 @@ cmd_check() {
   # /advanced固定でベアの/は404)。Deploymentのreadiness/livenessProbeが見ているpathを
   # そのまま使う(なければ/にフォールバック)。
   dep_file="envs/${env}/apps/${APP}/deployment.yaml"
-  path="$(awk '/readinessProbe:/{f=1} f && /path:/{print $2; exit}' "$dep_file" 2>/dev/null)"
+  [[ -f "$dep_file" ]] || { echo "エラー: ${dep_file} が見つかりません。git pullでmainを最新化してから再実行してください。" >&2; exit 1; }
+  path="$(awk '/readinessProbe:/{f=1} f && /path:/{print $2; exit}' "$dep_file")"
   path="${path:-/}"
 
   echo ""
