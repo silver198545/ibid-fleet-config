@@ -183,11 +183,28 @@ commit_push_pr() {
   git checkout main
   echo "PR作成: $pr_url"
   echo "CIチェックを待っています(gh pr checks --watch)..."
-  if gh pr checks "$pr_url" --watch; then
-    echo "チェック成功。レビュー・マージしてください: $pr_url"
-  else
+
+  # gh pr checks --watchはPR作成直後、workflowがまだ1件も登録されていない
+  # (GitHub Actions側の登録がPR作成に対してわずかに遅れる)場合、待たずに
+  # 「no checks reported」で即座に失敗する。この場合だけ数秒待って再試行する
+  # (実際にチェックが失敗した場合は再試行せずそのまま結果を表示する)。
+  local checks_output attempt=0
+  while true; do
+    attempt=$((attempt + 1))
+    if checks_output="$(gh pr checks "$pr_url" --watch 2>&1)"; then
+      echo "$checks_output"
+      echo "チェック成功。レビュー・マージしてください: $pr_url"
+      return
+    fi
+    echo "$checks_output"
+    if [[ "$checks_output" == *"no checks reported"* && $attempt -lt 6 ]]; then
+      echo "CIチェックがまだ登録されていないようです。10秒待って再試行します...(${attempt}/6)"
+      sleep 10
+      continue
+    fi
     echo "警告: CIチェックが失敗、またはタイムアウトしました。内容を確認してください: $pr_url" >&2
-  fi
+    return
+  done
 }
 
 cmd_latest_src_ref() {
