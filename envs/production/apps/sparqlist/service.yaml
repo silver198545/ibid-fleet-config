@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sparqlist
+  namespace: sparqlist
+spec:
+  selector:
+    app: sparqlist
+  ports:
+    - name: http
+      port: 80
+      targetPort: 3000
