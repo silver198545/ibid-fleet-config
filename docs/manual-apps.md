@@ -182,8 +182,11 @@ DBを持たないアプリの場合はWordPressより手順が単純になる:
      ```
      (例: brc-advanced-searchでは `ipa dnsrecord-add ibid.lan brc-advanced-search.staging --a-rec 192.168.1.63`)
 2. **stagingで結合テスト**: `https://<app>.staging.ibid.lan/` 等で動作確認
-   (WordPressと異なりDBが無いので、本番データのリストアは不要。
-   Deploymentが上がりIngress経由で表示できれば十分)
+   (WordPressと異なりDBが無いので、本番データのリストアは基本不要。
+   Deploymentが上がりIngress経由で表示できれば十分)。
+   ただし**PVCで永続データを持つアプリ(sparqlistの`repository/`等)は、
+   WordPressと同様に本番データを結合テストに使うこともできる**
+   (手順は「sparqlist 固有のメモ」の「stagingでの本番データ結合テスト」参照)
 3. **staging → production**: 同様に手動PRを作成。CODEOWNERS承認のうえマージ
 4. **stagingを削除する**: 本番反映後、待機コストを残さないようstagingから
    完全に削除する
@@ -407,3 +410,42 @@ DBを持たないアプリの場合はWordPressより手順が単純になる:
   `kubectl exec`/`cp`はコンテナ内プロセス(`USER node`)権限で実行されるため、
   fsGroupにより書き込み自体は通るが、念のため反映後に一覧APIやWeb UIで
   想定件数のSPARQLetが見えることを確認すること。
+  **実際に踏んだ問題**: `mv /app/repository /app/repository.orig`は
+  `Permission denied`で失敗する(`/app`自体がroot所有で、非rootの`node`ユーザーには
+  親ディレクトリへの書き込み権限が無くrenameできないため)。ただしこの失敗は
+  無害で、続く`tar xzf ... -C /app`は既存の(空の)`repository/`へ直接展開する形で
+  問題なく成功する(tarが対象ディレクトリ自体のmtime/mode変更に失敗した旨の警告を
+  出すが、ファイル本体の展開には影響しない)。展開後にファイル数
+  (`ls /app/repository | wc -l`)が想定件数(元tarballのファイル数+既存の
+  `lost+found`)と一致していれば問題ない。
+- **既存イメージ更新サイクルでのstaging結合テスト(本番データ利用)**:
+  WordPressの運用([operations-flow.md](operations-flow.md)参照)と同じく、
+  イメージ更新のstaging結合テストに本番の`repository/`データを使いたい場合は、
+  ローカルにアップロードしたtarballではなく**稼働中のproduction Podから直接**
+  取得してstagingへ流し込める(DBが無いためmysqldump相当の準備は不要、
+  ファイルコピーのみで完結する)。
+  ```bash
+  PROD_POD=$(kubectl --context prod1 -n sparqlist get pods -l app=sparqlist -o jsonpath='{.items[0].metadata.name}')
+  STG_POD=$(kubectl --context staging1 -n sparqlist get pods -l app=sparqlist -o jsonpath='{.items[0].metadata.name}')
+
+  # productionの/app/repositoryを固めてローカルへ取得
+  kubectl --context prod1 -n sparqlist exec "$PROD_POD" -- \
+    tar czf /tmp/sparqlist-repository.tar.gz -C /app repository
+  kubectl --context prod1 -n sparqlist cp "$PROD_POD":/tmp/sparqlist-repository.tar.gz \
+    ./sparqlist-repository-prod.tar.gz
+  kubectl --context prod1 -n sparqlist exec "$PROD_POD" -- rm /tmp/sparqlist-repository.tar.gz
+
+  # stagingへ展開(既存データへの上書きになる点は「repository/データの投入」と同じ)
+  kubectl --context staging1 -n sparqlist cp ./sparqlist-repository-prod.tar.gz \
+    "$STG_POD":/tmp/sparqlist-repository.tar.gz
+  kubectl --context staging1 -n sparqlist exec "$STG_POD" -- \
+    tar xzf /tmp/sparqlist-repository.tar.gz -C /app
+  kubectl --context staging1 -n sparqlist exec "$STG_POD" -- rm /tmp/sparqlist-repository.tar.gz
+  ```
+  結合テスト終了後は通常どおり`cleanup-staging`でstaging自体を削除するため、
+  本番データをstagingに残置する心配はない(WordPressの「サイトをstagingから削除する」
+  相当の後始末が、apps/では`cleanup-staging`一発で完結する)。
+  **production反映前のバックアップ**については、`repository`PVC
+  (`envs/<env>/apps/sparqlist/pvc.yaml`)はLonghornの`envs/<env>/infra/longhorn-jobs/`
+  (`groups: [default]`)の対象に自動的に含まれるため、WordPressのような手動バックアップ
+  取得は不要(6時間毎スナップショット・日次バックアップが既にかかっている)。
