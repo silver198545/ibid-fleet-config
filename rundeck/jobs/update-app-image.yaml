@@ -300,6 +300,37 @@
     commands:
       - exec: cd ${option.repo_path} && scripts/update-app-image.sh check-staging ${option.app}
 
+- name: 05-sync-staging-data
+  group: app-image-update/staging
+  description: |
+    PVCで永続データを持つアプリ限定(persistent_data_dir_forに登録済みのアプリのみ。現状sparqlistのみ)。
+    04-check-staging確認後、productionの永続データ(例: repository/)をstagingへコピーし、
+    本番相当データでの結合テストを可能にする(WordPressのstagingリストア相当。
+    docs/manual-apps.md「stagingでの本番データ結合テスト」参照)。staging側の内容は上書きされる。
+  loglevel: INFO
+  executionEnabled: true
+  multipleExecutions: false
+  nodefilters:
+    filter: 'tags: rancher'
+  options:
+    - name: app
+      description: 対象アプリ名(永続データ同期に対応したアプリのみ有効。現状sparqlistのみ選択可)
+      required: true
+      value: sparqlist
+      values:
+        - sparqlist
+      valuesListDelimiter: ','
+      enforced: true
+    - name: repo_path
+      description: 踏み台端末上のibid-fleet-configクローンパス(要編集)
+      required: true
+      value: /home/uchida/ibid-fleet-config
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+      - exec: cd ${option.repo_path} && scripts/update-app-image.sh sync-staging-data ${option.app}
+
 - name: 01-promote-production
   group: app-image-update/production
   description: |
@@ -430,7 +461,7 @@
     commands:
       - exec: cd ${option.repo_path} && scripts/update-app-image.sh check-production ${option.app}
 
-- name: 05-cleanup-staging
+- name: 06-cleanup-staging
   group: app-image-update/staging
   description: |
     production昇格確認(04-check-production)後に実行。stagingのGit定義を削除するPRを作成する。

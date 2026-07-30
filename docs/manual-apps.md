@@ -400,7 +400,7 @@ DBを持たないアプリの場合はWordPressより手順が単純になる:
   kubectl --context <対象envのコンテキスト> -n sparqlist cp sparqlist-repository.tar.gz \
     <sparqlist-pod>:/tmp/sparqlist-repository.tar.gz
   kubectl --context <対象envのコンテキスト> -n sparqlist exec <sparqlist-pod> -- \
-    tar xzf /tmp/sparqlist-repository.tar.gz -C /app
+    tar xzf /tmp/sparqlist-repository.tar.gz -C /app -m --no-same-permissions
   kubectl --context <対象envのコンテキスト> -n sparqlist exec <sparqlist-pod> -- \
     rm /tmp/sparqlist-repository.tar.gz
   ```
@@ -412,10 +412,11 @@ DBを持たないアプリの場合はWordPressより手順が単純になる:
   想定件数のSPARQLetが見えることを確認すること。
   **実際に踏んだ問題**: `mv /app/repository /app/repository.orig`は
   `Permission denied`で失敗する(`/app`自体がroot所有で、非rootの`node`ユーザーには
-  親ディレクトリへの書き込み権限が無くrenameできないため)。ただしこの失敗は
-  無害で、続く`tar xzf ... -C /app`は既存の(空の)`repository/`へ直接展開する形で
-  問題なく成功する(tarが対象ディレクトリ自体のmtime/mode変更に失敗した旨の警告を
-  出すが、ファイル本体の展開には影響しない)。展開後にファイル数
+  親ディレクトリへの書き込み権限が無くrenameできないため。無害なので無視してよい)。
+  また`-m --no-same-permissions`を付けずに`tar xzf`を実行すると、既存の(マウント
+  ポイントである)`repository/`自体のmtime/mode復元に失敗し終了コードが非0になる
+  (ファイル本体の展開自体は成功する)。上記コマンドのようにこの2オプションを
+  付けることでその失敗ごと回避できる。展開後にファイル数
   (`ls /app/repository | wc -l`)が想定件数(元tarballのファイル数+既存の
   `lost+found`)と一致していれば問題ない。
 - **既存イメージ更新サイクルでのstaging結合テスト(本番データ利用)**:
@@ -423,7 +424,14 @@ DBを持たないアプリの場合はWordPressより手順が単純になる:
   イメージ更新のstaging結合テストに本番の`repository/`データを使いたい場合は、
   ローカルにアップロードしたtarballではなく**稼働中のproduction Podから直接**
   取得してstagingへ流し込める(DBが無いためmysqldump相当の準備は不要、
-  ファイルコピーのみで完結する)。
+  ファイルコピーのみで完結する)。`scripts/update-app-image.sh`の
+  `sync-staging-data`サブコマンドでこの一連の操作を実行できる
+  (`persistent_data_dir_for`に登録済みのアプリのみ対応。現状sparqlist限定):
+  ```bash
+  scripts/update-app-image.sh sync-staging-data sparqlist
+  ```
+  中身は次のコマンド相当(手動で行いたい場合や、他のPVC付きアプリを
+  `persistent_data_dir_for`にまだ登録していない場合はこちらを使う):
   ```bash
   PROD_POD=$(kubectl --context prod1 -n sparqlist get pods -l app=sparqlist -o jsonpath='{.items[0].metadata.name}')
   STG_POD=$(kubectl --context staging1 -n sparqlist get pods -l app=sparqlist -o jsonpath='{.items[0].metadata.name}')
@@ -438,8 +446,11 @@ DBを持たないアプリの場合はWordPressより手順が単純になる:
   # stagingへ展開(既存データへの上書きになる点は「repository/データの投入」と同じ)
   kubectl --context staging1 -n sparqlist cp ./sparqlist-repository-prod.tar.gz \
     "$STG_POD":/tmp/sparqlist-repository.tar.gz
+  # -m --no-same-permissions を付けないと、マウントポイントであるrepository自体の
+  # 属性復元にtarが失敗し終了コードが非0になる(「実際に踏んだ問題」参照。
+  # ファイル本体の展開自体はこのオプション無しでも成功する)。
   kubectl --context staging1 -n sparqlist exec "$STG_POD" -- \
-    tar xzf /tmp/sparqlist-repository.tar.gz -C /app
+    tar xzf /tmp/sparqlist-repository.tar.gz -C /app -m --no-same-permissions
   kubectl --context staging1 -n sparqlist exec "$STG_POD" -- rm /tmp/sparqlist-repository.tar.gz
   ```
   結合テスト終了後は通常どおり`cleanup-staging`でstaging自体を削除するため、
