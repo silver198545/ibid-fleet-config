@@ -120,6 +120,7 @@ upstream_repo_for() {
   case "$1" in
     brc-advanced-search) echo "PENQEinc/riken_brc_advanced_search" ;;
     riken-diips) echo "PENQEinc/riken-diips" ;;
+    sparqlist) echo "dbcls/sparqlist" ;;
     *) echo "エラー: ${1} の取り込み元リポジトリが未登録です(このスクリプトの upstream_repo_for/upstream_branch_for に追記してください)。" >&2; exit 1 ;;
   esac
 }
@@ -128,7 +129,19 @@ upstream_branch_for() {
   case "$1" in
     brc-advanced-search) echo "vue3-main-riken" ;;
     riken-diips) echo "main" ;;
+    sparqlist) echo "main" ;;
     *) echo "エラー: ${1} の取り込み元ブランチが未登録です。" >&2; exit 1 ;;
+  esac
+}
+
+# GHCRイメージが公開設定のアプリはpull用SealedSecret(ghcr-<app>)が不要
+# (ソースが公開リポジトリで、イメージも非公開にする理由がない場合。docs/manual-apps.md参照)。
+# 新規アプリ追加時は必ずどちらかに登録すること。
+ghcr_secret_needed_for() {
+  case "$1" in
+    brc-advanced-search|riken-diips) echo yes ;;
+    sparqlist) echo no ;;
+    *) echo "エラー: ${1} のGHCR pull secret要否が未登録です(このスクリプトの ghcr_secret_needed_for に追記してください)。" >&2; exit 1 ;;
   esac
 }
 
@@ -373,8 +386,9 @@ cmd_promote_prepare() {
   secret_file="envs/${to_env}/secrets/${APP}.yaml"
 
   echo ""
-  echo "=== 次に、GHCR pull用SealedSecretを手動で作成してください ==="
-  cat <<EOF
+  if [[ "$(ghcr_secret_needed_for "$APP")" == "yes" ]]; then
+    echo "=== 次に、GHCR pull用SealedSecretを手動で作成してください ==="
+    cat <<EOF
 kubectl create secret docker-registry ghcr-${APP} \\
   -n ${APP} \\
   --docker-server=ghcr.io \\
@@ -384,6 +398,14 @@ kubectl create secret docker-registry ghcr-${APP} \\
   --dry-run=client -o json \\
 | kubeseal --context ${to_ctx} --format yaml > ${secret_file}
 EOF
+  else
+    echo "${APP}のGHCRイメージは公開設定のため、pull用SealedSecretは不要です。"
+    if [[ "$APP" == "sparqlist" ]]; then
+      echo ""
+      echo "=== 次に、ADMIN_PASSWORD用SealedSecretを作成してください(${to_env}向けに新規生成) ==="
+      echo "  scripts/seal-sparqlist-secret.sh ${to_env}"
+    fi
+  fi
   echo ""
   echo "${to_env}向けのDNS Aレコード($(hostname_for_env "$to_env"))が未登録なら"
   echo "docs/manual-apps.md / docs/manual-cert-manager-freeipa-acme.md の手順で登録してください。"
@@ -415,6 +437,13 @@ cmd_promote_finish() {
 
   git add "$to_dir" "$secret_file"
 
+  local secret_line
+  if [[ "$(ghcr_secret_needed_for "$APP")" == "yes" ]]; then
+    secret_line="- GHCR pull用SealedSecretを \`$(context_for_env "$to_env")\` 向けに作り直し"
+  else
+    secret_line="- ADMIN_PASSWORD等のアプリ用SealedSecretを \`$(context_for_env "$to_env")\` 向けに新規生成(GHCRイメージは公開設定のためpull用Secretは無し)"
+  fi
+
   commit_push_pr \
     "feat: ${APP}を${to_env}環境へ昇格" \
     "$(cat <<EOF
@@ -422,7 +451,7 @@ cmd_promote_finish() {
 \`envs/${from_env}/apps/${APP}\` → \`envs/${to_env}/apps/${APP}\`(手動昇格。promote.yamlはsites/のみ対象)
 
 - ホスト名を \`${APP}.${from_env}.ibid.lan\` → \`$(hostname_for_env "$to_env")\` に変更
-- GHCR pull用SealedSecretを \`$(context_for_env "$to_env")\` 向けに作り直し
+${secret_line}
 
 ## マージ後の確認
 - [ ] scripts/update-app-image.sh check-${to_env} ${APP}

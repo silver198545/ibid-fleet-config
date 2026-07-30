@@ -11,6 +11,11 @@
 (`vue3-main-riken`ブランチ、Nuxt 3製、DBなし。`npm run build`でビルドし、
 NitroのSSRサーバー(`node .output/server/index.mjs`)を常駐実行する)。
 
+[sparqlist](https://github.com/dbcls/sparqlist)(Express製、DBなし)は保存した
+SPARQLet(`repository/`配下のMarkdown設定ファイル)の永続化が必要な点が上記2つと異なる。
+PVC(`envs/<env>/apps/sparqlist/pvc.yaml`)を持つ以外は同じ`apps/`パターンに乗せている
+(詳細は下記「sparqlist 固有のメモ」参照)。
+
 ## 構成
 
 - `images/<app>/`: アプリのビルド定義。アプリ本体は別リポジトリにあるため、
@@ -323,3 +328,82 @@ DBを持たないアプリの場合はWordPressより手順が単純になる:
   作るため、マージ済みブランチの続きにコミットしても祖先関係が繋がらない)。
   **squash mergeされたPRのブランチは使い捨てにし、追加の変更は必ずmainから
   新しくブランチを切り直すこと。**
+
+## sparqlist 固有のメモ
+
+- ソースは[dbcls/sparqlist](https://github.com/dbcls/sparqlist)の`main`ブランチ
+  (Express製REST APIサーバー + Reactフロントエンド、DBなし。Node.js 24以上必須)。
+  `SRC_REF`は同ブランチのコミットSHAを指す。
+- **公開リポジトリのため、brc-advanced-search(Deploy Key)・riken-diips(classic PAT)と
+  異なり認証情報が一切不要**。`.github/workflows/build-sparqlist-image.yaml`の
+  `actions/checkout`は`token:`/`ssh-key:`を渡さずそのまま取得している。ソースにも
+  ビルド済みイメージにも非公開にする理由がないため、**GHCRパッケージは初回のみ
+  GitHubのPackage設定でpublicに変更する**こと(brc-advanced-search/riken-diipsとは
+  逆の運用)。イメージが公開されていれば`envs/<env>/apps/sparqlist`にGHCR pull用
+  SealedSecretもDeploymentの`imagePullSecrets`も不要(`scripts/update-app-image.sh`の
+  `ghcr_secret_needed_for`に`sparqlist`を`no`として登録済み)。
+- **既存運用(オンプレ)の`/sparqlist/`サブディレクトリ配下という公開パスを維持する**
+  (他の`apps/`アプリは専用ホスト名配下のベア`/`だが、今回は移行元の互換性を優先)。
+  `ROOT_PATH`はsparqlistのfrontendビルド(`frontend/vite.config.js`)がビルド時に
+  アセットURLの接頭辞へ焼き込み、`index.mjs`が実行時にも同じ値をpathPrefixとして
+  読むため、ビルド時・実行時で必ず一致させる必要がある。Deployment側で指定させず
+  `images/sparqlist/Dockerfile`の両ステージに`ENV ROOT_PATH=/sparqlist/`を固定で
+  焼き込むことで値のズレを防いでいる(値を変える場合はDockerfileを書き換えて
+  イメージを作り直すこと)。Ingress側も`ingress.yaml`の`path: /sparqlist`と揃えてある。
+- **`repository/`配下(保存したSPARQLetのMarkdown設定)の永続化が必要**な点が
+  brc-advanced-search/riken-diipsと異なる唯一の点。`envs/<env>/apps/sparqlist/pvc.yaml`で
+  WordPressのwp-contentと同じLonghorn RWX(`longhorn-r1`)のPVCを持ち、
+  `deployment.yaml`で`/app/repository`(`REPOSITORY_PATH`のデフォルト値`./repository`が
+  WORKDIR `/app`からの相対パスで解決される)にマウントしている。非rootコンテナからの
+  書き込みを許可するため、Pod `securityContext.fsGroup`を設定している(bitnamiチャートの
+  `podSecurityContext.fsGroup`と同じ考え方。ベースイメージのUID/GIDを調べる必要がない)。
+- **管理API(SPARQLetの作成・編集)は`ADMIN_PASSWORD`環境変数で保護される**
+  (空にすると管理機能自体が無効化される仕様)。パスワードをGit管理下に置かないため、
+  `scripts/seal-sparqlist-secret.sh <env>`でSealedSecretとして
+  `envs/<env>/secrets/sparqlist.yaml`に封印する(brc-advanced-search/riken-diipsの
+  同名ファイルはGHCR pull用Secretだが、sparqlistでは用途が異なる。`update-app-image.sh`の
+  `promote-staging`/`promote-production`もこの違いを認識し、GHCR pull用の代わりに
+  このコマンドの実行を促す)。デフォルトは環境ごとにランダム生成(CLAUDE.mdの方針どおり
+  使い回さない)だが、既存運用からの移行等で特定の値を使いたい場合は
+  `ADMIN_PASSWORD='...' scripts/seal-sparqlist-secret.sh <env>`のように環境変数で指定できる
+  (argvではなく環境変数で渡すのはシェル履歴に残さないため)。
+- **導入時に必要な手動手順(dev)**:
+  1. このPRをマージし、`build-sparqlist-image.yaml`の成功を確認した上でGHCRパッケージを
+     public化する
+  2. `scripts/seal-sparqlist-secret.sh dev`を実行し、`envs/dev/secrets/sparqlist.yaml`を
+     作成するPRを作成・マージする(namespaceは`envs/dev/apps/sparqlist`のFleetバンドルが
+     作成するため、このPRが先行してもnamespace未作成エラーにはならないが、
+     ADMIN_PASSWORDが注入されないままではPodがCrashLoopBackOffにはならず起動するので
+     気付きにくい点に注意。マージ後は`kubectl -n sparqlist get secret sparqlist-admin-password`
+     で存在を確認すること)
+  3. `sparqlist.dev.ibid.lan`のDNS AレコードをFreeIPAに登録
+     (`docs/manual-cert-manager-freeipa-acme.md`参照)
+  4. `https://sparqlist.dev.ibid.lan/sparqlist/`で200を確認
+     (`scripts/update-app-image.sh check-dev sparqlist`でも可)
+- **既存運用からの`repository/`データの投入(移行)**: DBが無いためWordPressのような
+  DBダンプ復元は不要で、`repository/`ディレクトリのファイルをPVCへコピーするだけでよい。
+  対象環境(通常は本番データを実際に使う環境。まずdevでファイル一式が壊れていないか
+  確認してからでもよい)のPodに対して行う:
+  ```bash
+  # ローカルで既存運用のrepository/配下だけを固める
+  tar czf sparqlist-repository.tar.gz -C <既存運用のsparqlistディレクトリ> repository
+
+  kubectl --context <対象envのコンテキスト> -n sparqlist get pods -l app=sparqlist
+
+  # 起動時にイメージへ焼き込まれているサンプルSPARQLet(adjacent_prefectures.md等)を
+  # 退避してから展開する
+  kubectl --context <対象envのコンテキスト> -n sparqlist exec <sparqlist-pod> -- \
+    mv /app/repository /app/repository.orig
+  kubectl --context <対象envのコンテキスト> -n sparqlist cp sparqlist-repository.tar.gz \
+    <sparqlist-pod>:/tmp/sparqlist-repository.tar.gz
+  kubectl --context <対象envのコンテキスト> -n sparqlist exec <sparqlist-pod> -- \
+    tar xzf /tmp/sparqlist-repository.tar.gz -C /app
+  kubectl --context <対象envのコンテキスト> -n sparqlist exec <sparqlist-pod> -- \
+    rm /tmp/sparqlist-repository.tar.gz
+  ```
+  `repository`はReadWriteManyの共有ボリュームなので、1つのPodに反映すれば他のreplicaにも
+  即座に反映される。動作確認後、退避した`repository.orig`は削除してよい
+  (`kubectl ... exec <sparqlist-pod> -- rm -rf /app/repository.orig`)。
+  `kubectl exec`/`cp`はコンテナ内プロセス(`USER node`)権限で実行されるため、
+  fsGroupにより書き込み自体は通るが、念のため反映後に一覧APIやWeb UIで
+  想定件数のSPARQLetが見えることを確認すること。
