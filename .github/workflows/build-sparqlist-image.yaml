@@ -1,0 +1,55 @@
+# images/sparqlist/ 配下の変更がmainにマージされたら、
+# SPARQList (Express, mainブランチ)のサーバーイメージをビルドしてGHCRへ公開する。
+# タグは images/sparqlist/TAG の内容、取り込むアプリ側のコミットは
+# images/sparqlist/SRC_REF の内容(mainブランチのコミットを指定)。
+# 公開後、envs/<env>/apps/sparqlist/deployment.yaml の image タグを
+# 切り替える(docs/manual-apps.md参照)。
+#
+# sparqlist(dbcls/sparqlist)は公開リポジトリのため、ソース取得にDeploy Key/PAT等の
+# 認証情報は不要(actions/checkoutにtoken/ssh-keyを渡さず直接取得する)。
+#
+# 初回のみ: 公開されたパッケージ(ghcr.io上の sparqlist)の可視性をGitHubの
+# Package設定で public にすること(ソース・イメージともに非公開にする理由がないため)。
+# publicにしておくことで、envs/<env>/apps/sparqlist にGHCR pull用SealedSecretは不要になる
+# (imagePullSecretsも設定しない)。
+
+name: build-sparqlist-image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "images/sparqlist/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: SRC_REFを読み込む
+        id: src_ref
+        run: echo "ref=$(tr -d '[:space:]' < images/sparqlist/SRC_REF)" >> "$GITHUB_OUTPUT"
+
+      - name: アプリ本体(公開リポジトリ)をSRC_REF固定で取得
+        uses: actions/checkout@v4
+        with:
+          repository: dbcls/sparqlist
+          ref: ${{ steps.src_ref.outputs.ref }}
+          path: images/sparqlist/app
+
+      - name: イメージをビルドしてGHCRへpush
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="$(tr -d '[:space:]' < images/sparqlist/TAG)"
+          IMAGE="ghcr.io/${{ github.repository_owner }}/sparqlist:$TAG"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker build -t "$IMAGE" images/sparqlist
+          docker push "$IMAGE"
+          echo "公開しました: $IMAGE"

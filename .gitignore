@@ -6,3 +6,7 @@
 # CI(build-riken-diips-image.yaml)がプライベートリポジトリ
 # (PENQEinc/riken-diips)のソースを展開する場所。同上の理由で無視する。
 /images/riken-diips/app/
+
+# CI(build-sparqlist-image.yaml)が公開リポジトリ(dbcls/sparqlist)のソースを
+# 展開する場所。公開リポジトリだが、他アプリと同じ構成に揃えるため同様に無視する。
+/images/sparqlist/app/

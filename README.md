@@ -43,6 +43,8 @@ dev → staging → production の3つのRKE2クラスタ(Harvester上、Rancher
   `scripts/bootstrap-site-secrets.sh <site>` は緊急時用(クラスタへ直接作成)
 - `scripts/seal-monitoring-secret.sh <env>`: アラート通知用Slack Webhook URLを
   SealedSecretとして `envs/<env>/infra/monitoring-secrets/` に生成
+- `scripts/seal-sparqlist-secret.sh <env>`: sparqlistの管理API用ADMIN_PASSWORDを
+  SealedSecretとして `envs/<env>/secrets/sparqlist.yaml` に生成(環境ごとに新規生成)
 - `scripts/deploy-wordpress.sh <env> <site>`: **緊急用(break-glass)**の手動デプロイ。
   通常の変更はPRマージ→Fleet適用で行う
 - `scripts/restore-wordpress.sh <site> <バックアップディレクトリ>`: 既存サイトの

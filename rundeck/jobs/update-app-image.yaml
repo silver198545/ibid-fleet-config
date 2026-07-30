@@ -52,6 +52,7 @@
       values:
         - brc-advanced-search
         - riken-diips
+        - sparqlist
       valuesListDelimiter: ','
       enforced: false
     - name: repo_path
@@ -83,6 +84,7 @@
       values:
         - brc-advanced-search
         - riken-diips
+        - sparqlist
       valuesListDelimiter: ','
       enforced: false
     - name: tag
@@ -121,6 +123,7 @@
       values:
         - brc-advanced-search
         - riken-diips
+        - sparqlist
       valuesListDelimiter: ','
       enforced: false
     - name: repo_path
@@ -150,6 +153,7 @@
       values:
         - brc-advanced-search
         - riken-diips
+        - sparqlist
       valuesListDelimiter: ','
       enforced: false
     - name: repo_path
@@ -188,6 +192,7 @@
       values:
         - brc-advanced-search
         - riken-diips
+        - sparqlist
       valuesListDelimiter: ','
       enforced: false
     - name: repo_path
@@ -219,6 +224,7 @@
       values:
         - brc-advanced-search
         - riken-diips
+        - sparqlist
       valuesListDelimiter: ','
       enforced: false
     - name: repo_path
@@ -251,6 +257,7 @@
       values:
         - brc-advanced-search
         - riken-diips
+        - sparqlist
       valuesListDelimiter: ','
       enforced: false
     - name: repo_path
@@ -280,6 +287,7 @@
       values:
         - brc-advanced-search
         - riken-diips
+        - sparqlist
       valuesListDelimiter: ','
       enforced: false
     - name: repo_path
@@ -313,6 +321,7 @@
       values:
         - brc-advanced-search
         - riken-diips
+        - sparqlist
       valuesListDelimiter: ','
       enforced: false
     - name: repo_path
@@ -344,6 +353,7 @@
       values:
         - brc-advanced-search
         - riken-diips
+        - sparqlist
       valuesListDelimiter: ','
       enforced: false
     - name: repo_path
@@ -377,6 +387,7 @@
       values:
         - brc-advanced-search
         - riken-diips
+        - sparqlist
       valuesListDelimiter: ','
       enforced: false
     - name: repo_path
@@ -406,6 +417,7 @@
       values:
         - brc-advanced-search
         - riken-diips
+        - sparqlist
       valuesListDelimiter: ','
       enforced: false
     - name: repo_path
@@ -441,6 +453,7 @@
       values:
         - brc-advanced-search
         - riken-diips
+        - sparqlist
       valuesListDelimiter: ','
       enforced: false
     - name: repo_path
