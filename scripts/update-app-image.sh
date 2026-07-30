@@ -36,6 +36,12 @@
 #   deploy-staging <app>               【2回目以降】既にstagingにある<app>のイメージタグだけを
 #                                       images/<app>/TAGに合わせて更新しPR作成(deploy-devのstaging版)。
 #   check-staging <app>                stagingのWEBアクセスを確認。
+#   sync-staging-data <app>            PVCで永続データを持つアプリ限定(persistent_data_dir_forに
+#                                       登録済みのアプリのみ。現状sparqlistのみ)。productionの
+#                                       永続データ(例: repository/)をstagingへコピーし、本番相当
+#                                       データでの結合テストを可能にする(WordPressのstagingリストア相当。
+#                                       docs/manual-apps.md「stagingでの本番データ結合テスト」参照)。
+#                                       staging側は上書きされる。
 #   promote-production <app>           【初回昇格専用】envs/staging/apps/<app> を envs/production/apps/<app> へ
 #                                       新規コピー。SealedSecret作成コマンドを表示して停止する。既にある場合は
 #                                       エラーになる(2回目以降のイメージ更新はdeploy-productionを使うこと)。
@@ -142,6 +148,17 @@ ghcr_secret_needed_for() {
     brc-advanced-search|riken-diips) echo yes ;;
     sparqlist) echo no ;;
     *) echo "エラー: ${1} のGHCR pull secret要否が未登録です(このスクリプトの ghcr_secret_needed_for に追記してください)。" >&2; exit 1 ;;
+  esac
+}
+
+# PVCで永続データを持つアプリの、コンテナ内でのデータディレクトリ絶対パス。
+# sync-staging-dataサブコマンドが production→staging のコピー元/先として使う
+# (brc-advanced-search/riken-diipsのようにPVCを持たないアプリは対象外。
+# docs/manual-apps.md「stagingでの本番データ結合テスト」参照)。
+persistent_data_dir_for() {
+  case "$1" in
+    sparqlist) echo "/app/repository" ;;
+    *) echo "エラー: ${1} は永続データの同期に対応していません(このスクリプトの persistent_data_dir_for に追記してください。PVCを持たないアプリはそもそも対象外です)。" >&2; exit 1 ;;
   esac
 }
 
@@ -358,6 +375,46 @@ cmd_check() {
   fi
 }
 
+cmd_sync_staging_data() {
+  local data_dir parent_dir dir_name prod_pod stg_pod archive_name tmp_file
+  data_dir="$(persistent_data_dir_for "$APP")"
+  parent_dir="$(dirname "$data_dir")"
+  dir_name="$(basename "$data_dir")"
+  archive_name="${APP}-data-sync.tar.gz"
+
+  # jsonpathはPodが0件だと非0で終了する(set -eで即死しないよう || true で受ける)。
+  prod_pod="$(kubectl --context prod1 -n "$APP" get pods -l app="$APP" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+  [[ -n "$prod_pod" ]] || { echo "エラー: production(prod1)に${APP}のPodが見つかりません。" >&2; exit 1; }
+  stg_pod="$(kubectl --context staging1 -n "$APP" get pods -l app="$APP" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+  [[ -n "$stg_pod" ]] || { echo "エラー: staging(staging1)に${APP}のPodが見つかりません。先にpromote-staging/deploy-stagingで${APP}をstagingへ展開してください。" >&2; exit 1; }
+
+  echo "production Pod: ${prod_pod}" >&2
+  echo "staging Pod:    ${stg_pod}" >&2
+  echo "同期対象: ${data_dir} (production → staging。staging側の内容は上書きされます)" >&2
+
+  tmp_file="$(mktemp "/tmp/${archive_name}.XXXXXX")"
+  trap 'rm -f "$tmp_file"' EXIT
+
+  kubectl --context prod1 -n "$APP" exec "$prod_pod" -- \
+    tar czf "/tmp/${archive_name}" -C "$parent_dir" "$dir_name"
+  kubectl --context prod1 -n "$APP" cp "${prod_pod}:/tmp/${archive_name}" "$tmp_file"
+  kubectl --context prod1 -n "$APP" exec "$prod_pod" -- rm "/tmp/${archive_name}"
+
+  kubectl --context staging1 -n "$APP" cp "$tmp_file" "${stg_pod}:/tmp/${archive_name}"
+  # -m(mtime復元しない)/--no-same-permissions を付けないと、既存の(マウントポイントである)
+  # ディレクトリ自体の属性復元でtarが失敗する(docs/manual-apps.md「実際に踏んだ問題」参照。
+  # ファイル本体の展開自体はこのオプション無しでも成功するが、終了コードで失敗を検知できなくなるため付ける)。
+  kubectl --context staging1 -n "$APP" exec "$stg_pod" -- \
+    tar xzf "/tmp/${archive_name}" -C "$parent_dir" -m --no-same-permissions
+  kubectl --context staging1 -n "$APP" exec "$stg_pod" -- rm "/tmp/${archive_name}"
+
+  rm -f "$tmp_file"
+  trap - EXIT
+
+  echo ""
+  echo "同期しました。stagingで結合テストしてください: https://$(hostname_for_env staging)/"
+}
+
 cmd_promote_prepare() {
   local from_env="$1" to_env="$2"
   local from_dir="envs/${from_env}/apps/${APP}"
@@ -493,6 +550,7 @@ case "$SUBCOMMAND" in
   promote-staging-finish)    cmd_promote_finish staging ;;
   deploy-staging)            cmd_deploy staging ;;
   check-staging)             cmd_check staging ;;
+  sync-staging-data)         cmd_sync_staging_data ;;
   promote-production)        cmd_promote_prepare staging production ;;
   promote-production-finish) cmd_promote_finish production ;;
   deploy-production)         cmd_deploy production ;;
