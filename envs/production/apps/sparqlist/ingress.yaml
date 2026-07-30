@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sparqlist
+  namespace: sparqlist
+  annotations:
+    cert-manager.io/cluster-issuer: freeipa-acme
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - sparqlist.production.ibid.lan
+      secretName: sparqlist-tls
+  rules:
+    - host: sparqlist.production.ibid.lan
+      http:
+        paths:
+          # 既存運用と同じ/sparqlist/サブパスを維持する(ROOT_PATH。Dockerfile参照)。
+          - path: /sparqlist
+            pathType: Prefix
+            backend:
+              service:
+                name: sparqlist
+                port:
+                  number: 80
