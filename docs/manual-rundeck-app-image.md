@@ -49,7 +49,10 @@ Rundeck上のグループは`app-image-update`直下に環境非依存のジョ�
 `app`オプションは`brc-advanced-search`/`riken-diips`/`sparqlist`を選択肢として登録しているが、
 新規アプリ追加時にも使えるよう自由入力も許可している(`enforced: false`)。
 ただし`05-sync-staging-data`だけは対応アプリが`sparqlist`のみ
-(`persistent_data_dir_for`に登録済みのPVC付きアプリ限定)のため、選択肢も`sparqlist`のみにしている。
+(`persistent_data_dir_for`に登録済みのPVC付きアプリ限定)のため、選択肢を`sparqlist`のみにし
+`enforced: true`で他の値の入力自体を禁止している(スクリプト側`persistent_data_dir_for`の
+チェックと合わせた二重の防御)。新しいPVC付きアプリを追加する際は、
+`persistent_data_dir_for`への登録に合わせてこのジョブの`values`にも追加すること。
 
 | グループ | ジョブ名 | 対応サブコマンド | 実行タイミング |
 | --- | --- | --- | --- |

@@ -314,13 +314,13 @@
     filter: 'tags: rancher'
   options:
     - name: app
-      description: 対象アプリ名(永続データ同期に対応したアプリのみ有効。現状sparqlistのみ)
+      description: 対象アプリ名(永続データ同期に対応したアプリのみ有効。現状sparqlistのみ選択可)
       required: true
       value: sparqlist
       values:
         - sparqlist
       valuesListDelimiter: ','
-      enforced: false
+      enforced: true
     - name: repo_path
       description: 踏み台端末上のibid-fleet-configクローンパス(要編集)
       required: true
