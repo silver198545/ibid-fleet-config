@@ -70,6 +70,9 @@
   description: |
     images/<app>/TAG・SRC_REFを更新するPRを作成し、CIチェック完了まで待つ(マージはしない)。
     src_refには必ず02-latest-src-refジョブの出力(コミットSHA)を使うこと。
+
+    tagは空欄でよい。現在のTAGが<version>-r<N>形式(例: 2.0.0-r7)の場合、N+1で自動採番される
+    (2.0.0-r7 → 2.0.0-r8)。その形式でない場合はエラーになるので、その場合のみ明示指定すること。
   loglevel: INFO
   executionEnabled: true
   multipleExecutions: false
@@ -88,8 +91,8 @@
       valuesListDelimiter: ','
       enforced: false
     - name: tag
-      description: '新しいイメージタグ(例: 2.0.0-r7)'
-      required: true
+      description: '新しいイメージタグ(空欄可。現在のTAGから自動採番。例: 2.0.0-r7)'
+      required: false
     - name: src_ref
       description: 取り込み元コミットSHA(16進数7〜40文字。02-latest-src-refジョブの出力を使う)
       required: true

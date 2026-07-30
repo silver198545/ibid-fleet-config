@@ -58,7 +58,7 @@ Rundeck上のグループは`app-image-update`直下に環境非依存のジョ�
 | --- | --- | --- | --- |
 | `app-image-update` | `01-sync-repo` | (なし) | PRマージ後、repo_pathのmainを最新化したいとき |
 | `app-image-update` | `02-latest-src-ref` | `latest-src-ref` | イメージ更新の起点。取り込み元コミットSHAを確認 |
-| `app-image-update` | `03-set-image` | `set-image` | `02-latest-src-ref`確認後。PR作成・CI待ち |
+| `app-image-update` | `03-set-image` | `set-image` | `02-latest-src-ref`確認後。PR作成・CI待ち。`tag`は空欄可(現在のTAGが`<version>-r<N>`形式なら自動採番) |
 | `app-image-update/dev` | `01-deploy-dev` | `deploy-dev` | `03-set-image`のPRマージ・イメージビルド成功確認後 |
 | `app-image-update/dev` | `02-check-dev` | `check-dev` | `01-deploy-dev`のPRマージ後 |
 | `app-image-update/staging` | `01-promote-staging` | `promote-staging` | **初回昇格のみ**。dev確認後。実行後は下記「dirty worktree」注意を参照。`envs/staging/apps/<app>`が既にある場合はエラーになるので`03-deploy-staging`を使う |
