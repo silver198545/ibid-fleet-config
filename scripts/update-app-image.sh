@@ -21,8 +21,11 @@
 #   latest-src-ref <app>               取り込み元リポジトリ(upstream_repo_for/upstream_branch_for
 #                                       で登録済みのブランチ)のHEADコミットSHAとメッセージを表示する。
 #                                       set-imageのsrc_refに使う値を手打ちしないためのもの。
-#   set-image <app> <tag> <src_ref>    images/<app>/{TAG,SRC_REF}を更新しPR作成、CI完了を待つ。
+#   set-image <app> [tag] <src_ref>    images/<app>/{TAG,SRC_REF}を更新しPR作成、CI完了を待つ。
 #                                       マージ後 build-<app>-image.yaml が自動発火する。
+#                                       tagを省略すると、現在のTAGが<version>-r<N>形式の場合に
+#                                       限り自動採番する(N+1。例: 2.0.0-r7 → 2.0.0-r8)。
+#                                       その形式でない場合はエラーになるので明示指定すること。
 #   deploy-dev <app>                   build-<app>-image.yamlの最新実行が成功していることを確認した上で、
 #                                       envs/dev/apps/<app>/deployment.yamlのイメージタグを
 #                                       images/<app>/TAGに合わせて更新しPR作成。
@@ -55,7 +58,9 @@
 # 使い方の例(brc-advanced-searchをイメージ更新する場合):
 #   scripts/update-app-image.sh latest-src-ref brc-advanced-search
 #   (表示された内容を確認し、それが新TAGとして取り込みたいコミットか判断する)
-#   scripts/update-app-image.sh set-image brc-advanced-search 2.0.0-r6 <新SRC_REF(コミットSHA)>
+#   scripts/update-app-image.sh set-image brc-advanced-search <新SRC_REF(コミットSHA)>
+#   (tagは省略。現在のTAGから自動採番される。明示指定したい場合は
+#    scripts/update-app-image.sh set-image brc-advanced-search 2.0.0-r6 <新SRC_REF>)
 #   (PRをマージし、build-brc-advanced-search-imageの成功を確認)
 #   git pull
 #   scripts/update-app-image.sh deploy-dev brc-advanced-search
@@ -80,7 +85,7 @@
 # promote-productionは使えず必ずエラーになる。stagingはcleanup-stagingで毎回消す運用のため、
 # 通常はpromote-stagingで問題ないが、cleanup-staging未実施のまま次サイクルに入った場合は
 # 同様にdeploy-stagingを使う):
-#   scripts/update-app-image.sh set-image brc-advanced-search 2.0.0-r7 <新SRC_REF>
+#   scripts/update-app-image.sh set-image brc-advanced-search <新SRC_REF>   # tag省略で自動採番(r7→r8等)
 #   (PRをマージし、build-brc-advanced-search-imageの成功を確認)
 #   git pull && scripts/update-app-image.sh deploy-dev brc-advanced-search
 #   (PRをマージ) git pull && scripts/update-app-image.sh check-dev brc-advanced-search
@@ -256,15 +261,21 @@ cmd_latest_src_ref() {
   echo "SRC_REF: ${sha}" >&2
   echo "" >&2
   echo "内容を確認した上で、以下のように使ってください:" >&2
-  echo "  scripts/update-app-image.sh set-image ${APP} <新TAG> ${sha}" >&2
+  echo "  scripts/update-app-image.sh set-image ${APP} ${sha}   # tagは現在のTAGから自動採番される" >&2
+  echo "  (tagを明示指定したい場合: scripts/update-app-image.sh set-image ${APP} <新TAG> ${sha})" >&2
   echo "" >&2
   # 標準出力にはSHAのみを出す(他コマンドへの $(...) 渡しを想定)
   echo "$sha"
 }
 
 cmd_set_image() {
-  local tag="${1:-}" src_ref="${2:-}"
-  [[ -n "$tag" && -n "$src_ref" ]] || { echo "使い方: $0 set-image <app> <tag> <src_ref>" >&2; exit 1; }
+  local tag="" src_ref=""
+  case $# in
+    1) src_ref="$1" ;;                 # tag省略。自動採番する
+    2) tag="$1"; src_ref="$2" ;;
+    *) echo "使い方: $0 set-image <app> [tag] <src_ref>" >&2; exit 1 ;;
+  esac
+  [[ -n "$src_ref" ]] || { echo "使い方: $0 set-image <app> [tag] <src_ref>" >&2; exit 1; }
   if [[ ! "$src_ref" =~ ^[0-9a-f]{7,40}$ ]]; then
     echo "エラー: src_refはコミットSHA(16進数7〜40文字)を指定してください: ${src_ref}" >&2
     echo "(バージョン文字列やブランチ名ではなく、取り込み元リポジトリの実際のコミットSHAを指定すること)" >&2
@@ -275,6 +286,20 @@ cmd_set_image() {
     echo "エラー: ${img_dir} にTAG/SRC_REFがありません(対応アプリか確認してください)。" >&2
     exit 1
   }
+
+  if [[ -z "$tag" ]]; then
+    local current_tag
+    current_tag="$(tr -d '[:space:]' < "$img_dir/TAG")"
+    if [[ "$current_tag" =~ ^(.+)-r([0-9]+)$ ]]; then
+      # 10#で強制的に10進数として解釈する(先頭が0の場合、bashの算術展開は
+      # デフォルトで8進数扱いするため、08/09のような値でエラーになるのを防ぐ)。
+      tag="${BASH_REMATCH[1]}-r$((10#${BASH_REMATCH[2]} + 1))"
+      echo "tag省略のため自動採番しました: ${current_tag} → ${tag}" >&2
+    else
+      echo "エラー: 現在の${img_dir}/TAG(${current_tag})が<version>-r<N>形式ではないため自動採番できません。tagを明示指定してください。" >&2
+      exit 1
+    fi
+  fi
 
   ensure_clean_worktree
   require_main_uptodate
