@@ -326,6 +326,13 @@ kubeletのマウントバックオフ、Fleetの所有権drift等)は
 3. **再構築**: Rancher UIでRKE2作成(**cloud-initにnfs-common**)→ `env=<環境名>` ラベル
    → 新kubeconfig取得。クラスタ名を変えた場合は、Harvesterの該当IPPoolの
    `spec.selector.scope[].guestCluster` を新クラスタ名へ変更する。
+   **同名で再作成した場合は、`~/.kube/config`に残っている旧クラスタの
+   context/cluster/user(古いクラスタID`c-m-xxxxx`を指したまま)を新kubeconfigの
+   マージ前に必ず削除すること**(削除しないと古い認証情報が生き残り、
+   `kubectl --context <env>`が`system:unauthenticated`や`the server has asked for
+   the client to provide credentials`で失敗する)。手順は
+   [manual-dr-troubleshooting.md](manual-dr-troubleshooting.md)の1.を参照
+   (`kubectl config delete-context/delete-cluster/delete-user` → 新kubeconfigをマージ)。
 4. **Fleetの自動復元を待つ**: ラベル付与だけでinfra一式(Longhorn/カタログ/
    sealed-secretsコントローラ/バックアップ設定)が自動導入される。
    新規インストールでは `defaultSettings.backupTarget` がpatch不要で有効(実証済み)。

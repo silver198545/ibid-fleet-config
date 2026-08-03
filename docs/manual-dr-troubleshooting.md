@@ -13,6 +13,11 @@ kubectl等のツール自体がまだ無い場合は先に[manual-tooling-setup.
 ダウンロードして`~/.kube/config`にマージしたのに、`kubectl --context dev1 get nodes`が
 `the server could not find the requested resource`で失敗する。単体ファイル
 (`kubectl --kubeconfig ~/.kube/dev1.yaml`)では正常に疎通できるのに、マージ後だけ壊れる。
+(2026-08-03にdev1再作成時は`the server has asked for the client to provide
+credentials`や`clusters.management.cattle.io "<旧クラスタID>" is forbidden: User
+"system:unauthenticated"`という別の文言で出たこともある。エラー文言は違っても
+原因は同じ「マージ時に旧エントリの認証情報が優先されて残る」ことなので、
+単体ファイルでの疎通確認による切り分けは同様に有効。)
 
 **原因**: `~/.kube/config`に、**削除した旧クラスタの`dev1`という名前のcontext/cluster**
 が消されずに残っていた。新しいkubeconfigも同じ名前(`dev1`)を使うため、
