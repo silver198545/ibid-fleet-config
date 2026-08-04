@@ -58,7 +58,7 @@ helm:
     # を実行して該当クラスタのNAME(c-m-xxxxx)を確認する。
     global:
       cattle:
-        clusterId: c-m-d9wxlbqg
+        clusterId: c-m-bl49fvdt
 
     # RKE2の制御プレーンコンポーネントのexporter(Rancher AppsがRKE2クラスタで
     # 有効化するものと同等)。リソースが厳しくなったら無効化してよい。
