@@ -1,0 +1,11 @@
+# WordPressサイトではない自作アプリ(metadatabase-v2)。
+# DBを持たないステートレスなフロントエンドのため、sites/ とは分けてapps/配下に置く
+# (keepResources等WordPressサイト固有の注意点はここには適用されない)。
+# 詳細は docs/manual-apps.md 参照。
+defaultNamespace: metadatabase-v2
+targetNamespace: metadatabase-v2
+
+keepResources: true
+
+helm:
+  releaseName: metadatabase-v2

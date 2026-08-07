@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metadatabase-v2
+  namespace: metadatabase-v2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: metadatabase-v2
+  template:
+    metadata:
+      labels:
+        app: metadatabase-v2
+    spec:
+      imagePullSecrets:
+        - name: ghcr-metadatabase-v2
+      containers:
+        - name: metadatabase-v2
+          image: ghcr.io/silver198545/metadatabase-v2:0.1.0-r0
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            # アプリ側.env.exampleのデフォルト値と同じ、理研BRCの公開SPARQLエンドポイント。
+            # 非機密情報。社内向けの別エンドポイントに切り替える場合はここを書き換える。
+            - name: SPARQL_ENDPOINT
+              value: "https://knowledge.brc.riken.jp/sparql"
+            - name: NEXT_PUBLIC_SPARQL_ENDPOINT
+              value: "https://knowledge.brc.riken.jp/sparql"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000

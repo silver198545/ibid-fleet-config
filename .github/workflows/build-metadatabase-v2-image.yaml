@@ -1,0 +1,76 @@
+# images/metadatabase-v2/ 配下の変更がmainにマージされたら、
+# metadatabase-v2 (Next.js 15, mainブランチ)のSSRサーバーイメージをビルドして
+# GHCRへ公開する。
+# タグは images/metadatabase-v2/TAG の内容、取り込むアプリ側のコミットは
+# images/metadatabase-v2/SRC_REF の内容(mainブランチのコミットを指定)。
+# 公開後、envs/<env>/apps/metadatabase-v2/deployment.yaml の image タグを
+# 切り替える(docs/manual-apps.md参照)。
+#
+# metadatabase-v2 はプライベートリポジトリのため、ソース取得には
+# METADATABASE_V2_ACCESS_TOKEN シークレット(`repo`スコープのPersonal access token
+# (classic)。silver198545アカウント自身が所有するリポジトリなのでOrganizationの
+# 承認プロセスは関係しないが、専用に新規発行したトークンを使うこと。既存の
+# 広いスコープのPATを流用しない)が必要(このリポジトリのSettings > Secrets and
+# variables > Actionsで事前に登録しておくこと)。
+# 認証情報をDockerイメージのビルドコンテキスト/レイヤー履歴に残さないよう、
+# cloneはDockerfile内ではなくこのワークフローのactions/checkoutステップで行う。
+#
+# プライベートリポジトリに対してHTTPSのPersonal access token(fine-grained/classic
+# 問わず)でコミットSHAを直接ref指定してfetchすると、GitHubの仕様上
+# `remote: Write access to repository not granted.`で403になる(生SHA指定の
+# fetchはread権限では許可されず、書き込み権限相当が必要なため。ブランチ名での
+# fetchは通常のread権限で可能)。そのためこのワークフローは一旦`main`ブランチ名で
+# fetchし、その後ローカルで`git checkout <SRC_REF>`することでSRC_REFへの
+# ピン留めを行っている(riken-diipsと同じ回避策。詳細はdocs/manual-apps.md参照)。
+#
+# GHCR上の metadatabase-v2 パッケージは非公開のまま運用する(ソースが非公開の
+# リポジトリのため)。devクラスタからのpullには scripts/seal-site-secrets.sh と
+# 同じ要領で作成したGHCR pull用SealedSecretが必要(docs/manual-apps.md参照)。
+
+name: build-metadatabase-v2-image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "images/metadatabase-v2/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: SRC_REFを読み込む
+        id: src_ref
+        run: echo "ref=$(tr -d '[:space:]' < images/metadatabase-v2/SRC_REF)" >> "$GITHUB_OUTPUT"
+
+      - name: アプリ本体(プライベートリポジトリ)をmainブランチで取得
+        uses: actions/checkout@v4
+        with:
+          repository: silver198545/metadatabase-v2
+          ref: main
+          token: ${{ secrets.METADATABASE_V2_ACCESS_TOKEN }}
+          persist-credentials: false
+          fetch-depth: 0
+          path: images/metadatabase-v2/app
+
+      - name: SRC_REFのコミットへローカルで固定
+        working-directory: images/metadatabase-v2/app
+        run: git checkout "${{ steps.src_ref.outputs.ref }}"
+
+      - name: イメージをビルドしてGHCRへpush
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="$(tr -d '[:space:]' < images/metadatabase-v2/TAG)"
+          IMAGE="ghcr.io/${{ github.repository_owner }}/metadatabase-v2:$TAG"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker build -t "$IMAGE" images/metadatabase-v2
+          docker push "$IMAGE"
+          echo "公開しました: $IMAGE"

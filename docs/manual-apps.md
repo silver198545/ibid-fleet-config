@@ -16,6 +16,10 @@ SPARQLet(`repository/`配下のMarkdown設定ファイル)の永続化が必要�
 PVC(`envs/<env>/apps/sparqlist/pvc.yaml`)を持つ以外は同じ`apps/`パターンに乗せている
 (詳細は下記「sparqlist 固有のメモ」参照)。
 
+[metadatabase-v2](https://github.com/silver198545/metadatabase-v2)(Next.js 15製、
+DBなし。外部のSPARQLエンドポイントを参照するのみ)はriken-diipsと同じ構成
+(SSR・PVCなし)。詳細は下記「metadatabase-v2 固有のメモ」参照。
+
 ## 構成
 
 - `images/<app>/`: アプリのビルド定義。アプリ本体は別リポジトリにあるため、
@@ -460,3 +464,47 @@ DBを持たないアプリの場合はWordPressより手順が単純になる:
   (`envs/<env>/apps/sparqlist/pvc.yaml`)はLonghornの`envs/<env>/infra/longhorn-jobs/`
   (`groups: [default]`)の対象に自動的に含まれるため、WordPressのような手動バックアップ
   取得は不要(6時間毎スナップショット・日次バックアップが既にかかっている)。
+
+## metadatabase-v2 固有のメモ
+
+- ソースは[silver198545/metadatabase-v2](https://github.com/silver198545/metadatabase-v2)の
+  `main`ブランチ(Next.js 15 App Router / React 19 / TypeScript製。理研BRCの既存システムを
+  踏襲したデザインで、外部のVirtuoso SPARQLエンドポイントを参照するのみでDBは持たない)。
+  `SRC_REF`は同ブランチのコミットSHAを指す。`next.config.ts`に`output: "standalone"`の
+  指定は無いため、riken-diipsと同様に実行時もフルの`node_modules`が必要
+  (`images/metadatabase-v2/Dockerfile`は`npm prune --omit=dev`のみでdevDependenciesを
+  落とす構成)。
+- **ソースリポジトリはこのリポジトリ(ibid-fleet-config)と同じsilver198545アカウント
+  所有のプライベートリポジトリ**。riken-diipsと同じくOrganizationの承認プロセスに
+  阻まれる問題は起きないため、classic PAT方式(`METADATABASE_V2_ACCESS_TOKEN`、
+  `repo`スコープ)でソース取得している。ただし同一アカウント所有だからといって
+  既存の広いスコープのPAT(このリポジトリの運用に使っているgh CLIのトークン等)を
+  流用しないこと(CLAUDE.mdの秘密情報使い回し禁止方針と同じ理由。専用に新規発行した
+  トークンを使う)。riken-diipsと同じ理由([riken-diips 固有のメモ]参照)で、
+  ワークフローは生SHA指定ではなく`main`ブランチ名でfetchしてからローカルで
+  `git checkout <SRC_REF>`する構成にしてある。
+- ソースが非公開のため、GHCRイメージも非公開のまま運用する。devクラスタからのpullには
+  GHCR pull用SealedSecret(`envs/<env>/secrets/metadatabase-v2.yaml`、
+  `read:packages`スコープのPersonal access token(専用に新規発行したものを推奨)から
+  作成)が必要(`scripts/update-app-image.sh`の`ghcr_secret_needed_for`に`yes`として
+  登録済み)。
+- 環境変数`SPARQL_ENDPOINT`/`NEXT_PUBLIC_SPARQL_ENDPOINT`はアプリ側`.env.example`の
+  デフォルトと同じ理研BRCの公開SPARQLエンドポイント(`https://knowledge.brc.riken.jp/sparql`)
+  を`deployment.yaml`に直接設定している(非機密情報)。社内向けの別エンドポイントに
+  切り替える場合はここを書き換える。
+- PVCを持たないため、brc-advanced-search/riken-diipsと同じくWordPressのような
+  容量解放待ちの考慮は不要(staging削除時は`cleanup-staging`一発で完結する)。
+- **導入時に必要な手動手順(dev)**:
+  1. `METADATABASE_V2_ACCESS_TOKEN`(`repo`スコープのclassic PAT、専用に新規発行)を
+     `gh secret set METADATABASE_V2_ACCESS_TOKEN --repo silver198545/ibid-fleet-config`
+     で登録し、このPRをマージして`build-metadatabase-v2-image.yaml`の成功を確認する
+  2. GHCR上の`metadatabase-v2`パッケージの可視性設定を確認する(非公開のままでよい。
+     公開に変更する必要はない)
+  3. `read:packages`スコープのclassic PAT(専用に新規発行)で
+     GHCR pull用SealedSecretを作成する(`docs/manual-apps.md`冒頭「新しいアプリを
+     追加する手順」4番のコマンド例を`<app>=metadatabase-v2`で実行し、
+     `envs/dev/secrets/metadatabase-v2.yaml`としてコミット・マージする)
+  4. `metadatabase-v2.dev.ibid.lan`のDNS AレコードをFreeIPAに登録
+     (`docs/manual-cert-manager-freeipa-acme.md`参照)
+  5. `https://metadatabase-v2.dev.ibid.lan/`で200を確認
+     (`scripts/update-app-image.sh check-dev metadatabase-v2`でも可)
