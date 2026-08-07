@@ -23,6 +23,10 @@ FROM node:20-bullseye AS build
 
 WORKDIR /app
 COPY app/ .
+# actions/checkoutが取得したapp/には.gitが含まれる。マルチステージの最終イメージにも
+# コピーされてしまうため(サイズ増加、プライベートソースの全履歴がイメージレイヤーに
+# 残る)、依存インストール前に削除する。
+RUN rm -rf .git
 RUN npm install
 RUN npm run build
 # 実行時に不要なdevDependencies(eslint/typescript等)を落とす。
