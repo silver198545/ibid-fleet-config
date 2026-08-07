@@ -132,6 +132,7 @@ upstream_repo_for() {
     brc-advanced-search) echo "PENQEinc/riken_brc_advanced_search" ;;
     riken-diips) echo "PENQEinc/riken-diips" ;;
     sparqlist) echo "dbcls/sparqlist" ;;
+    metadatabase-v2) echo "silver198545/metadatabase-v2" ;;
     *) echo "エラー: ${1} の取り込み元リポジトリが未登録です(このスクリプトの upstream_repo_for/upstream_branch_for に追記してください)。" >&2; exit 1 ;;
   esac
 }
@@ -141,6 +142,7 @@ upstream_branch_for() {
     brc-advanced-search) echo "vue3-main-riken" ;;
     riken-diips) echo "main" ;;
     sparqlist) echo "main" ;;
+    metadatabase-v2) echo "main" ;;
     *) echo "エラー: ${1} の取り込み元ブランチが未登録です。" >&2; exit 1 ;;
   esac
 }
@@ -150,7 +152,7 @@ upstream_branch_for() {
 # 新規アプリ追加時は必ずどちらかに登録すること。
 ghcr_secret_needed_for() {
   case "$1" in
-    brc-advanced-search|riken-diips) echo yes ;;
+    brc-advanced-search|riken-diips|metadatabase-v2) echo yes ;;
     sparqlist) echo no ;;
     *) echo "エラー: ${1} のGHCR pull secret要否が未登録です(このスクリプトの ghcr_secret_needed_for に追記してください)。" >&2; exit 1 ;;
   esac
