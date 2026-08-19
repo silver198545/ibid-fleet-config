@@ -147,6 +147,18 @@ helm:
           cluster: dev
         retention: 10d
         retentionSize: 18GiB
+        # チャート既定値(limits.memory: 3000Mi)だとdev1のスクレイプ対象数では
+        # 2時間ごとのブロックcompaction時にOOMKilledを繰り返す(2026-08-19に発覚)。
+        # dev1のworkerノードはallocatable memoryが約8Giしかないため、
+        # 上げすぎるとノード自体のkubeletが飢餓状態になる(過去に7000Miで発生)。
+        # 4500Miは他Podとの兼ね合いも踏まえた余裕を持たせた値。
+        resources:
+          requests:
+            cpu: 750m
+            memory: 750Mi
+          limits:
+            cpu: "1"
+            memory: 4500Mi
         storageSpec:
           volumeClaimTemplate:
             spec:
