@@ -41,6 +41,12 @@ helm:
   chart: rancher-monitoring
   repo: https://charts.rancher.io
   version: 109.0.3+up80.9.1-rancher.14
+  # pre-upgrade hook(rancher-monitoring-admission-create Job)がクラスタの
+  # 負荷状況によっては既定タイムアウトに間に合わず、Job自体は数十秒後に
+  # 成功するのにHelmアップグレードが"context deadline exceeded"で失敗し
+  # 値の変更(resources等)が反映されないままFleetが再試行を繰り返す事象が
+  # 2026-08-19〜20に発覚。タイムアウトを延長して待つようにする。
+  timeoutSeconds: 600
   values:
     # RancherのApps&MarketplaceからインストールするとRancherが自動注入する値だが、
     # Fleet(GitOps)経由だと注入されず空文字列のままになる。その場合Grafanaの
