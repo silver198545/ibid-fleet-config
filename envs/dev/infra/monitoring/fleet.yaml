@@ -161,13 +161,19 @@ helm:
         # requestsはチャート既定の750Miのままだとlimitsとの乖離が大きく
         # スケジューラ上オーバーコミットになるため、実測の定常時使用量
         # (約2.3Gi)に合わせて2500Miへ引き上げる(Copilotレビュー指摘対応)。
+        # 2026-09-01: 全クラスタ再作成でボリュームを新規作成し直した際、
+        # 起動直後に全スクレイプ対象(15サイト分のWordPress関連Pod/Service等)
+        # を一斉に初回スクレイプするタイミングでメモリスパイクが発生し、
+        # 6000Miでも数分以内にOOMKilledするようになった(定常時は約2.3Giだが
+        # 起動直後のピークがそれを大きく超える)。稼働ノードのメモリ実使用率は
+        # 14〜35%程度で余裕があるため8000Miへ再引き上げ。
         resources:
           requests:
             cpu: 750m
             memory: 2500Mi
           limits:
             cpu: "1"
-            memory: 6000Mi
+            memory: 8000Mi
         storageSpec:
           volumeClaimTemplate:
             spec:
