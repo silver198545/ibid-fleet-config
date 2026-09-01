@@ -16,3 +16,13 @@ spec:
       - longhorn-system
   endpoints:
     - port: manager
+      # longhorn_rest_client_rate_limiter_latency_seconds_*はurlラベルに
+      # ボリューム名・バックアップ名等を含む一意なURLパスがそのまま入り、
+      # カーディナリティが無制限に増加する(2026-09-01、全クラスタ再作成後の
+      # PVC再作成の繰り返しで185万シリーズ中134万件がこのメトリクスとなり、
+      # Prometheusがメモリ上限8000MiでもOOMKilledし続ける事態が発覚)。
+      # 運用上不要なため、スクレイプ時にドロップする。
+      metricRelabelings:
+        - sourceLabels: [__name__]
+          regex: 'longhorn_rest_client_rate_limiter_latency_seconds_.*'
+          action: drop
