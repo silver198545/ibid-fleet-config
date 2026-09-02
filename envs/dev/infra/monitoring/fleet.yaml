@@ -219,3 +219,16 @@ helm:
               # 実際のscrape先はblackbox-exporter
               - target_label: __address__
                 replacement: monitoring-blackbox-exporter.cattle-monitoring-system.svc:9115
+
+    # Grafanaのstorageはchart既定のemptyDir(ダッシュボード/データソースは
+    # ConfigMapで管理され、SQLite DBは揮発性データのみを保持する想定のため)。
+    # そのためPod再作成のたびに数百件のDBマイグレーションを最初からやり直す。
+    # dev1クラスタの慢性的なストレージI/O遅延と組み合わさり、chart既定の
+    # livenessProbe(initialDelaySeconds:60 + failureThreshold:10 = 160秒許容)
+    # では完了前にKillされてクラッシュループする(2026-09-02に発覚)。
+    # マイグレーションは繰り返してもemptyDirである以上何度でも起こるため、
+    # 恒久的にprobeを緩和する(600秒許容)。
+    grafana:
+      livenessProbe:
+        initialDelaySeconds: 300
+        failureThreshold: 30
