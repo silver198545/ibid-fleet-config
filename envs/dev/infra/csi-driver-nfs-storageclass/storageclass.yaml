@@ -1,0 +1,18 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-external
+provisioner: nfs.csi.k8s.io
+parameters:
+  server: "192.168.1.1"
+  share: "/data/nfs/wordpress/dev"
+  # PVCごとにサブディレクトリを自動作成して分離する。
+  subDir: "${pvc.metadata.namespace}/${pvc.metadata.name}"
+  # Bitnami WordPressコンテナ(非root、UID 1001)が書き込めるようにする。
+  mountPermissions: "0777"
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+allowVolumeExpansion: true
+mountOptions:
+  - nfsvers=4.1
+  - noresvport

@@ -22,7 +22,11 @@ dev → staging → production の3つのRKE2クラスタ(Harvester上、Rancher
     低レプリカ用StorageClass(`longhorn-r1`、二重レプリケーション対策。
     [docs/roadmap.md](docs/roadmap.md) 項目3参照)・
     監視スタック(rancher-monitoring + blackbox-exporter + アラートルール、
-    [docs/manual-monitoring.md](docs/manual-monitoring.md)参照)
+    [docs/manual-monitoring.md](docs/manual-monitoring.md)参照)・
+    `csi-driver-nfs`/`csi-driver-nfs-storageclass`(dev限定・検証中。Longhorn RWX
+    (share-manager/NFS-Ganesha)のRemote I/O error対策として、既存の外部NFS
+    (Longhornバックアップ先と同一ホスト)へ直接マウントする代替StorageClass
+    `nfs-external` の実証実験。有効性未確認、他環境への昇格は未定)
   - `sites/<site>/`: WordPressサイト(1サイト=1ディレクトリ、`fleet.yaml`)
   - `apps/<app>/`: WordPress以外の自作アプリ(1アプリ=1ディレクトリ、`fleet.yaml`+素の
     Kubernetesマニフェスト)。`sites/`とは性質が異なる(DBなし・ラッパーチャート未使用)ため

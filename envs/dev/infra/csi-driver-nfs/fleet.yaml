@@ -1,0 +1,13 @@
+# dev1のLonghorn RWX(share-manager/NFS-Ganesha)で断続的なRemote I/O errorが解消しない
+# 問題への対応検証(docs/manual-storage-migration.md参照)。NFS-Ganeshaを経由せず、
+# 既存の外部NFSサーバー(192.168.1.1、Longhornバックアップ先と同一ホスト)に直接
+# RWXボリュームをマウントできるようにする、kubernetes-csi公式のCSIドライバ。
+# まずはdevでの検証のみ。有効性が確認できてから昇格を判断する。
+defaultNamespace: kube-system
+keepResources: true
+
+helm:
+  releaseName: csi-driver-nfs
+  chart: csi-driver-nfs
+  repo: https://raw.githubusercontent.com/kubernetes-csi/csi-driver-nfs/master/charts
+  version: 4.13.4
