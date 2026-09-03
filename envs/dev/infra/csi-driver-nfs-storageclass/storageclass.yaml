@@ -5,14 +5,18 @@ metadata:
 provisioner: nfs.csi.k8s.io
 parameters:
   server: "192.168.1.1"
-  share: "/data/nfs/wordpress/dev"
+  # NFSサーバー側のエクスポート設定は/data/nfs直下のみ(サブディレクトリへの
+  # 直接マウントは"Operation not permitted"で拒否される)。shareは必ず
+  # エクスポートされているパスそのものを指定し、その配下はsubDirで分ける。
+  share: "/data/nfs"
   # PVCごとにサブディレクトリを自動作成して分離する。
-  subDir: "${pvc.metadata.namespace}/${pvc.metadata.name}"
+  subDir: "wordpress/dev/${pvc.metadata.namespace}/${pvc.metadata.name}"
   # Bitnami WordPressコンテナ(非root、UID 1001)が書き込めるようにする。
   mountPermissions: "0777"
 reclaimPolicy: Delete
 volumeBindingMode: Immediate
 allowVolumeExpansion: true
 mountOptions:
+  # noresvportは付けない: このNFSサーバーのエクスポートは非特権ポートからの
+  # マウント要求を"Operation not permitted"で拒否する(insecureオプション無し)。
   - nfsvers=4.1
-  - noresvport
