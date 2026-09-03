@@ -224,3 +224,74 @@ kubectl -n longhorn-system delete volumes.longhorn.io <旧wp-content用ボリュ
 
 削除後、`kubectl -n longhorn-system get nodes.longhorn.io`のノード使用率(%)が
 下がることを確認する。
+
+## wp-contentのLonghorn RWX(NFS-Ganesha)起因のRemote I/O error対策(nfs-external移行)
+
+dev1で長期間未解決だった、大量ファイル操作時にwp-contentが断続的に`Remote I/O error`を
+返す問題([[dev1-nfs-restore-20260804]]参照)は、Longhorn RWX(share-manager/NFS-Ganesha)側の
+問題と特定した。対策として`csi-driver-nfs`(kubernetes-csi公式、PR#146,#147)を導入し、
+既存の外部NFSサーバー(`192.168.1.1`、Longhornバックアップ先と同一ホスト)へ直接マウントする
+`nfs-external` StorageClassに切り替える。2026-09-03にabcサイトで実地検証・パイロット移行に
+成功済み(PR#148)。
+
+**前提**: 対象環境に`envs/<env>/infra/csi-driver-nfs`・`csi-driver-nfs-storageclass`が
+導入済みであること(現状dev限定)。
+
+### 手順
+
+1. 対象サイトの`envs/<env>/sites/<site>/fleet.yaml`に以下を追加してPR:
+   ```yaml
+   wordpress:
+     persistence:
+       storageClass: nfs-external
+   ```
+2. マージ前に、対象サイトのFleet bundleを一時停止し、Webレプリカを0にスケールダウンする
+   (書き込み停止。mariadbはStatefulSet起動のままでよい):
+   ```bash
+   kubectl --context rancher patch bundle -n fleet-default ibid-<env>-envs-<env>-sites-<site> \
+     --type=merge -p '{"spec":{"paused":true}}'
+   kubectl -n wordpress-<site> scale deploy wordpress-<site> --replicas=0
+   ```
+3. PRマージ後、plugin-syncのJobが残っていれば先に削除(残っているとPVC削除が
+   `Terminating`のまま止まる)、旧wp-content PVCを削除する:
+   ```bash
+   kubectl -n wordpress-<site> delete job -l app.kubernetes.io/component=plugin-sync
+   kubectl -n wordpress-<site> delete pvc wordpress-<site>
+   ```
+   (reclaimPolicyが`Delete`の場合、旧Longhornボリュームも同時消滅する。事前に
+   直近のLonghornバックアップの鮮度を必ず確認しておくこと)
+4. **PVCとPodが完全に消えたことを確認してからbundleのpauseを解除する。**
+   削除完了前にunpauseすると、Fleetが古いPVCへ競合状態でPodを再アタッチしてしまうことがある
+   (実際に2026-09-03のabc移行で発生)。
+   ```bash
+   kubectl -n wordpress-<site> get pvc,pod   # 両方消えていることを確認
+   kubectl --context rancher patch bundle -n fleet-default ibid-<env>-envs-<env>-sites-<site> \
+     --type=merge -p '{"spec":{"paused":false}}'
+   # 反映されない場合はforceSyncGenerationを+1
+   ```
+5. 新PVC(`nfs-external`)が`Bound`になり、Podが起動したら、データを復元する:
+   - バックアップが手元にある場合: `scripts/restore-wordpress.sh <site> <backupdir>`で
+     wp-content+DBを一括リストア([docs/manual-wordpress-restore.md](manual-wordpress-restore.md)参照)
+   - バックアップが無い(現行データをそのまま引き継ぎたい)場合: 旧PVCを削除する前に
+     別Podで両方(旧longhorn-r1 PVCと新nfs-external PVC)をマウントし、`cp -a`または`rsync`で
+     直接コピーする移行手順が必要(未確立。実施時はこの節を更新すること)
+6. URL置換(`wp search-replace`)・`wp rewrite flush --hard`を実行する。
+7. **罠: 新規生成された`wp-config.php`の`WP_HOME`/`WP_SITEURL`定数が
+   `http://<hostname>//`(スキームがhttp、末尾スラッシュ重複)になっていることがある**
+   (ラッパーチャートのTraefik ingress設定からの生成ロジックに起因、本移行固有ではない)。
+   DBのオプションをsearch-replaceで直しても、この定数の方が優先されるため反映されない。
+   `wp-config.php`を直接sedで書き換える:
+   ```bash
+   kubectl -n wordpress-<site> exec -c wordpress <pod> -- bash -c \
+     "sed -i \"s|WP_HOME', 'http://<hostname>//'|WP_HOME', 'https://<hostname>'|; \
+              s|WP_SITEURL', 'http://<hostname>//'|WP_SITEURL', 'https://<hostname>'|\" \
+     /bitnami/wordpress/wp-config.php"
+   ```
+8. 動作確認(HTTP 200、`wp plugin list`、`find`の複数回実行でエラーが再現しないこと)後、
+   退避された`wp-content.orig`を削除する。
+
+### 検証結果(abc、2026-09-03)
+
+移行前は稼働中にRemote I/O errorが発生していた状態から、移行後は本物のバックアップ
+(269MB/16027ファイル)の展開・DBリストア・`wp plugin list`・`find`の3回連続実行、いずれも
+エラー0件で安定動作を確認した。
