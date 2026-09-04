@@ -297,7 +297,7 @@ dev1で長期間未解決だった、大量ファイル操作時にwp-contentが
      #    (storageClassNameは任意の一時名でよい。RWXでもよいがsingle readerなので実害なし)
      # 4. tar -cf でwp-content一式を抽出(Remote I/O errorが散発するため、
      #    exit code 0になるまで数回リトライする。1〜2回で通ることが多い)
-     kubectl exec <helper> -- tar -cf /tmp/content.tar -C /mnt/content/wordpress .
+     kubectl -n longhorn-system exec <helper> -- tar -cf /tmp/content.tar -C /mnt/content/wordpress .
      # 5. ローカルへ kubectl cp → lzop圧縮 → restore-wordpress.sh の入力形式(tar.lzo/dump.lzo)に
      # 6. 一時Volume/PV/PVC/Podを削除してから、手順5の restore-wordpress.sh を通常どおり実行
      ```
@@ -321,8 +321,8 @@ dev1で長期間未解決だった、大量ファイル操作時にwp-contentが
    (2026-09-04のwebサイトで発生: `Table 'bitnami_wordpress.tp_options' doesn't exist`が
    多発し、当該プラグインだけ`wp plugin list`から消えていた)。`wp plugin list`が
    fleet.yamlの`plugins:`一覧と一致しない場合、plugin-sync Jobを削除して
-   (`kubectl delete job wordpress-<site>-plugin-sync-<hash>`)forceSyncGenerationを+1すれば
-   再実行され、今度はDBが揃っているため全件揃う。
+   (`kubectl -n wordpress-<site> delete job wordpress-<site>-plugin-sync-<hash>`)
+   forceSyncGenerationを+1すれば再実行され、今度はDBが揃っているため全件揃う。
 
 ### 検証結果
 
