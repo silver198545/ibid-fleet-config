@@ -269,12 +269,38 @@ dev1で長期間未解決だった、大量ファイル操作時にwp-contentが
      --type=merge -p '{"spec":{"paused":false}}'
    # 反映されない場合はforceSyncGenerationを+1
    ```
+   **罠: bundleの`spec.paused`は`patch`で`true`にした後でも、PVC削除待ちの間に
+   (原因未特定だが)`false`/未設定に戻ることがある**(2026-09-04の残り14サイト移行で複数回発生)。
+   Fleetのドリフト補正が、pause状態そのものとは別に、既存Deploymentのreplicas数を
+   常時マニフェストの値に戻し続けるためと見られる。手動でscale-downしても数秒〜分で
+   Podが復活しPVCの`Terminating`が進まなくなるので、PVC削除の直前に必ず
+   `spec.paused`を再確認し、消えるまで「scale-down→plugin-sync Job削除」を
+   ループさせてから`delete pvc`を実行すること。新PVCが意図せず作られてしまった場合
+   (削除後すぐに`nfs-external`の新PVCが立っていることがある)、それをさらに
+   誤って消してしまわないよう、削除対象は常に**削除前に確認した旧`volumeName`**で
+   判定すること。
 5. 新PVC(`nfs-external`)が`Bound`になり、Podが起動したら、データを復元する:
    - バックアップが手元にある場合: `scripts/restore-wordpress.sh <site> <backupdir>`で
      wp-content+DBを一括リストア([docs/manual-wordpress-restore.md](manual-wordpress-restore.md)参照)
-   - バックアップが無い(現行データをそのまま引き継ぎたい)場合: 旧PVCを削除する前に
-     別Podで両方(旧longhorn-r1 PVCと新nfs-external PVC)をマウントし、`cp -a`または`rsync`で
-     直接コピーする移行手順が必要(未確立。実施時はこの節を更新すること)
+   - バックアップが無い(現行データをそのまま引き継ぎたい)場合:
+     **ライブの`tar`/`cp`によるwp-contentコピーは、Remote I/O errorが起きているサイト
+     ほど信頼できない**(2026-09-04の複数サイトで実際に発生・確認済み)。代わりに
+     直近のLonghornバックアップから一時ボリュームを作って抽出する
+     (DBはmariadb Podが別PVC=RWXバグの影響を受けないため、`mariadb-dump`でライブ取得すれば
+     直近バックアップより新しい状態を使える):
+     ```bash
+     # 1. wp-content用PVCのボリューム名とその最新backupを確認
+     kubectl -n longhorn-system get backupvolumes.longhorn.io | grep <旧volume名>
+     # 2. fromBackupで一時Volumeを作成(backup=はCR名そのまま、volume=はハッシュ抜きの旧volume名)
+     #    (前提条件のYAML例と同じ形式。numberOfReplicas: 1, frontend: blockdev)
+     # 3. state=detached/restoreRequired=falseを待ってから、静的PV/PVC+busyboxヘルパーPodを作成
+     #    (storageClassNameは任意の一時名でよい。RWXでもよいがsingle readerなので実害なし)
+     # 4. tar -cf でwp-content一式を抽出(Remote I/O errorが散発するため、
+     #    exit code 0になるまで数回リトライする。1〜2回で通ることが多い)
+     kubectl exec <helper> -- tar -cf /tmp/content.tar -C /mnt/content/wordpress .
+     # 5. ローカルへ kubectl cp → lzop圧縮 → restore-wordpress.sh の入力形式(tar.lzo/dump.lzo)に
+     # 6. 一時Volume/PV/PVC/Podを削除してから、手順5の restore-wordpress.sh を通常どおり実行
+     ```
 6. URL置換(`wp search-replace`)・`wp rewrite flush --hard`を実行する。
 7. **罠: 新規生成された`wp-config.php`の`WP_HOME`/`WP_SITEURL`定数が
    `http://<hostname>//`(スキームがhttp、末尾スラッシュ重複)になっていることがある**
@@ -289,9 +315,22 @@ dev1で長期間未解決だった、大量ファイル操作時にwp-contentが
    ```
 8. 動作確認(HTTP 200、`wp plugin list`、`find`の複数回実行でエラーが再現しないこと)後、
    退避された`wp-content.orig`を削除する。
+9. **罠: `plugins:`を宣言しているサイトでは、Fleetのplugin-sync Jobが
+   `restore-wordpress.sh`のDB復元(手順5の一時DB削除→再作成→インポート)と競合し、
+   DB再作成前に処理されたプラグインの有効化がサイレントに失われることがある**
+   (2026-09-04のwebサイトで発生: `Table 'bitnami_wordpress.tp_options' doesn't exist`が
+   多発し、当該プラグインだけ`wp plugin list`から消えていた)。`wp plugin list`が
+   fleet.yamlの`plugins:`一覧と一致しない場合、plugin-sync Jobを削除して
+   (`kubectl delete job wordpress-<site>-plugin-sync-<hash>`)forceSyncGenerationを+1すれば
+   再実行され、今度はDBが揃っているため全件揃う。
 
-### 検証結果(abc、2026-09-03)
+### 検証結果
 
-移行前は稼働中にRemote I/O errorが発生していた状態から、移行後は本物のバックアップ
-(269MB/16027ファイル)の展開・DBリストア・`wp plugin list`・`find`の3回連続実行、いずれも
-エラー0件で安定動作を確認した。
+- **abc(2026-09-03、パイロット)**: 移行前は稼働中にRemote I/O errorが発生していた状態から、
+  移行後は本物のバックアップ(269MB/16027ファイル)の展開・DBリストア・`wp plugin list`・
+  `find`の3回連続実行、いずれもエラー0件で安定動作を確認した。
+- **残り14サイト、dev全サイト完了(2026-09-04)**: cell/dna/epd/hdm/iddd/info/jcm/jmc/
+  kougaku/mcd/mus/pms/tet/webへ展開。このうちdna/hdm/info/mus/webは移行作業開始前から
+  Podが繰り返しCrashLoop/Not Ready(129〜200回再起動)だった状態で、移行後はいずれも
+  HTTP 200・`find`3回連続エラー0件まで復旧した。dev環境は全15サイトがnfs-externalへ
+  移行済み。次はstaging/productionへの展開判断。
