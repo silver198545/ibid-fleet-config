@@ -35,6 +35,12 @@ helm:
     wordpress:
       # 管理者パスワードはGitに含めず、事前に作成したSecretを参照する。
       existingSecret: wordpress-mus-credentials
+      # Longhorn RWX(share-manager/NFS-Ganesha)のRemote I/O error問題
+      # (dev1、docs/manual-storage-migration.md参照)への対策として、
+      # 外部NFS(csi-driver-nfs)へ切り替える。abcサイトでのパイロット
+      # 移行(PR#148)を踏まえた展開。
+      persistence:
+        storageClass: nfs-external
       mariadb:
         auth:
           existingSecret: wordpress-mus-mariadb-credentials
