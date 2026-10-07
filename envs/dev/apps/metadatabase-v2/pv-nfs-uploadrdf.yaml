@@ -1,0 +1,40 @@
+# 既存のアップロード先データ(/data/nfs/uploadrdf/tsukuba、本番相当の実データ)を
+# そのままマウントするための静的PV/PVC。nfs-external-apps(動的生成、新規空ディレクトリ)とは
+# 別に、既存パスを直接指定する。
+# reclaimPolicy: Retain必須(動的StorageClassのDeleteのままだとPVC削除時に実データごと
+# 消えてしまう。WordPressのkeepResourcesと同じ考え方)。
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: metadatabase-v2-uploadrdf-tsukuba
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  mountOptions:
+    - nfsvers=4.1
+  csi:
+    driver: nfs.csi.k8s.io
+    volumeHandle: metadatabase-v2-uploadrdf-tsukuba
+    volumeAttributes:
+      server: "192.168.1.1"
+      share: "/data/nfs"
+      subDir: "uploadrdf/tsukuba"
+      mountPermissions: "0777"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: metadatabase-v2-uploadrdf-tsukuba
+  namespace: metadatabase-v2
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""
+  volumeName: metadatabase-v2-uploadrdf-tsukuba
+  resources:
+    requests:
+      storage: 100Gi
