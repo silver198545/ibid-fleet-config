@@ -66,8 +66,10 @@ spec:
           volumeMounts:
             - name: admin-data
               mountPath: /app/data
-            - name: nfs-data
-              mountPath: /mnt
+            - name: nfs-uploadrdf-tsukuba
+              mountPath: /mnt/uploadrdf/tsukuba
+            - name: nfs-download-tsukuba
+              mountPath: /mnt/download/tsukuba
           resources:
             requests:
               cpu: 50m
@@ -89,6 +91,9 @@ spec:
         - name: admin-data
           persistentVolumeClaim:
             claimName: metadatabase-v2-admin-data
-        - name: nfs-data
+        - name: nfs-uploadrdf-tsukuba
           persistentVolumeClaim:
-            claimName: metadatabase-v2-nfs-data
+            claimName: metadatabase-v2-uploadrdf-tsukuba
+        - name: nfs-download-tsukuba
+          persistentVolumeClaim:
+            claimName: metadatabase-v2-download-tsukuba
