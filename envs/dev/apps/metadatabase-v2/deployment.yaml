@@ -15,30 +15,75 @@ spec:
     spec:
       imagePullSecrets:
         - name: ghcr-metadatabase-v2
+      # 管理用SQLite(/app/data、Longhorn RWO)をnonroot(UID 1000)から書き込めるようにする。
+      securityContext:
+        fsGroup: 1000
       containers:
         - name: metadatabase-v2
-          image: ghcr.io/silver198545/metadatabase-v2:0.4.0-r1
+          image: ghcr.io/silver198545/metadatabase-v2:0.4.0-r2
           ports:
             - name: http
               containerPort: 3000
           env:
-            # アプリ側.env.exampleのデフォルト値と同じ、理研BRCの公開SPARQLエンドポイント。
-            # 非機密情報。社内向けの別エンドポイントに切り替える場合はここを書き換える。
-            - name: SPARQL_ENDPOINT
-              value: "https://knowledge.brc.riken.jp/sparql"
-            - name: NEXT_PUBLIC_SPARQL_ENDPOINT
-              value: "https://knowledge.brc.riken.jp/sparql"
+            # SPARQL_ENDPOINT/NEXT_PUBLIC_SPARQL_ENDPOINTは未設定にし、SITE_ENVに応じた
+            # 既定値(開発: https://knowledge.brc.riken.jp/sparql2)を使う。
+            - name: SITE_ENV
+              value: "development"
+            - name: ADMIN_INITIAL_LOGIN_ID
+              value: "admin"
+            - name: ADMIN_UPLOAD_MAX_BYTES
+              value: "21474836480"
+            - name: VIRTUOSO_ISQL_HOST
+              value: "192.168.1.102:1111"
+            - name: VIRTUOSO_ISQL_USER
+              value: "dba"
+            - name: VIRTUOSO_LOADER_THREADS
+              value: "12"
+            - name: VIRTUOSO_LOAD_TIMEOUT_HOURS
+              value: "24"
+            - name: VIRTUOSO_QUERY_TIMEOUT_MINUTES
+              value: "60"
+            - name: ADMIN_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: metadatabase-v2-admin
+                  key: ADMIN_SECRET_KEY
+            - name: ADMIN_INITIAL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: metadatabase-v2-admin
+                  key: ADMIN_INITIAL_PASSWORD
+            - name: VIRTUOSO_ISQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: metadatabase-v2-admin
+                  key: VIRTUOSO_ISQL_PASSWORD
+          volumeMounts:
+            - name: admin-data
+              mountPath: /app/data
+            - name: nfs-data
+              mountPath: /mnt
           resources:
             requests:
               cpu: 50m
               memory: 128Mi
             limits:
-              memory: 512Mi
+              # 管理画面のアップロード機能(最大20GB)・isql経由のデータロードを見込んで
+              # 0.4.0-r0時点の512Miから引き上げ。
+              memory: 1Gi
           readinessProbe:
             httpGet:
-              path: /
+              # BASE_PATH=/tsukubaがビルド時に焼き込まれているため、ルート(/)は404になる。
+              path: /tsukuba
               port: 3000
           livenessProbe:
             httpGet:
-              path: /
+              path: /tsukuba
               port: 3000
+      volumes:
+        - name: admin-data
+          persistentVolumeClaim:
+            claimName: metadatabase-v2-admin-data
+        - name: nfs-data
+          persistentVolumeClaim:
+            claimName: metadatabase-v2-nfs-data

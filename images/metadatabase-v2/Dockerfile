@@ -31,7 +31,17 @@ COPY app/ .
 # コピーされてしまうため(サイズ増加、プライベートソースの全履歴がイメージレイヤーに
 # 残る)、依存インストール前に削除する。
 RUN rm -rf .git
+# better-sqlite3はネイティブモジュールのため、プリビルドバイナリがglibc/Node ABIと
+# 合わない場合に備えてソースからのビルドツールを入れておく(アプリ本家のDockerfileと同じ対応)。
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
 RUN npm install
+# アプリを置くパス。Next.jsのbasePathはビルド時に埋め込まれるため、ビルド引数で渡す
+# (docs/manual-apps.md「metadatabase-v2 固有のメモ」参照。dev/staging/productionとも
+# 同じ/tsukubaにする運用)。
+ARG BASE_PATH=/tsukuba
+ENV BASE_PATH=${BASE_PATH}
 RUN npm run build
 # 実行時に不要なdevDependencies(eslint/typescript等)を落とす。
 RUN npm prune --omit=dev
@@ -41,7 +51,33 @@ WORKDIR /app
 ENV NODE_ENV=production
 # next startが待ち受けるポート。Service/Deploymentからの到達性のため明示する。
 ENV PORT=3000
-COPY --from=build --chown=node:node /app ./
-USER node
+
+# 管理画面のVirtuoso isql機能(データのロード・グラフURIの変更)で使うisql-vtを入れる。
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends virtuoso-opensource-7-bin \
+  && rm -rf /var/lib/apt/lists/*
+ENV VIRTUOSO_ISQL_PATH=/usr/bin/isql-vt
+
+# アップロード先(NFS)に書き込むため、UID/GIDをNFS上の所有者に合わせられるようにする
+# (アプリ本家のDockerfileと同じ対応)。ベースイメージのnodeユーザー(UID/GID 1000)と
+# 既定値が重なるため、先に削除してから作り直す。
+ARG APP_UID=1000
+ARG APP_GID=1000
+RUN (userdel node 2>/dev/null || true) \
+  && (groupdel node 2>/dev/null || true) \
+  && groupadd --non-unique --gid ${APP_GID} nodejs \
+  && useradd --non-unique --uid ${APP_UID} --gid nodejs --no-create-home --shell /usr/sbin/nologin nextjs
+
+COPY --from=build --chown=nextjs:nodejs /app ./
+
+# 管理画面の設定・LDAP認証設定・ユーザー情報(SQLite)の保存先。PVCをここにマウントする。
+ENV ADMIN_DB_PATH=/app/data/metadb-admin.sqlite
+RUN mkdir -p /app/data && chown nextjs:nodejs /app/data
+
+# next startがnext.config.tsを読み直すため、実行時もビルド時と同じベースパスにする。
+ARG BASE_PATH=/tsukuba
+ENV BASE_PATH=${BASE_PATH}
+
+USER nextjs
 EXPOSE 3000
 CMD ["npm", "run", "start"]
