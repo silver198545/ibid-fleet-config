@@ -19,7 +19,11 @@
 #   3. PR→マージでイメージが公開されたら、envs/dev/apps/metadatabase-v2/deployment.yaml の
 #      image タグを切り替え、dev確認後にstaging/productionへ手動で反映する
 #      (docs/manual-apps.md参照)
-FROM node:20-bullseye AS build
+#
+# bullseye(glibc 2.31)からbookwormへ変更(0.4.0rで管理画面機能が入った際):
+# アプリがpackage.jsonでnode>=22を要求するようになり、better-sqlite3の
+# prebuildバイナリもglibc 2.33以上を要求するため、bullseyeではERR_DLOPEN_FAILEDになる。
+FROM node:22-bookworm AS build
 
 WORKDIR /app
 COPY app/ .
@@ -32,7 +36,7 @@ RUN npm run build
 # 実行時に不要なdevDependencies(eslint/typescript等)を落とす。
 RUN npm prune --omit=dev
 
-FROM node:20-bullseye-slim
+FROM node:22-bookworm-slim
 WORKDIR /app
 ENV NODE_ENV=production
 # next startが待ち受けるポート。Service/Deploymentからの到達性のため明示する。
