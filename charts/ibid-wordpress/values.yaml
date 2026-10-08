@@ -83,6 +83,22 @@ wordpress:
       database: bitnami_wordpress
       username: bn_wordpress
     primary:
+      # 初回初期化(mysql_install_db〜DB作成)は同期書き込みが多く、ストレージが遅い環境では
+      # 2分半を超える。既定のlivenessProbe(起動120秒後から判定・3回失敗で強制終了)だと
+      # 初期化途中で殺されてibdata1が壊れ、以後起動不能になる(2026-10-08、prod1の
+      # harvesterボリュームでfsync約260ms/回 → web/dnaの新規インストールで発生)。
+      # startupProbeで初期化を最大約10分待ち(成功するまでlivenessは動かない)、
+      # 各probeのタイムアウトも1秒→5秒に延ばしてI/O待ちでの誤判定を避ける。
+      startupProbe:
+        enabled: true
+        initialDelaySeconds: 30
+        periodSeconds: 15
+        timeoutSeconds: 5
+        failureThreshold: 40
+      livenessProbe:
+        timeoutSeconds: 5
+      readinessProbe:
+        timeoutSeconds: 5
       # RWOのみのため、Harvester CSI driverが提供する harvester StorageClass に
       # 直接乗せる。ゲストクラスタのLonghornを経由しないため二重増幅を避けられる
       # (Harvester側の3重化のみになる。docs/roadmap.md 項目3参照)。
