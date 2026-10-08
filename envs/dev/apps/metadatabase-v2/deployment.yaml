@@ -8,8 +8,11 @@ spec:
   # 管理用SQLite(admin-data)がLonghorn RWOのため、RollingUpdateだと新Podが別ノードに
   # 載った際にMulti-Attachで起動できず、旧Podも新PodのReady待ちで止まらずデッドロックする。
   # SQLiteへの二重書き込みも避けるため、旧Podを止めてから新Podを起動する。
+  # rollingUpdate: null は、RollingUpdate時代にクラスタ側で補完されたrollingUpdateが
+  # 3-way mergeで残り「Recreateでは指定不可」とapplyが拒否されるのを防ぐため明示的に削除する。
   strategy:
     type: Recreate
+    rollingUpdate: null
   selector:
     matchLabels:
       app: metadatabase-v2
