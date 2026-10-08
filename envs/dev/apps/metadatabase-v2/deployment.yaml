@@ -5,6 +5,11 @@ metadata:
   namespace: metadatabase-v2
 spec:
   replicas: 1
+  # 管理用SQLite(admin-data)がLonghorn RWOのため、RollingUpdateだと新Podが別ノードに
+  # 載った際にMulti-Attachで起動できず、旧Podも新PodのReady待ちで止まらずデッドロックする。
+  # SQLiteへの二重書き込みも避けるため、旧Podを止めてから新Podを起動する。
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: metadatabase-v2
@@ -16,8 +21,11 @@ spec:
       imagePullSecrets:
         - name: ghcr-metadatabase-v2
       # 管理用SQLite(/app/data、Longhorn RWO)をnonroot(UID 1000)から書き込めるようにする。
+      # NFSのPV(uploadrdf/download)を起動のたびに再帰chownすると時間がかかるため、
+      # ルートの所有者が既に一致していればスキップする。
       securityContext:
         fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: metadatabase-v2
           image: ghcr.io/silver198545/metadatabase-v2:0.6.1-r0
