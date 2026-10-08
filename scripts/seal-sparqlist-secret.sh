@@ -19,7 +19,7 @@
 #   scripts/seal-sparqlist-secret.sh <env>
 #   例: scripts/seal-sparqlist-secret.sh dev
 #   例(値を指定): ADMIN_PASSWORD='...' scripts/seal-sparqlist-secret.sh dev
-#   環境→kubectlコンテキストの対応は既定(dev1/staging1/prod1)。
+#   環境→kubectlコンテキストの対応は既定(dev1/prod1)。
 #   異なる場合は KUBE_CONTEXT=<コンテキスト名> で上書きする。
 set -euo pipefail
 
@@ -35,10 +35,9 @@ ENV_NAME="$1"
 
 case "$ENV_NAME" in
   dev) DEFAULT_CONTEXT="dev1" ;;
-  staging) DEFAULT_CONTEXT="staging1" ;;
   production) DEFAULT_CONTEXT="prod1" ;;
   *)
-    echo "エラー: envは dev / staging / production のいずれかを指定してください: $ENV_NAME" >&2
+    echo "エラー: envは dev / production のいずれかを指定してください: $ENV_NAME" >&2
     exit 1
     ;;
 esac

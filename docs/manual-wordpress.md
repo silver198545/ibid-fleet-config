@@ -3,7 +3,7 @@
 各クラスタには複数の独立したWordPressサイトを追加できます。サイトごとに独立した
 namespace・Helmリリース・Secretを持つため、他のサイトの稼働中データに影響を与えずに
 追加・削除できます。サイト名は3文字程度の短い英数字(例: `web`)を想定しています。
-以降、サイト名を`<site>`、環境名(dev / staging / production)を`<env>`と表記します。
+以降、サイト名を`<site>`、環境名(dev / production)を`<env>`と表記します。
 
 既存の(別環境の)WordPressサイトからのデータ移行(リストア)手順は
 [manual-wordpress-restore.md](manual-wordpress-restore.md)を参照してください。
@@ -84,7 +84,7 @@ runcmd:
 ```bash
 ./scripts/seal-site-secrets.sh <env> <site>
 # 例: ./scripts/seal-site-secrets.sh dev web
-# kubectlコンテキストは環境名から自動選択(dev1/staging1/prod1)。
+# kubectlコンテキストは環境名から自動選択(dev1/prod1)。
 # 異なる場合は KUBE_CONTEXT=<コンテキスト名> を前置して上書きできます。
 ```
 
@@ -118,7 +118,7 @@ Secretを作成します(手動でのSecret投入は不要)。
 (`wordpressTablePrefix` の上書き等)を `helm.values.wordpress` 配下に追記し、
 PRを作成してマージしてください。マージされると対象環境のFleetが自動適用します。
 
-サイトは原則devに追加し、staging / production へはActionsの `promote` ワークフロー
+サイトは原則devに追加し、production へはActionsの `promote` ワークフロー
 (手動起動)が生成する昇格PRで展開します([manual-multi-env.md](manual-multi-env.md)参照)。
 昇格先の環境でも手順1と同様に、その環境用のSealedSecretを生成・コミットしておく
 必要があります(封印は環境ごとの鍵のため、devのファイルは流用できません)。
@@ -172,7 +172,7 @@ Fleet側の適用状況はRancher UI(Continuous Delivery → Bundles)または
 ```
 
 - **プラグインの追加・バージョンアップ = PR** になり、promoteワークフローで
-  dev→staging→production へ昇格できます(動作チェックを経て本番へ、が実現できます)。
+  dev→production へ昇格できます(動作チェックを経て本番へ、が実現できます)。
 - **一覧から消しても自動削除はされません**(稼働中サイトの自動削除は危険なため)。
   削除する場合は手動で: `wp plugin deactivate <name> && wp plugin delete <name>`
   (実行方法はJobのログ、または `kubectl exec` でWordPress Podから)。

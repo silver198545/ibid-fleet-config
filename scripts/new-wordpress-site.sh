@@ -8,7 +8,7 @@
 #   2. 生成されたfleet.yamlを必要に応じて編集(テーブル接頭辞の上書き等)
 #   3. PRを作成してマージ → 対象環境のFleetが自動適用
 #
-# サイトは原則devに追加し、staging/productionへは昇格PR
+# サイトは原則devに追加し、productionへは昇格PR
 # (.github/workflows/promote.yaml)で展開する。
 #
 # 使い方:
@@ -34,9 +34,9 @@ ENV_NAME="$1"
 SITE="$2"
 
 case "$ENV_NAME" in
-  dev|staging|production) ;;
+  dev|production) ;;
   *)
-    echo "エラー: envは dev / staging / production のいずれかを指定してください: $ENV_NAME" >&2
+    echo "エラー: envは dev / production のいずれかを指定してください: $ENV_NAME" >&2
     exit 1
     ;;
 esac

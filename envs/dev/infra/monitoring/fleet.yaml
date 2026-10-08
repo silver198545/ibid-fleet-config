@@ -148,7 +148,7 @@ helm:
     prometheus:
       prometheusSpec:
         # Slack通知やGrafanaで環境を識別するためのラベル。
-        # 環境ごとに dev / staging / production に変える(env間差分)。
+        # 環境ごとに dev / production に変える(env間差分)。
         externalLabels:
           cluster: dev
         retention: 10d

@@ -10,7 +10,7 @@ keepResources: true
 helm:
   # 旧GitRepo(base-infra)時代のHelmリリースをそのまま引き継ぐための名前。
   # これが無いとFleetが別名の新リリースを作ろうとして既存リソースと衝突する。
-  # (staging/productionは新規クラスタのため素直な名前 longhorn を使っている)
+  # (productionは新規クラスタのため素直な名前 longhorn を使っている)
   releaseName: base-infra-longhorn
   chart: longhorn
   repo: https://charts.rancher.io

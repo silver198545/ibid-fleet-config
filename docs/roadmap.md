@@ -6,13 +6,46 @@
 
 ## 到達点(完了済みの基盤)
 
-- 3クラスタ(dev1 / staging1 / prod1)+ 単一mainブランチ・環境別ディレクトリのGitOps
+- 2クラスタ(dev1 / prod1)+ 単一mainブランチ・環境別ディレクトリのGitOps
+  (当初の3クラスタ構成からstaging1を2026-10-08に廃止。下記「環境構成の見直し」)
+- 環境非依存のサイト・アプリバンドル(昇格=丸ごとコピー。環境差分はクラスタラベルで選択)
 - PR承認ゲート付きの昇格フロー(promoteワークフロー、本番はCODEOWNERS必須)
 - 全サイト共通のラッパーチャート(GHCR公開、digest固定イメージ)
 - プラグインのGit宣言同期(fleet.yamlの `plugins:` → wp-cli Job)
 - Longhorn定期バックアップ(NFS、環境別、本番14世代)
-- Sealed SecretsによるサイトSecretのGit管理化(封印鍵は3環境ともオフラインバックアップ済み)
+- Sealed SecretsによるサイトSecretのGit管理化(封印鍵は全環境ともオフラインバックアップ済み)
 - **DR実証済み**: クラスタ全損→完全復元([manual-multi-env.md](manual-multi-env.md) 8.参照)
+
+## 環境構成の見直し: staging廃止と2環境化 【済(Git側: 2026-10-08)】
+
+- **背景**: Harvester物理ホスト4台はメモリが逼迫しており(CPUには余裕がある)、
+  staging1クラスタを維持するリソースが無い。staging1は2026-10-08時点で既にRancherから
+  削除されており、`ibid-staging` GitRepoは対象0台のまま残っていた。運用実態としても、
+  アプリは「stagingへ昇格→本番反映→stagingから削除」を毎回繰り返しており、
+  stagingは常設環境ではなく一時的な通過点になっていた。
+- **決定事項**:
+  1. **dev / production の2環境**にする。stagingはGit・スクリプト・文書から完全に削除する
+     (過去の作業記録としての言及は残す)
+  2. stagingが担っていた「本番相当データでのDBマイグレーション確認」は、**dev1上の
+     一時的なリハーサルサイト `<site>-rh`** で代替する(本番バックアップをリストア→
+     昇格予定の変更を適用→確認→削除)。手順は
+     [operations-flow.md](operations-flow.md)「本番データリハーサル」
+  3. 昇格PRで環境固有の差分(ingressホスト名、production冗長化設定)が消える問題を
+     同時に解消する。サイト・アプリのバンドルを全環境で同一内容にし、環境差分は
+     Fleetの`targetCustomizations`(サイト: `helm.values`、アプリ: `yaml.overlays`)と
+     valuesテンプレート(`${ .ClusterLabels.env }`)でクラスタラベルから選ぶ。
+     昇格は丸ごとコピーで完結する
+- **トレードオフ**: dev1は本番と構成が完全には一致しない(infraのリリース名`base-infra-*`、
+  wp-contentの`nfs-external`等)ため、infra更新(Longhorn・監視・cert-manager)の先行検証は
+  stagingほど本番に近くない。infra更新時はproduction反映前のバックアップと、
+  反映直後の監視をより丁寧に行う。
+- **実施内容**: 環境非依存バンドル化(全17サイト・3アプリ。Fleet CLI v0.15.1で
+  変更前後のレンダリング結果が一致することを確認)、promoteワークフローのdev→production化
+  (`site=all`は本番に既にあるサイトのみ更新。rsyncのquick checkが同サイズの変更を
+  取りこぼす潜在バグも`--checksum`で修正)、`update-app-image.sh`/Rundeckジョブのstaging工程削除、
+  `scripts/rehearsal-site.sh`追加、文書整理。
+- **残作業(Git管理外)**: [manual-multi-env.md](manual-multi-env.md) 9.のチェックリスト
+  (GitRepo `ibid-staging`削除、IPPool pool2解放、DNS・NFS・鍵バックアップ・Rundeckジョブの片付け)。
 
 ---
 
@@ -233,8 +266,8 @@
 - **恒久対応(未着手)**: ゲストクラスタにデプロイされているharvester-csi-driver/
   harvester-cloud-providerのバージョンと、Harvester管理クラスタ本体のAPIバージョンとの
   互換性を調査し、スキューを解消する(アップグレードまたはダウングレード)。
-  `docs/operations-flow.md`の「stagingサイトの削除手順」を運用する上で、
-  この詰まりに毎回都度対応が必要な点に注意。
+  `docs/operations-flow.md`の「本番データリハーサル」でリハーサルサイトを削除するたびに、
+  この詰まりに都度対応が必要な点に注意(2026-10-08以前はstagingサイトの削除で発生していた)。
 
 ## 🟡 優先度・低: 小さいが効く宿題
 
@@ -266,16 +299,21 @@
   staging/productionへ展開)。
 - **一括バージョンアップ用ツール**: サイトが増えると全fleet.yamlのチャートversionや
   プラグイン版数の一括更新が手作業になる。数十サイト到達前に簡単なスクリプト化を検討。
-- **テスト痕跡の掃除**: dev1の `pre-fleet-adoption-*` スナップショット2件、
-  stagingの `pre-dr-drill-*` バックアップ4件(日次バックアップの安定稼働確認後に削除可)。
+- **テスト痕跡の掃除**: dev1の `pre-fleet-adoption-*` スナップショット2件
+  (日次バックアップの安定稼働確認後に削除可)。stagingの `pre-dr-drill-*` バックアップ4件は
+  staging廃止に伴いNFSのstagingディレクトリごと削除する
+  ([manual-multi-env.md](manual-multi-env.md) 9.)。
 
 ## 将来検討(急がない)
 
 - **クラスタ定義のGitOps化**(Rancher provisioning-v2)— 誤マージの影響半径が
-  大きいため3クラスタ規模では見送り中。
+  大きいため2クラスタ規模では見送り中。
 - **DB層の冗長化**(mariadb-galera等)— 現在は単体MariaDB。可用性要件が上がったら。
-- **昇格の自動化深化**(dev→stagingのPR自動生成、Kargo再評価)— 昇格頻度が
+- **昇格の自動化深化**(dev→productionのPR自動生成、Kargo再評価)— 昇格頻度が
   上がって手動dispatchが煩雑になったら。
+- **本番データリハーサルのスクリプト化** — 現状は
+  [operations-flow.md](operations-flow.md)の手順書+`scripts/rehearsal-site.sh`(名前置換のみ)。
+  実運用で数回回して手順が固まったら、本番バックアップ取得〜リストアまでの自動化を検討。
 - **Bitnamiチャート依存からの脱却** — イメージは自前化済みだが、チャートは
   bitnami/wordpress依存が残る。提供形態が再度変わった場合は公式イメージ+
   汎用チャートへの移行を検討。

@@ -250,7 +250,7 @@ Modified判定をキャッシュしたまま)。GitRepoの`forceSyncGeneration`�
 強制再同期させると即座に反映される。
 
 ```bash
-CUR=$(kubectl --context rancher get gitrepo <ibid-dev|ibid-staging|ibid-production> -n fleet-default -o jsonpath='{.spec.forceSyncGeneration}')
+CUR=$(kubectl --context rancher get gitrepo <ibid-dev|ibid-production> -n fleet-default -o jsonpath='{.spec.forceSyncGeneration}')
 kubectl --context rancher patch gitrepo <同上> -n fleet-default --type=merge \
   -p "{\"spec\":{\"forceSyncGeneration\":$((CUR+1))}}"
 ```

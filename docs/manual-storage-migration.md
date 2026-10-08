@@ -333,4 +333,5 @@ dev1で長期間未解決だった、大量ファイル操作時にwp-contentが
   kougaku/mcd/mus/pms/tet/webへ展開。このうちdna/hdm/info/mus/webは移行作業開始前から
   Podが繰り返しCrashLoop/Not Ready(129〜200回再起動)だった状態で、移行後はいずれも
   HTTP 200・`find`3回連続エラー0件まで復旧した。dev環境は全15サイトがnfs-externalへ
-  移行済み。次はstaging/productionへの展開判断。
+  移行済み。次はproductionへの展開判断(サイトのfleet.yamlではdev用の`targetCustomizations`に入っている。
+  productionへ広げる際は既存PVCの移行手順が必要)。
