@@ -434,7 +434,7 @@ Git側(`envs/staging/`、`fleet-bootstrap/gitrepo-staging.yaml`、promoteワー�
 スクリプトのstaging対応)は削除済み。staging1クラスタ自体は廃止時点で既にRancherから
 削除されていた。Git管理外の後片付けは以下(実施したら[x]にする):
 
-- [ ] Rancher localのGitRepo `ibid-staging` を削除する(対象クラスタ0台で何も適用していない):
+- [x] Rancher localのGitRepo `ibid-staging` を削除する(対象クラスタ0台で何も適用していない。2026-10-08実施):
   ```bash
   kubectl --context rancher -n fleet-default delete gitrepo ibid-staging
   ```
@@ -445,9 +445,14 @@ Git側(`envs/staging/`、`fleet-bootstrap/gitrepo-staging.yaml`、promoteワー�
   (DRで戻す予定が無いことを確認してから)
 - [ ] オフライン保管しているstagingのSealed Secrets鍵バックアップを破棄する
 - [ ] Rundeckに取り込み済みの `app-image-update/staging` グループのジョブを削除し、
-  `rundeck/jobs/update-app-image.yaml` を再取り込みする(`rd jobs load`は既存ジョブを消さない)
-- [ ] 作業端末の `~/.kube/config` から `staging1` コンテキストを削除する
+  `rundeck/jobs/update-app-image.yaml` を再取り込みする(`rd jobs load`は既存ジョブを消さない。
+  rancherホストには`rd` CLIが無いため、Rundeck UIまたは`rd`のある端末で行う)
+- [x] 作業端末の `~/.kube/config` から `staging1` コンテキストを削除する(2026-10-08実施。
+  `kubectl config delete-context staging1` / `delete-cluster staging1`。ユーザー`rancher`は他と共用のため残す)
 - [ ] Slackアラート等で `cluster=staging` を前提にした設定が残っていないか確認する
+
+なお、Rancher localの `fleet-default` に残る `fleet-agent-staging1` バンドルはRancherが
+クラスタごとに自動生成するエージェント用のもので、本リポジトリのGitRepoとは無関係。
 
 ## 補足: 将来の拡張
 
