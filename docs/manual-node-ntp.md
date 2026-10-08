@@ -80,8 +80,38 @@ sudo chronyc reload sources
 ## 注意: VMを作り直すと元に戻る
 
 この設定はVMのディスク上にだけ入る。ノードの入れ替え、Machineの削除・再作成、
-クラスタの再作成で新しく作られたVMは、既定のNTSの設定に戻る。作り直した後は、
-このページの手順をやり直す。
+クラスタの再作成で新しく作られたVMは、既定のNTSの設定に戻る。恒久対策を入れるまでは、
+作り直した後にこのページの手順をやり直す。
+
+## 恒久対策: cloud-init(User Data)に入れる(2026-10-08時点で未実施)
+
+Rancherのプール設定(HarvesterConfig)のUser Dataに、次の`write_files`と`runcmd`の3行を足す。
+これで、新しく作られるVMは最初から`ntp.nict.jp`で同期する。現在のUser Dataは
+`qemu-guest-agent`と`nfs-common`を入れるだけなので、全体は次のようになる:
+
+```yaml
+#cloud-config
+package_update: true
+packages:
+  - qemu-guest-agent
+  - nfs-common
+write_files:
+  - path: /etc/chrony/sources.d/ntp-nict.sources
+    content: |
+      server ntp.nict.jp iburst
+runcmd:
+  - [systemctl, enable, --now, qemu-guest-agent.service]
+  - [mv, /etc/chrony/sources.d/ubuntu-ntp-pools.sources, /etc/chrony/sources.d/ubuntu-ntp-pools.sources.disabled]
+  - [systemctl, restart, chrony]
+  - [chronyc, makestep]
+```
+
+- cloud-initの`ntp:`モジュールは使わない。このモジュールは`chrony.conf`を書き換えるが、NTSのpoolは
+  `sources.d/`の別ファイルにあるので、それを無効にできるかどうかがはっきりしないため。
+- 全プール(control-plane、worker)に入れる。
+- User Dataを書き換えるとプールのVMが全て作り直される。SSD用のイメージ・anti-affinityの変更と
+  1回にまとめる([manual-harvester-etcd-ssd.md](manual-harvester-etcd-ssd.md)の「恒久対策」と
+  「既存クラスタに入れる場合の注意」)。
 
 ## 実施記録
 

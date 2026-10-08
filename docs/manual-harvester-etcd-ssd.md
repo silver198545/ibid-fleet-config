@@ -141,12 +141,81 @@ $H -n longhorn-system patch volumes.longhorn.io <pvc-...> --type json \
 
 ここで設定したのは**既存のボリュームだけ**。Rancherがcontrol-plane VMを作り直すと(ノード入れ替え、
 ディスク拡張、Machineの削除→再作成など)、新しいVMのディスクは元のStorageClassで作られる。
-diskSelectorが無いので、またHDD上にもレプリカが置かれる。
+diskSelectorが無いので、またHDD上にもレプリカが置かれる。2026-10-08にdev1でv22vwを作り直したときは、
+新しいディスクのレプリカが3つともHDD上に作られた。
 
-作り直した後は、このページの手順1〜4を対象ボリュームについてやり直す。恒久対策
-(`ssd`のdiskSelectorを持つVMイメージ/StorageClassをHarvesterConfigで指定する)には、
-HarvesterConfigの書き換えが必要になる。HarvesterConfigを書き換えるとノードプール全体の入れ替えが起きるので、
-別途計画して行う([manual-dr-troubleshooting.md](manual-dr-troubleshooting.md)も参照)。
+恒久対策を入れるまでは、作り直した後にこのページの手順2〜4を対象ボリュームについてやり直す。
+
+## 恒久対策: クラスタ・ノードプール作成時の設定(2026-10-08時点で未実施)
+
+VMのルートディスクは、HarvesterConfigの`diskInfo`で指定したVMイメージ(現在は`harvester-public/image-dkwx4`)
+から作られる。そのStorageClassの設定は、イメージの`spec.storageClassParameters`で決まる。
+現在のイメージにはdiskSelectorが無いので、`ssd`を指定したイメージを別に用意し、control-planeプールで使う。
+
+### 1. diskSelector付きのStorageClassを作る(Harvester側で1回だけ)
+
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: harvester-longhorn-ssd
+provisioner: driver.longhorn.io
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+parameters:
+  numberOfReplicas: "3"
+  staleReplicaTimeout: "30"
+  migratable: "true"
+  diskSelector: "ssd"
+```
+
+前提として、各ホストの`defaultdisk`に`ssd`タグが付いていること(このページの手順1)。
+
+### 2. そのStorageClassを使うVMイメージを作る(Harvester側で1回だけ)
+
+Harvester UIで「Images → Create」を選び、現在のイメージと同じURL
+(`https://cloud-images.ubuntu.com/resolute/current/resolute-server-cloudimg-amd64.img`)を指定する。
+Storageの欄で`harvester-longhorn-ssd`を選ぶ。名前は例えば`ubuntu-cloudimg-26.04-lts-ssd`にする。
+作成後、`storageClassParameters`に`diskSelector`が入っていることを確認する:
+
+```bash
+$H -n harvester-public get virtualmachineimages -o json | python3 -c '
+import json,sys
+for i in json.load(sys.stdin)["items"]:print(i["metadata"]["name"],i["spec"].get("displayName"),i["spec"].get("storageClassParameters"))'
+```
+
+### 3. Rancherのプール設定
+
+| プール | イメージ | User Data | その他 |
+|---|---|---|---|
+| pool1(control-plane/etcd) | `ubuntu-cloudimg-26.04-lts-ssd` | NTPの設定入り([manual-node-ntp.md](manual-node-ntp.md)) | VMのanti-affinity(3台を別々のホストに置く) |
+| pool2(worker) | 現在のまま(SSDの容量と相談) | NTPの設定入り | — |
+
+- 必ずSSDにするのはpool1だけで足りる。workerのルートディスクは主にコンテナイメージ用で、
+  etcdほど書き込みの遅さに敏感ではない。SSD(`defaultdisk`)は各ホスト526GBしかないので、
+  workerも載せる場合は容量を計算してから決める。
+- anti-affinityは、Rancherのプール設定の「VM Scheduling」で設定する。prod1では2026-10-08時点で、
+  control-plane 3台のうち2台(s9rdr、2jbgr)が同じホスト(hrvest4)に載っていた。
+  この状態でホストが落ちるとetcdがquorumを失う。
+
+### 4. 作成後のチェック
+
+1. control-planeのディスクのレプリカが全て`defaultdisk`上にある(「症状と確認方法」のコマンド)
+2. 全ノードで`chronyc -n sources`に`^*`が出ている
+3. etcdのログに`slow fdatasync`も`clock drift`も出ていない
+4. SealedSecretが全件`SYNCED=True`になっている。またはsealed-secretsの鍵を復元済みである
+
+### 既存クラスタ(dev1/prod1)に入れる場合の注意
+
+HarvesterConfig(イメージ、User Data、anti-affinity)を書き換えると、**そのプールのVMが全て順番に作り直される**。
+
+- 作業前に、ゲストクラスタ側のLonghornボリュームが全てattachedであることを確認する
+  (2026-07-27/28に、ノードプールの入れ替えでdetachedなボリュームが失われた)。
+- HarvesterConfigの`networkData`(FreeIPA用の2枚目のNIC)の指定を消さない。編集の前後で、
+  harvester-cloud-providerのclusterNameのchartValuesを確認する。
+- 3つの変更は1回の編集にまとめて、作り直しを1回で済ませる。
+- プールの入れ替えではetcdがそのまま残るので、sealed-secretsの鍵は変わらない(クラスタの再作成とは違う)。
 
 ## 実施記録
 
