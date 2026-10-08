@@ -35,12 +35,6 @@ helm:
     wordpress:
       # 管理者パスワードはGitに含めず、事前に作成したSecretを参照する。
       existingSecret: wordpress-info-credentials
-      # Longhorn RWX(share-manager/NFS-Ganesha)のRemote I/O error問題
-      # (dev1、docs/manual-storage-migration.md参照)への対策として、
-      # 外部NFS(csi-driver-nfs)へ切り替える。abcサイトでのパイロット
-      # 移行(PR#148)を踏まえた展開。
-      persistence:
-        storageClass: nfs-external
       mariadb:
         auth:
           existingSecret: wordpress-info-mariadb-credentials
@@ -52,10 +46,43 @@ helm:
       ingress:
         enabled: true
         ingressClassName: traefik
-        hostname: info.dev.ibid.lan
+        # 環境名はクラスタの env ラベルからFleetが展開する(<site>.<env>.ibid.lan)。
+        hostname: info.${ .ClusterLabels.env }.ibid.lan
         tls: true
         annotations:
           cert-manager.io/cluster-issuer: freeipa-acme
+
+# 環境ごとの差分(docs/operations-flow.md「環境差分の書き方」参照)。
+# このファイルはdev/productionで同一内容に保ち、昇格はファイルの丸ごとコピーで行う
+# (環境間で異なってよいのは昇格待ちの helm.version・plugins 等だけ)。
+# 適用先クラスタの env ラベルに一致するエントリが1つ選ばれ、helm.values へ深くマージされる。
+# ingressのホスト名は上の values 内でクラスタラベルから展開している(${ .ClusterLabels.env })。
+targetCustomizations:
+  - name: dev
+    clusterSelector:
+      matchLabels:
+        env: dev
+    helm:
+      values:
+        wordpress:
+          # Longhorn RWX(share-manager/NFS-Ganesha)のRemote I/O error問題
+          # (dev1、docs/manual-storage-migration.md参照)への対策として、
+          # wp-contentを外部NFS(csi-driver-nfs)に置く。productionへの適用は未決
+          # (既存PVCのstorageClassは変更できないため、適用時は移行手順が別途必要)。
+          persistence:
+            storageClass: nfs-external
+  - name: production
+    clusterSelector:
+      matchLabels:
+        env: production
+    helm:
+      values:
+        wordpress:
+          # 冗長化: 2レプリカをrequiredなPod Anti-Affinityで別ノードへ強制分散し、
+          # 単一Pod障害・ノード障害時も他方が応答を継続できるようにする。
+          # wp-contentはRWXのためレプリカ間で共有できる。
+          replicaCount: 2
+          podAntiAffinityPreset: hard
 
 # Kubernetes APIはNetworkPolicyのportsにprotocol: TCPを自動補完するが、
 # Bitnamiチャートのマニフェストには無いため、Fleetが常時「Modified」と

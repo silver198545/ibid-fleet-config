@@ -26,8 +26,9 @@ helm:
   # 差分のみを書く。Bitnamiサブチャートへ渡す値は wordpress: 配下に、ラッパー
   # チャート自身の設定(plugins等)は values 直下に置く。
   values:
-    # このサイトが使うプラグイン(宣言的)。dev/stagingで検証済みの一覧を反映
-    # (2026-07-21、staging結合テスト合格時点のもの)。
+    # このサイトが使うプラグイン(宣言的)。適用のたびにwp-cliのJobが
+    # インストール(バージョン固定)・有効化する。docs/manual-wordpress.md参照。
+    # 初期一覧は2026-07-04時点でdevに導入済みのものをコード化した。
     plugins:
       - name: add-to-any
         version: "1.8.18"
@@ -62,32 +63,55 @@ helm:
       - name: wp-revisions-control
         version: "1.4.4"
     wordpress:
-      # production固有の冗長化設定(dev/stagingはreplicaCount: 1のまま)。
-      # 2レプリカをrequiredなPod Anti-Affinityで別ノードへ強制分散し、単一Pod障害・
-      # ノード障害時も他方が応答を継続できるようにする。wp-contentはLonghorn RWXで
-      # レプリカ間共有のため複数ノードでも問題なくマウントできる。
-      # 注意: promoteワークフローはenvs/staging/sites/をそのまま envs/production/sites/へ
-      # 上書きコピーするため、staging→production昇格PRをマージする際はこの2項目
-      # (と既存のingress.hostname)が消えていないか必ず確認し、消えていれば復元すること。
-      replicaCount: 2
-      podAntiAffinityPreset: hard
       # 管理者パスワードはGitに含めず、事前に作成したSecretを参照する。
       existingSecret: wordpress-dna-credentials
       mariadb:
         auth:
           existingSecret: wordpress-dna-mariadb-credentials
-      # Traefik Ingress経由で公開する(docs/manual-harvester-loadbalancer.md参照)。
-      # チャートデフォルトの個別LoadBalancerではなく、共有Traefik LBの
-      # ホスト名ルーティングを使う。
+      # Traefik Ingress化(docs/manual-harvester-loadbalancer.md参照)。
+      # 個別LoadBalancer IPをやめ、共有Traefik LB経由のホスト名ルーティングに切り替える。
       service:
         type: ClusterIP
       ingress:
         enabled: true
         ingressClassName: traefik
-        hostname: dna.production.ibid.lan
+        # 環境名はクラスタの env ラベルからFleetが展開する(<site>.<env>.ibid.lan)。
+        hostname: dna.${ .ClusterLabels.env }.ibid.lan
         tls: true
         annotations:
           cert-manager.io/cluster-issuer: freeipa-acme
+
+# 環境ごとの差分(docs/operations-flow.md「環境差分の書き方」参照)。
+# このファイルはdev/productionで同一内容に保ち、昇格はファイルの丸ごとコピーで行う
+# (環境間で異なってよいのは昇格待ちの helm.version・plugins 等だけ)。
+# 適用先クラスタの env ラベルに一致するエントリが1つ選ばれ、helm.values へ深くマージされる。
+# ingressのホスト名は上の values 内でクラスタラベルから展開している(${ .ClusterLabels.env })。
+targetCustomizations:
+  - name: dev
+    clusterSelector:
+      matchLabels:
+        env: dev
+    helm:
+      values:
+        wordpress:
+          # Longhorn RWX(share-manager/NFS-Ganesha)のRemote I/O error問題
+          # (dev1、docs/manual-storage-migration.md参照)への対策として、
+          # wp-contentを外部NFS(csi-driver-nfs)に置く。productionへの適用は未決
+          # (既存PVCのstorageClassは変更できないため、適用時は移行手順が別途必要)。
+          persistence:
+            storageClass: nfs-external
+  - name: production
+    clusterSelector:
+      matchLabels:
+        env: production
+    helm:
+      values:
+        wordpress:
+          # 冗長化: 2レプリカをrequiredなPod Anti-Affinityで別ノードへ強制分散し、
+          # 単一Pod障害・ノード障害時も他方が応答を継続できるようにする。
+          # wp-contentはRWXのためレプリカ間で共有できる。
+          replicaCount: 2
+          podAntiAffinityPreset: hard
 
 # Kubernetes APIはNetworkPolicyのportsにprotocol: TCPを自動補完するが、
 # Bitnamiチャートのマニフェストには無いため、Fleetが常時「Modified」と

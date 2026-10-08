@@ -58,6 +58,12 @@ jobs:
               for ng in ("rootPassword", "wordpressPassword", "password:"):
                   if any(ng in l for l in lines):
                       problems.append(f"パスワードらしき記述 '{ng}' がある(Secret経由で注入すること)")
+              # 昇格=丸ごとコピーを成立させるため、環境名は直書きせずクラスタラベルから展開する
+              # (docs/operations-flow.md「環境差分の書き方」)
+              hostname = (((helm.get("values") or {}).get("wordpress") or {}).get("ingress") or {}).get("hostname", "")
+              if hostname and "${ .ClusterLabels.env }" not in hostname:
+                  problems.append("ingress.hostname に環境名が直書きされている: " + hostname
+                                  + "(<site>.${ .ClusterLabels.env }.ibid.lan とすること)")
               for p in problems:
                   print(f"NG {path}: {p}")
                   failed = True
