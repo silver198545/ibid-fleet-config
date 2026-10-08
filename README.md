@@ -68,6 +68,10 @@ dev → production の2つのRKE2クラスタ(Harvester上、Rancher管理)で
   fromBackup復元など)
 - `docs/manual-harvester-loadbalancer.md`: Harvester Cloud Provider の IPPool 作成手順
   (MetalLB は廃止し、Harvester Cloud Provider に一本化。クラスタごとに作成)
+- `docs/manual-harvester-etcd-ssd.md`: control-plane(etcd)VMディスクのLonghornレプリカを
+  HDDからSSD(`defaultdisk`)へ移す手順(etcd遅延によるapiserver再起動・ノードフラップ対策)
+- `docs/manual-node-ntp.md`: ゲストクラスタノードのchrony設定手順(Ubuntu 26.04の既定である
+  NTSのpoolが社内から届かず、時刻同期できていない問題への対処)
 - `docs/manual-wordpress.md`: WordPressサイトを追加する手順
 - `docs/manual-apps.md`: WordPress以外の自作アプリ(`envs/<env>/apps/`)を追加する手順・
   昇格時の注意点

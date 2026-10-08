@@ -300,3 +300,51 @@ Longhorn UIで一時的にレプリカ数を2以上に増やして他ノード�
 最新バックアップが存在することを確認**しておく。今回は幸い直前日のバックアップが
 あったため、6.以降と同じ手順(PVC/PV削除→Volume削除・バックアップから
 再作成→PV/PVC再作成)で無停止に近い形で復旧できた。
+
+## 8. Machineの削除が`Deleting`のまま進まない: 古いHarvesterクラウド認証情報(2026-10-08)
+
+Rancher UIでノード(Machine)を削除したのに、Machineがいつまでも`Deleting`
+(`WaitingForInfrastructureDeletion`)のままで、Harvester上のVMも消えないことがある。
+etcdメンバーからの除外とcordonだけ先に済んでいるので、control-planeノードの場合は
+**etcdが2台構成のまま止まる**。この状態で残りのどちらかが落ちるとquorumを失う。
+
+**原因**: HarvesterをRancherに再インポートすると、HarvesterのクラスタIDが変わる
+(例: `c-6dj84`→`c-rqrxh`)。それに合わせてHarvesterのクラウド認証情報
+(`cattle-global-data/cc-*`)も作り直される。provisioning cluster(`dev1`/`prod1`)の
+`spec.cloudCredentialSecretName`は新しい認証情報に変わる。ところが、**既存の
+HarvesterMachineの`spec.common.cloudCredentialSecretName`は古いままになる**。
+そのため削除ジョブが作られないか、作られても403(`system:unauthenticated`)で失敗する。
+
+確認方法:
+
+```bash
+L="kubectl --context local -n fleet-default"
+# 各HarvesterMachineが参照している認証情報と、削除中かどうか
+$L get harvestermachines.rke-machine.cattle.io \
+  -o custom-columns=NAME:.metadata.name,DELETING:.metadata.deletionTimestamp,CRED:.spec.common.cloudCredentialSecretName
+# 現在存在する認証情報と、クラスタが参照しているもの
+kubectl --context local -n cattle-global-data get secrets | grep cc-
+$L get clusters.provisioning.cattle.io -o custom-columns=NAME:.metadata.name,CRED:.spec.cloudCredentialSecretName
+# Rancher(Docker単体インストール)のログ
+sudo docker logs --since 30m rancher 2>&1 | grep -E 'machine-provision|cc-'
+```
+
+ログに`handler machine-provision-remove: secrets "cc-xxxxx" not found`が出ていれば、これが原因。
+
+**対処**: `spec`側を新しい認証情報に書き換える。`status.cloudCredentialSecretName`にも
+同じ値があるが、**statusだけを書き換えても効かない**。
+
+```bash
+$L patch harvestermachines.rke-machine.cattle.io <machine> --type merge \
+  -p '{"spec":{"common":{"cloudCredentialSecretName":"cattle-global-data:<新しいcc-xxxxx>"}}}'
+$L get jobs,pods | grep <machine>   # 約2分以内に削除ジョブが走る
+```
+
+削除が完了すると、MachineSetが代わりのMachineを作る。新しいMachineは新しい認証情報で作られる。
+作り直されたcontrol-plane VMのディスクは、また元のStorageClassで作られる
+([manual-harvester-etcd-ssd.md](manual-harvester-etcd-ssd.md)の手順をやり直す)。
+時刻同期の設定も既定に戻る([manual-node-ntp.md](manual-node-ntp.md))。
+
+> 削除中でないHarvesterMachineも古い認証情報を参照したままになっている。将来削除するときに
+> 同じ問題で止まるので、再インポートの後は全件のspecを書き換えておくとよい。
+> 2026-10-08時点では、dev1の残り7台がまだ書き換えていない。
