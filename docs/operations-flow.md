@@ -40,12 +40,40 @@ stagingが結合テスト中にdev→stagingの昇格を重ねるとテストの
 4. **staging → production 昇格**: promoteワークフローでPRを生成。
    マージの**直前に必ず本番のバックアップを取得**(下記「本番反映前のバックアップ」)。
    CODEOWNERS承認のうえマージし、反映後に監視(HTTP probe)とサイト表示を確認する
-   - **注意**: promoteワークフローは`envs/staging/sites/<site>/`を丸ごと
-     `envs/production/sites/<site>/`へ上書きコピーする。production側だけに
-     恒久的に持たせている差分(`ingress.hostname`のホスト名、
-     `wordpress.replicaCount: 2`/`podAntiAffinityPreset: hard`によるproduction冗長化設定)
-     は生成されたPRの差分でいったん消えてしまうため、**マージ前に必ずPRのdiffを見て
-     これらが元に戻っていないか確認し、消えていれば手動で復元してからマージすること**
+   - 昇格先固有の設定(ホスト名、production冗長化設定)は各fleet.yamlの中で
+     環境ごとに書き分けてあるため、promoteワークフローの丸ごとコピーで消えることはない
+     (下記「環境差分の書き方」)。PRのdiffは昇格させる変更そのもの(`helm.version`、
+     `plugins`等)だけになるはずで、それ以外の差分が出たら昇格元・先のどちらかで
+     環境固有の値が直書きされていないか確認する
+
+## 環境差分の書き方
+
+promoteワークフローは環境ディレクトリを丸ごとコピーする。昇格PRのdiffを「昇格させる変更」だけに
+保つため、**サイト・アプリのバンドルは全環境で同一内容のファイルにし、環境ごとに変わる値は
+ファイルの中で書き分ける**(2026-10-08導入)。`diff -r envs/dev/sites envs/production/sites`で
+出るのは、昇格待ちの変更(`helm.version`、`plugins`等)だけになる。
+
+- **サイト(`sites/`、Helm)**:
+  - 環境名を含む値(ingressのホスト名)は、Fleetのvaluesテンプレートでクラスタの`env`ラベルから
+    展開する: `hostname: <site>.${ .ClusterLabels.env }.ibid.lan`。
+    validateワークフローが直書きを検出して落とす
+  - 環境固有の値は`fleet.yaml`末尾の`targetCustomizations`(`env`ラベルで選ばれる
+    `dev`/`production`エントリ)の`helm.values`に書く。選ばれたエントリだけが
+    `helm.values`へ深くマージされる。現在はdevの`persistence.storageClass: nfs-external`と、
+    productionの`replicaCount: 2`/`podAntiAffinityPreset: hard`
+  - ひな形は`scripts/new-wordpress-site.sh`が生成する
+- **アプリ(`apps/`、raw YAML)**:
+  - 直下のマニフェストはdevの値で書き、productionで変える部分だけを
+    `overlays/production/<マニフェスト名>_patch.yaml`に置く(Fleetのyaml overlay機能。
+    `fleet.yaml`の`targetCustomizations`で`env: production`のクラスタにだけ適用される)
+  - パッチ内のリスト(Ingressの`rules`/`tls`等)は丸ごと置き換わるため、リスト全体を書く。
+    直下の`ingress.yaml`のパス等を変えたら、パッチ側も合わせて直すこと
+- 環境固有の値を変えたいとき(例: productionのレプリカ数)は、**devのファイルを編集して
+  通常どおり昇格させる**。productionのファイルだけを直すと、次の昇格で上書きされる
+
+書き換え前後でFleetのレンダリング結果が変わらないことは、Fleet CLI(`fleet apply` →
+`fleet target` → `fleet deploy --dry-run`)を実クラスタのラベルに対して実行し、
+稼働中のBundleDeploymentの内容と照合して確認した。
 
 ## stagingサイトの削除手順(結合テスト後)
 

@@ -1,0 +1,14 @@
+# production固有: 冗長化のため2レプリカ。
+spec:
+  replicas: 2
+  template:
+    spec:
+      # 2レプリカを別ノードに強制分散し、単一ノード障害時も他方が応答を継続できるようにする
+      # (prod1は5ノードあり、必須アフィニティにしてもスケジューリングは詰まらない)。
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: brc-advanced-search
+              topologyKey: kubernetes.io/hostname

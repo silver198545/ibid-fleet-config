@@ -9,10 +9,10 @@ spec:
   ingressClassName: traefik
   tls:
     - hosts:
-        - brc-advanced-search.production.ibid.lan
+        - brc-advanced-search.dev.ibid.lan
       secretName: brc-advanced-search-tls
   rules:
-    - host: brc-advanced-search.production.ibid.lan
+    - host: brc-advanced-search.dev.ibid.lan
       http:
         paths:
           - path: /

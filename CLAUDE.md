@@ -74,6 +74,12 @@ resource state with `kubectl`.
 - **`keepResources: true` is mandatory** on infra and site bundles: bundle deletion or GitRepo
   re-pointing must never cascade into uninstalling Longhorn or deleting site PVCs. Site deletion is a
   documented manual procedure (`docs/manual-wordpress.md`).
+- **Site/app bundles are environment-agnostic files** so promotion is a plain directory copy. Never
+  hardcode an environment name or env-specific value in the shared part: site ingress hostnames use
+  `<site>.${ .ClusterLabels.env }.ibid.lan` (Fleet values templating; `validate` rejects literals),
+  env-specific site values go in fleet.yaml `targetCustomizations` (`dev`/`production` entries
+  selected by the `env` cluster label), and apps keep dev values in their manifests with production
+  differences in `overlays/production/*_patch.yaml`. See `docs/operations-flow.md` 「環境差分の書き方」.
 - **Do not set `WORDPRESS_TABLE_PREFIX` via `extraEnvVars`** — use `wordpressTablePrefix` only
   (duplicate env var causes an apply error).
 - **`wp-config.php` persists on the volume and is not regenerated once created.** Changing

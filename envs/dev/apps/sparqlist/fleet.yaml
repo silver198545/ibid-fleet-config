@@ -11,3 +11,16 @@ keepResources: true
 
 helm:
   releaseName: sparqlist
+
+# 環境ごとの差分。このディレクトリはdev/productionで同一内容に保ち、昇格は丸ごとコピーで行う
+# (docs/operations-flow.md「環境差分の書き方」参照)。直下のマニフェストはdevの値で書き、
+# productionで変える部分だけを overlays/production/ に置く(<file>_patch.yaml は同名
+# マニフェストへのパッチ)。overlays/ 配下は選ばれた環境でしか使われない。
+targetCustomizations:
+  - name: production
+    clusterSelector:
+      matchLabels:
+        env: production
+    yaml:
+      overlays:
+        - production
