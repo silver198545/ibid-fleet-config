@@ -1,7 +1,7 @@
 # WordPress以外の自作アプリ追加手順
 
-このリポジトリは元々WordPressサイト専用のFleet構成だったが、同じ3クラスタ
-(dev→staging→production)・同じ昇格運用に乗せたい自作アプリ(DBを持たない
+このリポジトリは元々WordPressサイト専用のFleet構成だったが、同じクラスタ
+(dev→production)・同じ昇格運用に乗せたい自作アプリ(DBを持たない
 ステートレスなフロントエンドなど)は `sites/` とは別に `apps/` 配下で管理する。
 `sites/<site>/` はBitnami WordPress前提(ラッパーチャート、3種のSecret、PVC、
 `keepResources` 等の注意点)を暗黙に含むため、性質の異なるアプリを混ぜると
@@ -33,83 +33,27 @@ DBなし。外部のSPARQLエンドポイントを参照するのみ)はriken-di
 
 ## 昇格(プロモーション)についての注意
 
-**`.github/workflows/promote.yaml` は `envs/<from>/sites/` しかコピーしない。**
-`apps/` を追加・変更した場合、staging/productionへの反映は今のところ手動でPRを
-作成する(`cp -r envs/dev/apps/<app> envs/staging/apps/<app>` のように昇格元を
-そのままコピーし、他サイトの昇格PRと同様にレビュー・承認を経てマージする)。
-`apps/` を継続的に追加していく場合は、promoteワークフローに `sites`/`apps` の
-対象切り替えを足すことを検討する([docs/roadmap.md](roadmap.md)参照)。
+**`.github/workflows/promote.yaml` は `sites/` しかコピーしない。** `apps/` の
+dev→production昇格は `scripts/update-app-image.sh` がPRを作成する
+(Rundeckからも実行できる。[manual-rundeck-app-image.md](manual-rundeck-app-image.md))。
 
-**`scripts/update-app-image.sh`の`promote-staging`/`promote-production`は初回昇格専用**
-(`envs/<to>/apps/<app>`を新規作成しホスト名書き換え・SealedSecret作り直しまで行う)。
-2回目以降、既に昇格済みの環境へイメージバージョンだけを反映したい場合は
-`deploy-staging`/`deploy-production`(`deploy-dev`と同じくイメージタグの書き換えのみ)を使う。
-特にproductionは`cleanup-staging`に相当する削除ステップが無く`envs/production/apps/<app>`が
-昇格後も残り続けるため、2回目以降の更新は必ず`deploy-production`を使うこと
-(`promote-production`をもう一度実行すると「既に存在します」エラーになる)。
+昇格は**ディレクトリの丸ごとコピー**(`envs/dev/apps/<app>` → `envs/production/apps/<app>`)。
+productionで変える値(ホスト名、レプリカ数、アフィニティ等)はdev側のディレクトリ内に
+`overlays/production/<マニフェスト名>_patch.yaml` として置き、`fleet.yaml` の
+`targetCustomizations` で `env: production` のクラスタにだけ適用させる
+(Fleetのyaml overlay機能。[operations-flow.md](operations-flow.md)「環境差分の書き方」)。
+そのためコピー後のホスト名書き換え等は不要で、`envs/dev/apps/<app>` と
+`envs/production/apps/<app>` は、昇格待ちの変更(イメージタグ等)を除き同じ内容になる。
 
-### 手順(brc-advanced-searchのdev→staging昇格で実施・確認済み)
-
-昇格先の環境ディレクトリに`apps/`が無ければ作成しつつコピーする。
-
-```bash
-mkdir -p envs/staging/apps
-cp -r envs/dev/apps/<app> envs/staging/apps/<app>
-```
-
-コピーしただけでは昇格元環境のホスト名が残っているため、必ず以下を昇格先の値へ
-書き換える(忘れると昇格先のIngressが昇格元のホスト名で証明書発行を試みる):
-
-- `envs/<to>/apps/<app>/ingress.yaml`の`spec.tls[].hosts`と`spec.rules[].host`
-  (`<app>.<from>.ibid.lan` → `<app>.<to>.ibid.lan`)
-
-イメージが非公開でpull用SealedSecretがある場合(brc-advanced-searchはこちら)、
-上の「新しいアプリを追加する手順」の4番と同じ要領で**昇格先クラスタ向けに
-kubesealで作り直す**(`kubeseal --context <昇格先のkubectlコンテキスト>`。
-devのSealedSecretはコピー不可)。
-
-新しいホスト名は昇格先環境で初めて使うため、DNS Aレコード登録
-([manual-cert-manager-freeipa-acme.md](manual-cert-manager-freeipa-acme.md)参照)も
-このタイミングで行う必要がある(手順は次節)。
-
-ここまでの変更(コピーしたマニフェスト + 作り直したSealedSecret)をコミットし、
-`gh` CLIでPRを作成する(`promote.yaml`が自動化しているコミット/PR作成を
-`apps/`用に手動でなぞる形。ブランチ名・コミットメッセージ・PR本文は自由だが、
-以下は実例):
-
-```bash
-git checkout -b promote/<app>-<from>-to-<to>
-git add "envs/<to>/apps/<app>" "envs/<to>/secrets/<app>.yaml"
-git commit -m "feat: <app>を<to>環境へ昇格"
-git push -u origin promote/<app>-<from>-to-<to>
-
-gh pr create --title "feat: <app>を<to>環境へ昇格" --body "$(cat <<'EOF'
-## 昇格内容
-
-`envs/<from>/apps/<app>` → `envs/<to>/apps/<app>` (手動昇格。`promote.yaml`は`sites/`のみ対象のため`apps/`はこのPRで手動対応)
-
-- ホスト名を `<app>.<from>.ibid.lan` → `<app>.<to>.ibid.lan` に変更(`ingress.yaml`)
-- GHCR pull用SealedSecretを `<昇格先のkubectlコンテキスト>` 向けに作り直し(`envs/<to>/secrets/<app>.yaml`)
-
-## 前提(マージ前に完了済み)
-
-- [x] FreeIPAへ `<app>.<to>.ibid.lan` のDNS Aレコード登録
-- [x] <from>で<app>が正常稼働していることを確認済み
-
-## マージ後の確認
-
-- [ ] `kubectl --context <昇格先のkubectlコンテキスト> -n <app> get pods,ingress`
-- [ ] `curl -k https://<app>.<to>.ibid.lan/` で疎通確認
-EOF
-)"
-```
-
-PR作成・マージ後、昇格先環境のGitRepoが自動適用する。動作確認は:
-
-```bash
-kubectl --context <昇格先のkubectlコンテキスト> -n <app> get pods,ingress
-curl -k https://<app>.<to>.ibid.lan/<readinessProbeのpath>
-```
+- **2回目以降(通常のイメージ更新)**: `deploy-dev` → `check-dev` →
+  `deploy-production`(productionをdevと同じ内容に同期するPR。イメージタグに限らず
+  devに入っている変更はすべて昇格対象になるので、PRのdiffを確認する)→ `check-production`
+- **初回昇格(新規アプリ)**: `promote-production` → SealedSecret作成 →
+  `promote-production-finish`。devのディレクトリに `overlays/production/` が無いと
+  エラーになる(下記「新しいアプリを追加する手順」5.)
+- **2026-10-08以前**(dev→staging→productionの3環境時代)は、昇格のたびにホスト名を
+  `ingress.yaml`内で書き換え、production固有のレプリカ数等をproduction側のファイルにだけ
+  持たせていた。現在の方式に移行済み
 
 ## 新しいアプリを追加する手順(例: brc-advanced-search)
 
@@ -160,47 +104,28 @@ curl -k https://<app>.<to>.ibid.lan/<readinessProbeのpath>
      ```
      生成したSecret名をDeploymentの`imagePullSecrets`に追加する
      (`envs/dev/apps/brc-advanced-search/deployment.yaml`参照)。
-5. dev確認後、staging/productionへは上記「昇格についての注意」の手順で
-   手動PRを作成する(pull用SealedSecretは環境ごとに作り直しが必要。
-   他環境のSealedSecretはコピーできない)。
+5. productionへ出す前に、devのディレクトリに production 用の差分を用意してdevへマージする
+   (dev1では使われないので、devの動作には影響しない)。既存の
+   `envs/dev/apps/brc-advanced-search/` をひな形にする:
+   - `overlays/production/ingress_patch.yaml`: `spec.tls`/`spec.rules` を
+     `<app>.production.ibid.lan` で丸ごと書く(リストは置き換えになるため全体を書く)
+   - `overlays/production/deployment_patch.yaml`: `spec.replicas: 2` 等の冗長化設定
+   - `fleet.yaml` 末尾の `targetCustomizations`(`env: production` → `yaml.overlays: [production]`)
+6. dev確認後、上記「昇格についての注意」の初回昇格でproductionへ出す
+   (pull用SealedSecretは環境ごとに作り直しが必要。他環境のSealedSecretはコピーできない)。
+   新しいホスト名 `<app>.production.ibid.lan` のDNS Aレコードもこのタイミングで登録する
+   ([manual-cert-manager-freeipa-acme.md](manual-cert-manager-freeipa-acme.md)。
+   `ipa dnsrecord-add ibid.lan <app>.production --a-rec <prod1のTraefik LB IP>`)。
 
-## staging結合テスト → 本番反映 → stagingクリーンアップ
+## 本番反映のサイクル
 
 WordPressサイトと同じサイクル([operations-flow.md](operations-flow.md)参照)で運用する。
-DBを持たないアプリの場合はWordPressより手順が単純になる:
+DBを持たないアプリの場合はWordPressより単純で、devで動作確認できればそのまま
+productionへ昇格してよい(本番データのリハーサルは基本不要)。
 
-1. **dev → staging**: 上記「昇格についての注意」の手順で手動PRを作成・マージ
-   - マージ前後どこかのタイミングで、新ホスト名(`<app>.staging.ibid.lan`)の
-     DNS AレコードをFreeIPAに登録しておく(未登録だとcert-managerの証明書発行が
-     進まず、Ingressへアクセスできない)。TSIG鍵はTXTレコードのみ許可のため
-     `ipa dnsrecord-add`をIPA管理者権限で直接実行する
-     ([manual-cert-manager-freeipa-acme.md](manual-cert-manager-freeipa-acme.md)参照)。
-     ```bash
-     kinit admin
-     # <TraefikのLB IP>はstagingクラスタのTraefik共有LB IP(2026-07-26時点で192.168.1.63)
-     ipa dnsrecord-add ibid.lan <app>.staging --a-rec <TraefikのLB IP>
-     ```
-     確認:
-     ```bash
-     dig @192.168.100.21 <app>.staging.ibid.lan +short
-     ```
-     (例: brc-advanced-searchでは `ipa dnsrecord-add ibid.lan brc-advanced-search.staging --a-rec 192.168.1.63`)
-2. **stagingで結合テスト**: `https://<app>.staging.ibid.lan/` 等で動作確認
-   (WordPressと異なりDBが無いので、本番データのリストアは基本不要。
-   Deploymentが上がりIngress経由で表示できれば十分)。
-   ただし**PVCで永続データを持つアプリ(sparqlistの`repository/`等)は、
-   WordPressと同様に本番データを結合テストに使うこともできる**
-   (手順は「sparqlist 固有のメモ」の「stagingでの本番データ結合テスト」参照)
-3. **staging → production**: 同様に手動PRを作成。CODEOWNERS承認のうえマージ
-4. **stagingを削除する**: 本番反映後、待機コストを残さないようstagingから
-   完全に削除する
-   - Git側: `envs/staging/apps/<app>/` を削除するPRを作成・マージ
-   - クラスタ側(`fleet.yaml`の`keepResources: true`によりGit側の削除だけでは
-     Fleetがリソースを消さないため、手動で):
-     ```bash
-     kubectl delete namespace <app>
-     ```
-     PVCを持たないため、WordPressのような容量解放待ちの考慮は不要
+ただし**PVCで永続データを持つアプリ(sparqlistの`repository/`等)は、本番の永続データを
+devへコピーして本番相当データで確認できる**(`update-app-image.sh sync-dev-data <app>`。
+**devの内容は上書きされる**。「sparqlist 固有のメモ」参照)。
 
 ## brc-advanced-search 固有のメモ
 
@@ -369,7 +294,7 @@ DBを持たないアプリの場合はWordPressより手順が単純になる:
   `scripts/seal-sparqlist-secret.sh <env>`でSealedSecretとして
   `envs/<env>/secrets/sparqlist.yaml`に封印する(brc-advanced-search/riken-diipsの
   同名ファイルはGHCR pull用Secretだが、sparqlistでは用途が異なる。`update-app-image.sh`の
-  `promote-staging`/`promote-production`もこの違いを認識し、GHCR pull用の代わりに
+  `promote-production`もこの違いを認識し、GHCR pull用の代わりに
   このコマンドの実行を促す)。デフォルトは環境ごとにランダム生成(CLAUDE.mdの方針どおり
   使い回さない)だが、既存運用からの移行等で特定の値を使いたい場合は
   `ADMIN_PASSWORD='...' scripts/seal-sparqlist-secret.sh <env>`のように環境変数で指定できる
@@ -423,22 +348,23 @@ DBを持たないアプリの場合はWordPressより手順が単純になる:
   付けることでその失敗ごと回避できる。展開後にファイル数
   (`ls /app/repository | wc -l`)が想定件数(元tarballのファイル数+既存の
   `lost+found`)と一致していれば問題ない。
-- **既存イメージ更新サイクルでのstaging結合テスト(本番データ利用)**:
-  WordPressの運用([operations-flow.md](operations-flow.md)参照)と同じく、
-  イメージ更新のstaging結合テストに本番の`repository/`データを使いたい場合は、
+- **devでの本番データ確認**:
+  WordPressの本番データリハーサル([operations-flow.md](operations-flow.md)参照)と同じく、
+  イメージ更新を本番の`repository/`データで確認したい場合は、
   ローカルにアップロードしたtarballではなく**稼働中のproduction Podから直接**
-  取得してstagingへ流し込める(DBが無いためmysqldump相当の準備は不要、
-  ファイルコピーのみで完結する)。`scripts/update-app-image.sh`の
-  `sync-staging-data`サブコマンドでこの一連の操作を実行できる
+  取得してdevへ流し込める(DBが無いためmysqldump相当の準備は不要、
+  ファイルコピーのみで完結する)。**devの`repository/`は上書きされる**(devで作った
+  SPARQLetが消えるので、残したいものがあれば先に退避する)。`scripts/update-app-image.sh`の
+  `sync-dev-data`サブコマンドでこの一連の操作を実行できる
   (`persistent_data_dir_for`に登録済みのアプリのみ対応。現状sparqlist限定):
   ```bash
-  scripts/update-app-image.sh sync-staging-data sparqlist
+  scripts/update-app-image.sh sync-dev-data sparqlist
   ```
   中身は次のコマンド相当(手動で行いたい場合や、他のPVC付きアプリを
   `persistent_data_dir_for`にまだ登録していない場合はこちらを使う):
   ```bash
   PROD_POD=$(kubectl --context prod1 -n sparqlist get pods -l app=sparqlist -o jsonpath='{.items[0].metadata.name}')
-  STG_POD=$(kubectl --context staging1 -n sparqlist get pods -l app=sparqlist -o jsonpath='{.items[0].metadata.name}')
+  DEV_POD=$(kubectl --context dev1 -n sparqlist get pods -l app=sparqlist -o jsonpath='{.items[0].metadata.name}')
 
   # productionの/app/repositoryを固めてローカルへ取得
   kubectl --context prod1 -n sparqlist exec "$PROD_POD" -- \
@@ -447,19 +373,19 @@ DBを持たないアプリの場合はWordPressより手順が単純になる:
     ./sparqlist-repository-prod.tar.gz
   kubectl --context prod1 -n sparqlist exec "$PROD_POD" -- rm /tmp/sparqlist-repository.tar.gz
 
-  # stagingへ展開(既存データへの上書きになる点は「repository/データの投入」と同じ)
-  kubectl --context staging1 -n sparqlist cp ./sparqlist-repository-prod.tar.gz \
-    "$STG_POD":/tmp/sparqlist-repository.tar.gz
+  # devへ展開(既存データへの上書きになる点は「repository/データの投入」と同じ)
+  kubectl --context dev1 -n sparqlist cp ./sparqlist-repository-prod.tar.gz \
+    "$DEV_POD":/tmp/sparqlist-repository.tar.gz
   # -m --no-same-permissions を付けないと、マウントポイントであるrepository自体の
   # 属性復元にtarが失敗し終了コードが非0になる(「実際に踏んだ問題」参照。
   # ファイル本体の展開自体はこのオプション無しでも成功する)。
-  kubectl --context staging1 -n sparqlist exec "$STG_POD" -- \
+  kubectl --context dev1 -n sparqlist exec "$DEV_POD" -- \
     tar xzf /tmp/sparqlist-repository.tar.gz -C /app -m --no-same-permissions
-  kubectl --context staging1 -n sparqlist exec "$STG_POD" -- rm /tmp/sparqlist-repository.tar.gz
+  kubectl --context dev1 -n sparqlist exec "$DEV_POD" -- rm /tmp/sparqlist-repository.tar.gz
   ```
-  結合テスト終了後は通常どおり`cleanup-staging`でstaging自体を削除するため、
-  本番データをstagingに残置する心配はない(WordPressの「サイトをstagingから削除する」
-  相当の後始末が、apps/では`cleanup-staging`一発で完結する)。
+  手元に残した`./sparqlist-repository-prod.tar.gz`(本番データ)は確認後に削除する。
+  (2026-10-08以前はstagingへ流し込み、テスト後にstagingごと削除していた。
+  staging廃止に伴いdevへの上書きに変更)
   **production反映前のバックアップ**については、`repository`PVC
   (`envs/<env>/apps/sparqlist/pvc.yaml`)はLonghornの`envs/<env>/infra/longhorn-jobs/`
   (`groups: [default]`)の対象に自動的に含まれるため、WordPressのような手動バックアップ
@@ -493,7 +419,7 @@ DBを持たないアプリの場合はWordPressより手順が単純になる:
   を`deployment.yaml`に直接設定している(非機密情報)。社内向けの別エンドポイントに
   切り替える場合はここを書き換える。
 - PVCを持たないため、brc-advanced-search/riken-diipsと同じくWordPressのような
-  容量解放待ちの考慮は不要(staging削除時は`cleanup-staging`一発で完結する)。
+  容量解放待ちの考慮は不要。
 - **導入時に必要な手動手順(dev)**:
   1. `METADATABASE_V2_ACCESS_TOKEN`(`repo`スコープのclassic PAT、専用に新規発行)を
      `gh secret set METADATABASE_V2_ACCESS_TOKEN --repo silver198545/ibid-fleet-config`

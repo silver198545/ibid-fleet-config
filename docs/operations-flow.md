@@ -1,7 +1,7 @@
-# 3環境の日常運用フロー(変更のテストと昇格)
+# 日常運用フロー(変更のテストと昇格)
 
 プラグインの追加・更新、チャート/イメージのバージョンアップといった日常の変更を、
-dev → staging → production の3環境でどうテストし、どう本番へ反映するかの運用フロー。
+dev → production の2環境でどうテストし、どう本番へ反映するかの運用フロー。
 
 環境そのものの構築・昇格の操作手順は [manual-multi-env.md](manual-multi-env.md)、
 サイト管理を他チームへ委譲する際の受付フローは
@@ -11,40 +11,38 @@ dev → staging → production の3環境でどうテストし、どう本番へ
 
 | 環境 | 役割 | コンテンツ |
 |---|---|---|
-| dev | 全サイトのプラグイン・バージョンアップの**互換性テスト**(インストール・有効化できるか、サイトが壊れないか) | テスト用(本番とは無関係) |
-| staging | 本番反映前の最終確認。**本番からリストアしたコンテンツに対する結合テスト**(テスト終了後はリセット) | 本番のコピー(一時的) |
-| production | staging合格後の反映のみ。直接の試行錯誤はしない | 本番データ |
+| dev | 全サイトのプラグイン・バージョンアップの**互換性テスト**(インストール・有効化できるか、サイトが壊れないか)。必要に応じて**本番データリハーサル**(下記)も行う | テスト用(本番とは無関係)。リハーサルサイトのみ本番のコピー(一時的) |
+| production | dev(とリハーサル)で確認済みの変更の反映のみ。直接の試行錯誤はしない | 本番データ |
 
-stagingの結合テストは、WordPressコア・プラグイン・MariaDBの**DBマイグレーションを
-本番相当データで事前に踏める唯一の機会**。devの新品DBでは検出できない問題
-(スキーマ変換の失敗、大量データでの移行時間、プラグイン同士の干渉)をここで拾う。
+以前はdevとproductionの間にstaging環境があり、本番からリストアしたコンテンツで
+結合テストをしていた。HWリソース(Harvesterホストのメモリ)の制約から
+**2026-10-08にstagingを廃止**し、その役割は「dev1上の一時的なリハーサルサイト」で
+代替する(経緯は [roadmap.md](roadmap.md))。
 
 ## 基本サイクル: 変更はバッチにまとめて一方向に流す
 
-promoteワークフローは環境ディレクトリをそのままコピーするため、
-「**stagingでテストした構成を、一切手を加えずにproductionへ昇格する**」が大原則。
-stagingが結合テスト中にdev→stagingの昇格を重ねるとテストの土台が動いてしまうので、
-変更は次の1サイクルにまとめて順に流す。
+promoteワークフローは環境ディレクトリを丸ごとコピーするため、
+「**devで確認した構成を、一切手を加えずにproductionへ昇格する**」が大原則。
 
 1. **devで変更・互換性テスト**: `envs/dev/` のfleet.yaml(プラグイン一覧、
    `helm.version`)や `charts/`・`images/` を変更するPRを出しマージ。
    全サイトの表示・管理画面を確認する
-2. **dev → staging 昇格**: promoteワークフロー(手動dispatch)でPRを生成しマージ
-3. **stagingで結合テスト**:
-   1. 対象サイトへ本番のバックアップをリストアする
-      ([manual-wordpress-restore.md](manual-wordpress-restore.md)。
-      URL置換 `<site>.production.ibid.lan` → `<site>.staging.ibid.lan` を忘れない)
-   2. プラグイン・バージョンアップ後の動作、記事表示、管理画面操作を確認する
-   3. **テスト終了後はサイトをstagingから削除する**(下記「stagingサイトの削除手順」)。
-      本番コンテンツをstagingに残置しない
-4. **staging → production 昇格**: promoteワークフローでPRを生成。
-   マージの**直前に必ず本番のバックアップを取得**(下記「本番反映前のバックアップ」)。
+2. **本番データリハーサル(DBマイグレーションを伴う変更のとき)**: 下記
+   「本番データリハーサル」の手順で、本番のコピーに対して変更を適用して確認する。
+   WordPressコア・プラグインのメジャー更新、チャートのMariaDB更新など、
+   **DBスキーマを書き換え得る変更では必須**。プラグインの軽微なパッチ更新のみなど
+   影響が小さいと判断できる場合は省略してよい(省略した判断は昇格PRに書く)
+3. **dev → production 昇格**: promoteワークフロー(手動dispatch、`site`にサイト名か`all`)
+   でPRを生成。マージの**直前に必ず本番のバックアップを取得**(下記「本番反映前のバックアップ」)。
    CODEOWNERS承認のうえマージし、反映後に監視(HTTP probe)とサイト表示を確認する
+   - `site=all`は**本番に既にあるサイトだけ**を更新する。devにしか無いサイトを本番へ
+     新規追加するときは、サイト名を指定して昇格させ、事前に
+     `scripts/seal-site-secrets.sh production <site>` でSecretを用意する
    - 昇格先固有の設定(ホスト名、production冗長化設定)は各fleet.yamlの中で
-     環境ごとに書き分けてあるため、promoteワークフローの丸ごとコピーで消えることはない
+     環境ごとに書き分けてあるため、丸ごとコピーで消えることはない
      (下記「環境差分の書き方」)。PRのdiffは昇格させる変更そのもの(`helm.version`、
-     `plugins`等)だけになるはずで、それ以外の差分が出たら昇格元・先のどちらかで
-     環境固有の値が直書きされていないか確認する
+     `plugins`等)だけになるはずで、それ以外の差分が出たら環境固有の値が
+     直書きされていないか確認する
 
 ## 環境差分の書き方
 
@@ -75,35 +73,103 @@ promoteワークフローは環境ディレクトリを丸ごとコピーする�
 `fleet target` → `fleet deploy --dry-run`)を実クラスタのラベルに対して実行し、
 稼働中のBundleDeploymentの内容と照合して確認した。
 
-## stagingサイトの削除手順(結合テスト後)
+## 本番データリハーサル
 
-1サイトずつ順番にstagingで結合テストする運用では、待機中のサイトがstagingの
-容量を消費し続けないよう、**テストが終わったサイトはstagingから完全に削除する**
-(PVCの作り直しではなくサイトそのものの削除)。手順は
-[manual-wordpress.md](manual-wordpress.md)「サイトを削除する場合」がベース。
+devのサイトは新品DB(またはテスト用コンテンツ)のため、**本番相当データでしか出ない問題**
+(スキーマ変換の失敗、大量データでの移行時間、プラグイン同士の干渉)は検出できない。
+これを本番反映前に拾うため、dev1上に**一時的なリハーサルサイト `<site>-rh`** を作り、
+本番のバックアップを入れてから昇格予定の変更を適用して確認する。devの既存サイト
+(`<site>`)のコンテンツは触らない。
 
-1. Git側: `envs/staging/sites/<site>/` と `envs/staging/secrets/<site>.yaml`
-   を削除するPRを作成・マージ
-2. クラスタ側(手動。fleet.yamlの`keepResources: true`によりFleetはGit側の削除だけでは
-   リソースを消さないため):
+- 本番コンテンツをdevに置くのは**リハーサルの間だけ**。終わったら必ず削除する
+- dev1(とHarvesterホスト)はメモリに余裕がないため、**同時に置くリハーサルサイトは1つまで**
+- リハーサルサイトもFleet管理(Git経由)にする。名前の置き換えは
+  `scripts/rehearsal-site.sh` が行う
+
+### 1. 本番のバックアップを取得する
+
+`scripts/restore-wordpress.sh` が読める形式(`yyyymmdd_hhmm.tar.lzo` +
+`yyyymmdd_hhmm.dump.lzo` の組)で、本番から取り出す。
+
+```bash
+SITE=<site>
+NS=wordpress-$SITE
+TS=$(date +%Y%m%d_%H%M)
+DIR=~/rehearsal/$SITE && mkdir -p "$DIR" && chmod 700 "$DIR"
+
+ROOTPW="$(kubectl --context prod1 -n $NS get secret wordpress-$SITE-mariadb-credentials \
+  -o jsonpath='{.data.mariadb-root-password}' | base64 -d)"
+kubectl --context prod1 -n $NS exec wordpress-$SITE-mariadb-0 -c mariadb -- \
+  env MYSQL_PWD="$ROOTPW" mysqldump -u root --single-transaction --routines bitnami_wordpress \
+  | lzop >"$DIR/$TS.dump.lzo"
+kubectl --context prod1 -n $NS exec deploy/wordpress-$SITE -c wordpress -- \
+  tar cf - -C /bitnami/wordpress wp-content \
+  | lzop >"$DIR/$TS.tar.lzo"
+lzop -dc "$DIR/$TS.dump.lzo" | head -1   # "-- MariaDB dump" 等で始まること
+```
+
+長いストリームがRancherプロキシ経由で切れる場合は、Pod内で一度ファイルに書き出してから
+`kubectl cp` する。
+
+### 2. リハーサルサイトを本番と同じ構成で作る
+
+```bash
+scripts/rehearsal-site.sh $SITE production     # envs/dev/sites/<site>-rh/fleet.yaml
+scripts/seal-site-secrets.sh dev $SITE-rh       # envs/dev/secrets/<site>-rh.yaml(新規パスワード)
+```
+
+この2ファイルを1つのPRにしてマージする(devのみの変更)。Fleetがdev1に
+`wordpress-<site>-rh` を本番と同じチャート版・プラグインで作る。
+アクセス用に `<site>-rh.dev.ibid.lan` → dev1のTraefik LB IPのDNS Aレコードを登録する
+(または手元の hosts に書く。証明書はDNS-01で発行されるためAレコードの有無に依存しない)。
+
+### 3. 本番データをリストアする
+
+```bash
+kubectl config use-context dev1
+scripts/restore-wordpress.sh $SITE-rh "$DIR" "$TS"
+```
+
+スクリプトが最後に表示する手順に従い、URLを
+`https://<site>.production.ibid.lan` → `https://<site>-rh.dev.ibid.lan` に置換する
+(詳細は [manual-wordpress-restore.md](manual-wordpress-restore.md))。
+新規サイトなのでLonghornスナップショットの確認プロンプトは `y` でよい。
+この時点で本番と同じ表示になることを確認する(以降の比較の基準)。
+
+### 4. 昇格予定の変更を適用して確認する
+
+```bash
+scripts/rehearsal-site.sh $SITE dev    # devで検証中の構成(helm.version・plugins等)へ切り替え
+```
+
+PRにしてマージすると、本番昇格時と同じ順序で、本番データに対してチャート更新と
+プラグイン同期Jobが走る。確認すること:
+
+- プラグイン同期Job(`plugin-sync`)が成功したか、所要時間
+  (`kubectl --context dev1 -n wordpress-<site>-rh logs job/<Job名>`)
+- WordPressのDB更新(管理画面の「データベースの更新が必要です」が出るなら実行し、所要時間を記録)
+- 記事表示、管理画面操作、プラグイン固有の画面
+- エラーログ(`kubectl logs` のPHPエラー)
+
+問題があればdevで修正して手順4をやり直す。結果(所要時間、気づいた点)は昇格PRに書く。
+
+### 5. リハーサルサイトを削除する
+
+1. Git側: `envs/dev/sites/<site>-rh/` と `envs/dev/secrets/<site>-rh.yaml` を削除するPRを作成・マージ
+2. クラスタ側(手動。`keepResources: true`のためGit側の削除だけではリソースは消えない。
+   **マージ後に**行うこと。先に消すとFleetが再作成する):
    ```bash
-   helm uninstall wordpress-<site> -n wordpress-<site>
-   kubectl delete namespace wordpress-<site>
+   kubectl --context dev1 delete namespace wordpress-<site>-rh   # PVC(nfs-external/harvester)も削除される
    ```
-   PVC(wp-content/mariadb)ごと削除され、Longhorn/Harvesterの容量が解放される
+   `harvester` StorageClassのPV(mariadb)は、Harvester CSIドライバの既知の問題で
+   `Released`のまま残ることがある。その場合は [roadmap.md](roadmap.md) 項目8の手順で片付ける
+3. 手元のバックアップ(`~/rehearsal/<site>`)を削除する。DNSレコードを登録した場合は削除する
 
-次にこのサイトをstagingでテストする際は、dev→staging昇格PRと
-`scripts/seal-site-secrets.sh staging <site>`を再度実施することになる
-(新規サイト追加と同じ手順)。
+## Harvester物理層の容量
 
-なお、本番コンテンツをstagingへリストアすると実ディスク使用量が一時的に増える。
-Longhornはthin-provisioningのため予約枠上は見えない消費であり、実容量の逼迫は
-Longhorn容量アラート([manual-monitoring.md](manual-monitoring.md))で検知する前提。
-大きいサイトをリストアする際は意識すること。
-
-また、Harvester物理層の空き容量には既知の制約がある(devの15サイト一斉追加時に
-発覚。[roadmap.md](roadmap.md)項目3参照)。新規サイトのPVC作成がスケジュール待ちで
-詰まる場合は、その時点で空きのあるHarvesterホストが確保できるまで待つか、
+新規サイトやリハーサルサイトのPVC作成がスケジュール待ちで詰まる場合は、
+Harvester物理層の空き容量の既知の制約([roadmap.md](roadmap.md)項目3参照)を疑う。
+その時点で空きのあるHarvesterホストが確保できるまで待つか、
 不要なリソース(検証用に一時的に追加したノード等)を削除して空きを作る。
 
 ## 本番反映前のバックアップ(必須)
@@ -125,7 +191,7 @@ fleet.yamlの `plugins:` 一覧が宣言的に管理するのは**インスト�
 一覧から消してもFleetは各環境のプラグインを無効化・削除しない。
 テストの結果プラグインをやめる場合は、
 
-1. fleet.yamlから該当エントリを消すPR(dev→staging→productionへ通常どおり昇格)
+1. fleet.yamlから該当エントリを消すPR(dev→productionへ通常どおり昇格)
 2. **各環境でwp-cliによる無効化・削除を手動実行**
    ([manual-wordpress.md](manual-wordpress.md) 参照)
 

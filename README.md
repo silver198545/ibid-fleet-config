@@ -1,15 +1,15 @@
 # ibid-fleet-config
 
-dev → staging → production の3つのRKE2クラスタ(Harvester上、Rancher管理)で
+dev → production の2つのRKE2クラスタ(Harvester上、Rancher管理)で
 数十のWordPressサイトを運用するためのFleet(GitOps)構成リポジトリ。
 
 ## 全体像
 
-- **単一mainブランチ + 環境別ディレクトリ**(`envs/dev|staging|production`)。
+- **単一mainブランチ + 環境別ディレクトリ**(`envs/dev|production`)。
   環境ごとのGitRepo([fleet-bootstrap/](fleet-bootstrap/))が自分の環境のディレクトリ
   だけを監視し、`env=<環境名>` ラベルのクラスタへ適用する。
 - **昇格(プロモーション)はPRで制御**する。Actionsの `promote` ワークフローが
-  dev→staging / staging→production の昇格PRを生成し、`envs/production/` 配下は
+  dev→production の昇格PRを生成し、`envs/production/` 配下は
   [CODEOWNERS](.github/CODEOWNERS) により承認必須(mainブランチ保護)。
   承認済みマージのみが本番クラスタに届く。
 - Gitで昇格するのは**構成のみ**(チャートバージョン、values、イメージ)。
@@ -61,9 +61,8 @@ dev → staging → production の3つのRKE2クラスタ(Harvester上、Rancher
   インストール手順とkubeconfigの準備
 - `docs/manual-multi-env.md`: マルチ環境のセットアップ・既存クラスタの移行・昇格運用・
   break-glass手順
-- `docs/operations-flow.md`: 3環境の日常運用フロー(devで互換性テスト→stagingで
-  本番コンテンツによる結合テスト→productionへ昇格。変更のバッチ化、テスト後の
-  リセット、本番反映前バックアップ)
+- `docs/operations-flow.md`: 日常運用フロー(devで互換性テスト→dev1上の一時リハーサル
+  サイトで本番データに対する確認→productionへ昇格。環境差分の書き方、本番反映前バックアップ)
 - `docs/manual-dr-troubleshooting.md`: DR復元(クラスタ全損からの復元)を実際に
   やってみた際に詰まりやすいポイントの補足(kubeconfig再取得、Longhornの
   fromBackup復元など)
@@ -111,7 +110,7 @@ dev → staging → production の3つのRKE2クラスタ(Harvester上、Rancher
    devのFleetが自動適用する。WordPress は自分専用の LoadBalancer Service を持つため、
    Traefik を LoadBalancer 化する必要はない。
 3. devで動作確認後、Actionsの `promote` を手動起動して昇格PRを作成し、
-   レビュー・承認を経てマージする(staging→productionも同様。本番は承認必須)。
+   レビュー・承認を経てマージする(本番は承認必須)。
 
 詳細: [docs/manual-wordpress.md](docs/manual-wordpress.md)
 

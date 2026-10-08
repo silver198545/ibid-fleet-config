@@ -169,147 +169,13 @@
     commands:
       - exec: cd ${option.repo_path} && scripts/update-app-image.sh check-dev ${option.app}
 
-- name: 01-promote-staging
-  group: app-image-update/staging
-  description: |
-    envs/dev/apps/<app>をenvs/staging/apps/<app>へコピーし、ホスト名を書き換える
-    (ブランチ作成・変更のみでコミットはしない)。
-
-    実行後、ジョブ出力に表示されるkubesealコマンド(GHCR pull用SealedSecret作成)を
-    踏み台端末上で人が手動実行すること(PATを扱うためRundeckジョブ化しない)。
-    DNS Aレコードが未登録なら合わせて登録する。
-
-    注意: このジョブ実行後、repo_pathの作業ツリーはpromoteブランチ・未コミット状態のまま残る。
-    02-promote-staging-finishジョブを実行し終えるまで、同じrepo_pathに対する他のジョブ
-    (特に01-sync-repoや05-cleanup-staging等、mainブランチを前提とするもの)を実行しないこと。
-  loglevel: INFO
-  executionEnabled: true
-  multipleExecutions: false
-  nodefilters:
-    filter: 'tags: rancher'
-  options:
-    - name: app
-      description: 対象アプリ名
-      required: true
-      value: brc-advanced-search
-      values:
-        - brc-advanced-search
-        - riken-diips
-        - sparqlist
-      valuesListDelimiter: ','
-      enforced: false
-    - name: repo_path
-      description: 踏み台端末上のibid-fleet-configクローンパス(要編集)
-      required: true
-      value: /home/uchida/ibid-fleet-config
-  sequence:
-    keepgoing: false
-    strategy: node-first
-    commands:
-      - exec: cd ${option.repo_path} && scripts/update-app-image.sh promote-staging ${option.app}
-
-- name: 02-promote-staging-finish
-  group: app-image-update/staging
-  description: |
-    01-promote-stagingジョブでenvs/staging/secrets/<app>.yamlをkubesealにより手動作成済みであることが前提。
-    コミット・PR作成・CIチェック待ちまで行う(マージはしない)。
-  loglevel: INFO
-  executionEnabled: true
-  multipleExecutions: false
-  timeout: 30m
-  nodefilters:
-    filter: 'tags: rancher'
-  options:
-    - name: app
-      description: 対象アプリ名
-      required: true
-      value: brc-advanced-search
-      values:
-        - brc-advanced-search
-        - riken-diips
-        - sparqlist
-      valuesListDelimiter: ','
-      enforced: false
-    - name: repo_path
-      description: 踏み台端末上のibid-fleet-configクローンパス(要編集。01-promote-stagingと同一パスであること)
-      required: true
-      value: /home/uchida/ibid-fleet-config
-  sequence:
-    keepgoing: false
-    strategy: node-first
-    commands:
-      - exec: cd ${option.repo_path} && scripts/update-app-image.sh promote-staging-finish ${option.app}
-
-- name: 03-deploy-staging
-  group: app-image-update/staging
-  description: |
-    既にstagingに昇格済みの<app>のイメージタグだけを更新するPRを作成する(deploy-devのstaging版)。
-    envs/staging/apps/<app>がまだ無い(初回昇格がまだの)場合は01-promote-stagingを使うこと
-    (このジョブは対象ディレクトリが存在することが前提で、無ければエラーになる)。
-  loglevel: INFO
-  executionEnabled: true
-  multipleExecutions: false
-  timeout: 30m
-  nodefilters:
-    filter: 'tags: rancher'
-  options:
-    - name: app
-      description: 対象アプリ名
-      required: true
-      value: brc-advanced-search
-      values:
-        - brc-advanced-search
-        - riken-diips
-        - sparqlist
-      valuesListDelimiter: ','
-      enforced: false
-    - name: repo_path
-      description: 踏み台端末上のibid-fleet-configクローンパス(要編集)
-      required: true
-      value: /home/uchida/ibid-fleet-config
-  sequence:
-    keepgoing: false
-    strategy: node-first
-    commands:
-      - exec: cd ${option.repo_path} && scripts/update-app-image.sh deploy-staging ${option.app}
-
-- name: 04-check-staging
-  group: app-image-update/staging
-  description: |
-    02-promote-staging-finish/03-deploy-stagingのPRマージ後に実行。stagingのWEB疎通を確認する。
-  loglevel: INFO
-  executionEnabled: true
-  multipleExecutions: false
-  nodefilters:
-    filter: 'tags: rancher'
-  options:
-    - name: app
-      description: 対象アプリ名
-      required: true
-      value: brc-advanced-search
-      values:
-        - brc-advanced-search
-        - riken-diips
-        - sparqlist
-      valuesListDelimiter: ','
-      enforced: false
-    - name: repo_path
-      description: 踏み台端末上のibid-fleet-configクローンパス(要編集)
-      required: true
-      value: /home/uchida/ibid-fleet-config
-  sequence:
-    keepgoing: false
-    strategy: node-first
-    commands:
-      - exec: cd ${option.repo_path} && scripts/update-app-image.sh check-staging ${option.app}
-
-- name: 05-sync-staging-data
-  group: app-image-update/staging
+- name: 03-sync-dev-data
+  group: app-image-update/dev
   description: |
     PVCで永続データを持つアプリ限定(persistent_data_dir_forに登録済みのアプリのみ。現状sparqlistのみ)。
-    04-check-staging確認後、productionの永続データ(例: repository/)をstagingへコピーし、
-    本番相当データでの結合テストを可能にする(WordPressのstagingリストア相当。
-    docs/manual-apps.md「stagingでの本番データ結合テスト」参照)。staging側の内容は上書きされる。
+    productionの永続データ(例: repository/)をdevへコピーし、本番相当データでの確認を可能にする
+    (WordPressの本番データリハーサル相当。docs/manual-apps.md「devでの本番データ確認」参照)。
+    **dev側の内容は上書きされる**。任意の手順で、production昇格前に必要な場合だけ実行する。
   loglevel: INFO
   executionEnabled: true
   multipleExecutions: false
@@ -332,16 +198,22 @@
     keepgoing: false
     strategy: node-first
     commands:
-      - exec: cd ${option.repo_path} && scripts/update-app-image.sh sync-staging-data ${option.app}
+      - exec: cd ${option.repo_path} && scripts/update-app-image.sh sync-dev-data ${option.app}
 
 - name: 01-promote-production
   group: app-image-update/production
   description: |
-    envs/staging/apps/<app>をenvs/production/apps/<app>へコピー。
-    実行後、ジョブ出力に表示されるkubesealコマンドを踏み台端末上で人が手動実行すること。
+    【新規アプリの初回昇格のみ】envs/dev/apps/<app>をenvs/production/apps/<app>へ丸ごとコピーする
+    (ブランチ作成・変更のみでコミットはしない)。dev側にoverlays/production/(productionの
+    ホスト名等のパッチ)が無ければエラーになる。既にproductionにあるアプリは03-deploy-productionを使う。
 
-    注意: 01-promote-stagingと同様、実行後repo_pathはpromoteブランチ・未コミット状態のまま残る。
-    02-promote-production-finishを実行し終えるまで、同じrepo_pathに対する他のジョブを実行しないこと。
+    実行後、ジョブ出力に表示されるkubesealコマンド(GHCR pull用SealedSecret作成)を
+    踏み台端末上で人が手動実行すること(PATを扱うためRundeckジョブ化しない)。
+    DNS Aレコードが未登録なら合わせて登録する。
+
+    注意: このジョブ実行後、repo_pathの作業ツリーはpromoteブランチ・未コミット状態のまま残る。
+    02-promote-production-finishを実行し終えるまで、同じrepo_pathに対する他のジョブ
+    (特に01-sync-repo等、mainブランチを前提とするもの)を実行しないこと。
   loglevel: INFO
   executionEnabled: true
   multipleExecutions: false
@@ -403,10 +275,10 @@
 - name: 03-deploy-production
   group: app-image-update/production
   description: |
-    既にproductionに昇格済みの<app>のイメージタグだけを更新するPRを作成する(deploy-devのproduction版)。
-    envs/production/apps/<app>は初回昇格後も削除されず残り続けるため、2回目以降の更新は
-    01-promote-productionではなく必ずこちらを使うこと(01-promote-productionは既存ディレクトリがあると
-    エラーになる)。
+    【通常のイメージ更新】02-check-devで確認後に実行。既にproductionにある<app>を
+    envs/dev/apps/<app>と同じ内容に同期するPRを作成する(昇格=丸ごとコピー)。
+    イメージタグに限らずdevに入っている変更はすべて昇格対象になるため、PRのdiffを確認してから
+    マージすること。envs/production/apps/<app>がまだ無い場合は01-promote-productionを使う。
   loglevel: INFO
   executionEnabled: true
   multipleExecutions: false
@@ -463,39 +335,3 @@
     strategy: node-first
     commands:
       - exec: cd ${option.repo_path} && scripts/update-app-image.sh check-production ${option.app}
-
-- name: 06-cleanup-staging
-  group: app-image-update/staging
-  description: |
-    production昇格確認(04-check-production)後に実行。stagingのGit定義を削除するPRを作成する。
-
-    注意: マージ後、ジョブ出力に表示されるkubectl delete namespaceコマンドを踏み台端末上で
-    人が手動実行すること。keepResources: trueのためGit側の削除だけではnamespaceは消えない。
-    順序厳守: PRマージ前にnamespaceを削除すると、まだfleet.yamlを検知しているstagingの
-    GitRepoがFleetに再作成させてしまう。
-  loglevel: INFO
-  executionEnabled: true
-  multipleExecutions: false
-  timeout: 30m
-  nodefilters:
-    filter: 'tags: rancher'
-  options:
-    - name: app
-      description: 対象アプリ名
-      required: true
-      value: brc-advanced-search
-      values:
-        - brc-advanced-search
-        - riken-diips
-        - sparqlist
-      valuesListDelimiter: ','
-      enforced: false
-    - name: repo_path
-      description: 踏み台端末上のibid-fleet-configクローンパス(要編集)
-      required: true
-      value: /home/uchida/ibid-fleet-config
-  sequence:
-    keepgoing: false
-    strategy: node-first
-    commands:
-      - exec: cd ${option.repo_path} && scripts/update-app-image.sh cleanup-staging ${option.app}

@@ -1,7 +1,11 @@
-# マルチ環境(dev → staging → production)セットアップ・移行手順
+# マルチ環境(dev → production)セットアップ・移行手順
 
-数十のWordPressサイトを dev → staging → production の3つのRKE2クラスタで運用するための
+数十のWordPressサイトを dev → production の2つのRKE2クラスタで運用するための
 セットアップ手順と、既存の単一クラスタ(dev1)からの移行手順。
+
+当初はdev → staging → productionの3環境で構築したが、HWリソースの制約から
+**2026-10-08にstagingを廃止**した(後片付けは下記「9. staging環境の廃止」)。
+本文中のstagingへの言及のうち、過去の作業記録・実例はそのまま残している。
 
 作業端末にkubectl等のCLIツールがまだ無い場合は先に
 [manual-tooling-setup.md](manual-tooling-setup.md)を参照。
@@ -10,8 +14,8 @@
 
 | 役割 | 使うもの |
 |---|---|
-| クラスタへの適用 | Rancher Fleet(環境別GitRepo × 3。[../fleet-bootstrap/](../fleet-bootstrap/)) |
-| 環境の分離 | 単一mainブランチ + 環境別ディレクトリ([../envs/](../envs/))+ クラスタラベル `env=dev\|staging\|production` |
+| クラスタへの適用 | Rancher Fleet(環境別GitRepo × 2。[../fleet-bootstrap/](../fleet-bootstrap/)) |
+| 環境の分離 | 単一mainブランチ + 環境別ディレクトリ([../envs/](../envs/))+ クラスタラベル `env=dev\|production`(サイト・アプリのバンドル内の環境差分の選択にも使う) |
 | 昇格の制御 | GitHubのPR承認(mainブランチ保護 + [CODEOWNERS](../.github/CODEOWNERS))。昇格PRは [promote.yaml](../.github/workflows/promote.yaml) が生成 |
 | 共通設定の配布 | ラッパーチャート [../charts/ibid-wordpress/](../charts/ibid-wordpress/)(GHCRへ公開、versionを環境ごとに昇格) |
 | イメージの固定 | [../images/wordpress/](../images/wordpress/)(digest固定のカスタムイメージをGHCRへ公開) |
@@ -54,7 +58,7 @@ wp-contentの実データは昇格せず、必要な場合は [manual-wordpress-
    GitHubの Packages → `charts/ibid-wordpress` と `wordpress` → Package settings →
    Change visibility → Public。クラスタが匿名でpullできるようにするため。
 
-## 2. クラスタの追加(staging / production それぞれ)
+## 2. クラスタの追加(production 等)
 
 1. Rancher UIからHarvester上にRKE2クラスタを作成する。マシンプールのcloud-initに
    `nfs-common` を含めること(Longhorn RWXの前提。[manual-wordpress.md](manual-wordpress.md)参照)。
@@ -62,10 +66,10 @@ wp-contentの実データは昇格せず、必要な場合は [manual-wordpress-
    ([manual-harvester-loadbalancer.md](manual-harvester-loadbalancer.md)参照)。
    IPレンジは環境ごとに別レンジを割り当てる。
 3. Rancherの Cluster Management → 対象クラスタ → Labels & Annotations で
-   ラベル `env=staging`(または `env=production`)を付与する。
+   ラベル `env=production` を付与する。
 4. Rancher localクラスタへ対応するGitRepoを適用する:
    ```bash
-   kubectl --context <rancher-local> apply -f fleet-bootstrap/gitrepo-staging.yaml
+   kubectl --context <rancher-local> apply -f fleet-bootstrap/gitrepo-production.yaml
    ```
 5. `envs/<env>/infra/` が空のうちは何も適用されない。手順4(移行)完了後は、
    dev の `envs/dev/infra/` を昇格PRでコピーして Longhorn 等を導入する。
@@ -115,7 +119,7 @@ Rancher UI(Continuous Delivery → Git Repos → base-infra)で `paths` を確�
    同様に `longhorn-crd` → `base-infra-longhorn-crd`、`catalog-repos` →
    `base-infra-catalog-repos`(rawマニフェストのバンドルもFleetはHelmリリースとして
    管理しているため必要)。
-3. `envs/staging/infra/`・`envs/production/infra/` にも同内容をコピーする。ただし
+3. `envs/production/infra/` にも同内容をコピーする。ただし
    こちらは新規クラスタなので `releaseName` は素直な名前(`longhorn` 等)にする。
 4. **PRをマージする前に**、Rancher UIで旧GitRepo `base-infra` を削除する。
    keepResourcesが同期済みなので、バンドルは消えてもLonghorn等の実リソースは残る。
@@ -163,11 +167,12 @@ Rancher UI(Continuous Delivery → Git Repos → base-infra)で `paths` を確�
 ## 4. 日常運用
 
 - **サイト追加**: [manual-wordpress.md](manual-wordpress.md)。原則devに追加し、
-  昇格で staging / production へ展開する。
+  昇格で production へ展開する。
 - **設定変更・バージョンアップ**: devの `envs/dev/sites/<site>/fleet.yaml` または
   `charts/ibid-wordpress/` を変更 → PR → マージ → devで動作確認 →
-  Actionsの `promote` を手動起動(dev→staging) → stagingで確認 →
-  `promote`(staging→production) → CODEOWNERS承認を経てマージ。
+  (DBマイグレーションを伴う変更ならdev1で本番データリハーサル。
+  [operations-flow.md](operations-flow.md)) →
+  Actionsの `promote`(dev→production)を手動起動 → CODEOWNERS承認を経てマージ。
 - **チャート更新**: `charts/ibid-wordpress/` を変更し `Chart.yaml` のversionを上げる →
   マージで `release-chart.yaml` がGHCRへ公開 → devサイトの `helm.version` を上げるPR →
   以後は通常の昇格フロー。
@@ -188,15 +193,15 @@ WordPressコア/プラグインのイメージはdigest固定(= セキュリテ�
    `wp-file-manager`(過去に重大脆弱性の履歴あり)は特に、その時点で必要かどうかを
    毎回再検討する。
 3. **Sealed Secrets鍵の再バックアップ**: ローテーションの有無に関わらず、
-   6.のコマンドを3環境分実行しておく(冪等なので無駄にはならない)。
+   6.のコマンドを全環境分実行しておく(冪等なので無駄にはならない)。
    コントローラは30日ごとに自動で鍵をローテーションするため、月次実施であれば
    取りこぼしがない。
-4. 更新はdevから着手し、通常の昇格フロー(本節冒頭)でstaging→productionへ展開する。
+4. 更新はdevから着手し、通常の昇格フロー(本節冒頭)でproductionへ展開する。
 
 ## 5. Longhornバックアップの運用
 
 - 定期ジョブとバックアップ先は `envs/<env>/infra/longhorn-jobs/` でGit管理
-  (snapshot-6h: 6時間ごと保持4世代 / backup-daily: JST 2:00、保持はdev・staging 7世代、
+  (snapshot-6h: 6時間ごと保持4世代 / backup-daily: JST 2:00、保持はdev 7世代、
   production 14世代)。バックアップ先はNFS `192.168.1.1:/data/nfs/longhorn/<env>`。
 - **クラスタごとに1回だけ手動patchが必要**(Longhornが自動作成する `default`
   BackupTarget CRの `spec.backupTargetURL` はlonghorn-managerがフィールド所有して
@@ -239,7 +244,7 @@ WordPressコア/プラグインのイメージはdigest固定(= セキュリテ�
 - コントローラはデフォルトで**30日ごとに新しい鍵を追加**する(古い鍵も復号用に
   残る)。ローテーション後は上記コマンドで再バックアップする(ラベル指定なので
   全世代がまとめて出力される)。**個別にローテーション日を追跡する代わりに、
-  4.の「定期メンテナンス日(毎月1日を目安)」に3環境分まとめて再バックアップする**運用とする。
+  4.の「定期メンテナンス日(毎月1日を目安)」に全環境分まとめて再バックアップする**運用とする。
 - **リストア(クラスタ再構築時)**: コントローラ導入後、バックアップした鍵を
   `kubectl apply -f` で投入し、コントローラPodを再起動
   (`kubectl -n kube-system delete pod -l app.kubernetes.io/name=sealed-secrets`)
@@ -419,11 +424,36 @@ kubeletのマウントバックオフ、Fleetの所有権drift等)は
    Readyを確認する。手動で取った復元用バックアップは適宜整理する
    (RecurringJobの保持世代管理は自動作成分にしか効かない)。
 
+## 9. staging環境の廃止(2026-10-08)
+
+HWリソース(Harvesterホストのメモリ)の制約からstagingを廃止し、dev / production の
+2環境にした。本番相当データでの確認は、dev1上の一時的なリハーサルサイトで代替する
+([operations-flow.md](operations-flow.md)「本番データリハーサル」)。
+
+Git側(`envs/staging/`、`fleet-bootstrap/gitrepo-staging.yaml`、promoteワークフロー・
+スクリプトのstaging対応)は削除済み。staging1クラスタ自体は廃止時点で既にRancherから
+削除されていた。Git管理外の後片付けは以下(実施したら[x]にする):
+
+- [ ] Rancher localのGitRepo `ibid-staging` を削除する(対象クラスタ0台で何も適用していない):
+  ```bash
+  kubectl --context rancher -n fleet-default delete gitrepo ibid-staging
+  ```
+- [ ] Harvester管理クラスタのIPPool `pool2`(staging用、`192.168.1.61-70`)を削除し、
+  レンジを解放する([manual-harvester-loadbalancer.md](manual-harvester-loadbalancer.md))
+- [ ] FreeIPAのDNSから `*.staging.ibid.lan` のAレコードを削除する
+- [ ] NFSのLonghornバックアップ先 `192.168.1.1:/data/nfs/longhorn/staging` を削除する
+  (DRで戻す予定が無いことを確認してから)
+- [ ] オフライン保管しているstagingのSealed Secrets鍵バックアップを破棄する
+- [ ] Rundeckに取り込み済みの `app-image-update/staging` グループのジョブを削除し、
+  `rundeck/jobs/update-app-image.yaml` を再取り込みする(`rd jobs load`は既存ジョブを消さない)
+- [ ] 作業端末の `~/.kube/config` から `staging1` コンテキストを削除する
+- [ ] Slackアラート等で `cluster=staging` を前提にした設定が残っていないか確認する
+
 ## 補足: 将来の拡張
 
 - ~~サイトSecretのSealedSecret移行~~ 完了済み: 全環境のサイトSecretは
   `envs/<env>/secrets/` のSealedSecretでGit管理されている
   (生成・移行は `scripts/seal-site-secrets.sh`)。
 - **クラスタ定義のGitOps化(Phase 4)**: Rancher provisioning-v2 の Cluster オブジェクトを
-  localクラスタ向けGitRepoで管理できるが、誤マージの影響半径が大きいため3クラスタ規模では
+  localクラスタ向けGitRepoで管理できるが、誤マージの影響半径が大きいため2クラスタ規模では
   急がない。

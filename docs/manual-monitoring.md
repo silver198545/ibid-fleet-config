@@ -93,13 +93,13 @@ kubectlの場合: `kubectl -n cattle-monitoring-system port-forward svc/rancher-
 2. `scripts/seal-monitoring-secret.sh <env>` を再実行しPR→マージ。
 3. テスト発報(上記1.)で疎通確認後、旧Webhookを無効化。
 
-## 環境展開時の差分(dev → staging → production)
+## 環境展開時の差分(dev → production)
 
 promoteワークフローは `sites/` しかコピーしないため、monitoring系バンドルは
 手動PRで各環境に展開する。環境間で意図的に異なる箇所:
 
 - `dependsOn` のバンドル名(`ibid-<env>-envs-<env>-infra-monitoring-crd`)
-- `prometheus.prometheusSpec.externalLabels.cluster`(dev / staging / production)
+- `prometheus.prometheusSpec.externalLabels.cluster`(dev / production)
 - SealedSecret(環境ごとに封印し直す。コピー不可)
 - productionはPVC/retention増を検討(例: 30Gi / 15d)
 - **productionのみ**: パス由来のバンドル名(`ibid-production-envs-production-infra-<dir>`)は

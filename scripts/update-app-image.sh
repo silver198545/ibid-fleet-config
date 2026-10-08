@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # apps/配下の自作アプリ(brc-advanced-search, riken-diips等)のイメージ更新〜
-# dev→staging→production昇格を補助するスクリプト(docs/manual-apps.md の手順をなぞる)。
+# dev→production昇格を補助するスクリプト(docs/manual-apps.md の手順をなぞる)。
 #
 # 昇格は promote.yaml の対象外(sites/専用)のため、PR作成はこのスクリプトが行う。
+# 昇格はディレクトリの丸ごとコピー(envs/dev/apps/<app> → envs/production/apps/<app>)。
+# productionで変える値(ホスト名、レプリカ数等)はdev側のディレクトリ内の
+# overlays/production/ に置いてあるため、コピー後の書き換えは不要
+# (docs/operations-flow.md「環境差分の書き方」)。
 # 以下は意図的に自動化していない:
 #   - SealedSecret(GHCR pull用)の再作成: kubeseal実行にPAT等の秘密情報と対象クラスタへの
 #     kubectlアクセスが要るため、コマンド例を表示して人手に委ねる。
 #   - 全PRのマージ: mainのブランチ保護は`allow_auto_merge: false`かつ
-#     required_approving_review_count: 1(CODEOWNERSレビュー必須)で、dev/staging/production
+#     required_approving_review_count: 1(CODEOWNERSレビュー必須)で、dev/production
 #     問わず全PRに適用される(ソロ運用のため自己承認者がいない)。このスクリプトは
 #     `gh pr merge --auto`もブランチ保護をバイパスする`--admin`も使わない
 #     (前者はリポジトリ側の設定が無効、後者は意図的な安全ゲートのバイパスになるため)。
@@ -30,30 +34,23 @@
 #                                       envs/dev/apps/<app>/deployment.yamlのイメージタグを
 #                                       images/<app>/TAGに合わせて更新しPR作成。
 #   check-dev <app>                    devのrollout状況とWEBアクセス(readinessProbeのpathで200か)を確認。
-#   promote-staging <app>              【初回昇格専用】envs/dev/apps/<app> を envs/staging/apps/<app> へ
-#                                       新規コピーしホスト名を書き換える(ブランチ作成のみ、コミットはしない)。
-#                                       SealedSecret作成コマンドを表示して停止する。envs/staging/apps/<app>が
-#                                       既にある場合はエラーになる(2回目以降のイメージ更新はdeploy-stagingを使うこと)。
-#   promote-staging-finish <app>       promote-stagingでSealedSecretを手動作成した後に実行。
-#                                       コミット・PR作成まで行う。
-#   deploy-staging <app>               【2回目以降】既にstagingにある<app>のイメージタグだけを
-#                                       images/<app>/TAGに合わせて更新しPR作成(deploy-devのstaging版)。
-#   check-staging <app>                stagingのWEBアクセスを確認。
-#   sync-staging-data <app>            PVCで永続データを持つアプリ限定(persistent_data_dir_forに
+#   sync-dev-data <app>                PVCで永続データを持つアプリ限定(persistent_data_dir_forに
 #                                       登録済みのアプリのみ。現状sparqlistのみ)。productionの
-#                                       永続データ(例: repository/)をstagingへコピーし、本番相当
-#                                       データでの結合テストを可能にする(WordPressのstagingリストア相当。
-#                                       docs/manual-apps.md「stagingでの本番データ結合テスト」参照)。
-#                                       staging側は上書きされる。
-#   promote-production <app>           【初回昇格専用】envs/staging/apps/<app> を envs/production/apps/<app> へ
-#                                       新規コピー。SealedSecret作成コマンドを表示して停止する。既にある場合は
-#                                       エラーになる(2回目以降のイメージ更新はdeploy-productionを使うこと)。
-#   promote-production-finish <app>    コミット・PR作成のみ。
-#   deploy-production <app>            【2回目以降】既にproductionにある<app>のイメージタグだけを
-#                                       images/<app>/TAGに合わせて更新しPR作成(deploy-devのproduction版)。
+#                                       永続データ(例: repository/)をdevへコピーし、本番相当
+#                                       データでの確認を可能にする(WordPressの本番データリハーサル相当。
+#                                       docs/manual-apps.md「devでの本番データ確認」参照)。
+#                                       **dev側の内容は上書きされる**。
+#   promote-production <app>           【初回昇格専用】envs/dev/apps/<app> を envs/production/apps/<app> へ
+#                                       新規コピーする(ブランチ作成のみ、コミットはしない)。dev側に
+#                                       overlays/production/ が無ければエラー。SealedSecret作成コマンドを
+#                                       表示して停止する。既にある場合はエラーになる
+#                                       (2回目以降はdeploy-productionを使うこと)。
+#   promote-production-finish <app>    promote-productionでSealedSecretを手動作成した後に実行。
+#                                       コミット・PR作成まで行う。
+#   deploy-production <app>            【2回目以降】既にproductionにある<app>を、envs/dev/apps/<app>と
+#                                       同じ内容に同期するPRを作成する(イメージタグを含むdevの変更すべてが
+#                                       昇格対象。PRのdiffで内容を確認すること)。
 #   check-production <app>             productionのWEBアクセスを確認。
-#   cleanup-staging <app>              本番反映確認後、staging側のGit定義を削除するPRを作成。
-#                                       マージ後に実行するkubectl delete namespaceコマンドを表示する。
 #
 # 使い方の例(brc-advanced-searchをイメージ更新する場合):
 #   scripts/update-app-image.sh latest-src-ref brc-advanced-search
@@ -67,34 +64,18 @@
 #   (PRをマージ)
 #   git pull
 #   scripts/update-app-image.sh check-dev brc-advanced-search
-#   scripts/update-app-image.sh promote-staging brc-advanced-search
-#   (表示されたkubesealコマンドを実行してenvs/staging/secrets/brc-advanced-search.yamlを作る)
-#   scripts/update-app-image.sh promote-staging-finish brc-advanced-search
-#   (PRをマージ)
-#   git pull
-#   scripts/update-app-image.sh check-staging brc-advanced-search
-#   scripts/update-app-image.sh promote-production brc-advanced-search
-#   (kubesealコマンドを実行してenvs/production/secrets/brc-advanced-search.yamlを作る)
-#   scripts/update-app-image.sh promote-production-finish brc-advanced-search
+#   scripts/update-app-image.sh deploy-production brc-advanced-search
 #   (レビューの上、手動でPRをマージ)
 #   git pull
 #   scripts/update-app-image.sh check-production brc-advanced-search
-#   scripts/update-app-image.sh cleanup-staging brc-advanced-search
 #
-# 2回目以降のイメージ更新(productionは初回昇格後も envs/production/apps/<app> が残り続けるため、
-# promote-productionは使えず必ずエラーになる。stagingはcleanup-stagingで毎回消す運用のため、
-# 通常はpromote-stagingで問題ないが、cleanup-staging未実施のまま次サイクルに入った場合は
-# 同様にdeploy-stagingを使う):
-#   scripts/update-app-image.sh set-image brc-advanced-search <新SRC_REF>   # tag省略で自動採番(r7→r8等)
-#   (PRをマージし、build-brc-advanced-search-imageの成功を確認)
-#   git pull && scripts/update-app-image.sh deploy-dev brc-advanced-search
-#   (PRをマージ) git pull && scripts/update-app-image.sh check-dev brc-advanced-search
-#   scripts/update-app-image.sh promote-staging brc-advanced-search   # 既にあればdeploy-stagingを使う
-#   ...(以下は初回と同様)...
-#   scripts/update-app-image.sh deploy-production brc-advanced-search  # promote-productionではなくこちら
-#   (PRをマージ) git pull && scripts/update-app-image.sh check-production brc-advanced-search
+# 新規アプリの初回昇格は、deploy-productionの代わりに次を使う:
+#   (devのディレクトリに overlays/production/ を用意してdevへマージ済みであること)
+#   scripts/update-app-image.sh promote-production <app>
+#   (表示されたkubesealコマンドを実行してenvs/production/secrets/<app>.yamlを作る)
+#   scripts/update-app-image.sh promote-production-finish <app>
 #
-# 前提: gh CLIが認証済み、kubectl/kubesealのコンテキスト(dev1/staging1/prod1)が
+# 前提: gh CLIが認証済み、kubectl/kubesealのコンテキスト(dev1/prod1)が
 # ~/.kube/config にマージ済みであること(docs/manual-tooling-setup.md参照)。
 set -euo pipefail
 
@@ -120,7 +101,7 @@ if [[ ! "$APP" =~ ^[a-z0-9-]+$ ]]; then
   exit 1
 fi
 
-for cmd in git gh curl kubectl; do
+for cmd in git gh curl kubectl rsync; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "エラー: '$cmd' が見つかりません。" >&2
     exit 1
@@ -159,9 +140,9 @@ ghcr_secret_needed_for() {
 }
 
 # PVCで永続データを持つアプリの、コンテナ内でのデータディレクトリ絶対パス。
-# sync-staging-dataサブコマンドが production→staging のコピー元/先として使う
+# sync-dev-dataサブコマンドが production→dev のコピー元/先として使う
 # (brc-advanced-search/riken-diipsのようにPVCを持たないアプリは対象外。
-# docs/manual-apps.md「stagingでの本番データ結合テスト」参照)。
+# docs/manual-apps.md「devでの本番データ確認」参照)。
 persistent_data_dir_for() {
   case "$1" in
     sparqlist) echo "/app/repository" ;;
@@ -172,7 +153,6 @@ persistent_data_dir_for() {
 context_for_env() {
   case "$1" in
     dev) echo "dev1" ;;
-    staging) echo "staging1" ;;
     production) echo "prod1" ;;
     *) echo "エラー: 不明な環境: $1" >&2; exit 1 ;;
   esac
@@ -330,16 +310,10 @@ EOF
   echo "  scripts/update-app-image.sh deploy-dev ${APP}"
 }
 
-cmd_deploy() {
-  local env="$1"
+cmd_deploy_dev() {
+  local env="dev"
   local dep_file="envs/${env}/apps/${APP}/deployment.yaml"
-  [[ -f "$dep_file" ]] || {
-    echo "エラー: ${dep_file} が見つかりません。" >&2
-    if [[ "$env" != "dev" ]]; then
-      echo "${env}にまだ${APP}が昇格されていない可能性があります。先に promote-${env} / promote-${env}-finish を実行してください。" >&2
-    fi
-    exit 1
-  }
+  [[ -f "$dep_file" ]] || { echo "エラー: ${dep_file} が見つかりません。" >&2; exit 1; }
   local tag
   tag="$(tr -d '[:space:]' < "images/${APP}/TAG")"
 
@@ -367,6 +341,53 @@ cmd_deploy() {
   echo ""
   echo "マージ後、次で確認してください:"
   echo "  git pull && scripts/update-app-image.sh check-${env} ${APP}"
+}
+
+# productionの<app>をdevと同じ内容に同期する(昇格=丸ごとコピー)。productionで変える値は
+# dev側の overlays/production/ に入っているため、コピーだけで完結する。
+cmd_deploy_production() {
+  local from_dir="envs/dev/apps/${APP}"
+  local to_dir="envs/production/apps/${APP}"
+  [[ -d "$from_dir" ]] || { echo "エラー: ${from_dir} がありません。" >&2; exit 1; }
+  [[ -d "$to_dir" ]] || {
+    echo "エラー: ${to_dir} がありません。初回昇格は promote-production / promote-production-finish を使ってください。" >&2
+    exit 1
+  }
+
+  ensure_clean_worktree
+  require_main_uptodate
+
+  # --checksum: サイズと更新時刻が同じファイル(例: タグ 1.0.0-r1→1.0.0-r2)を取りこぼさないため
+  rsync -a --checksum --delete "${from_dir}/" "${to_dir}/"
+  if [[ -z "$(git status --porcelain -- "$to_dir")" ]]; then
+    echo "devとproductionの${APP}に差分がありません。PRは作成しません。"
+    exit 0
+  fi
+
+  local tag
+  tag="$(grep -oE "ghcr\.io/${GH_OWNER}/${APP}:[^\"[:space:]]+" "${from_dir}/deployment.yaml" | head -1 | cut -d: -f2)"
+  open_branch "deploy-production/${APP}-${tag}"
+  git add -A "$to_dir"
+  echo "昇格する差分:"
+  git diff --cached --stat
+
+  commit_push_pr \
+    "feat: production環境の${APP}を${tag}に更新" \
+    "$(cat <<EOF
+## 昇格内容
+\`envs/dev/apps/${APP}\` → \`envs/production/apps/${APP}\`(丸ごと同期)。イメージ: \`${tag}\`
+
+イメージタグに限らず、devに入っている${APP}の変更はすべて昇格対象になる。
+diffに意図しない変更が含まれていないか確認してからマージすること。
+
+## マージ後の確認
+- [ ] scripts/update-app-image.sh check-production ${APP}
+EOF
+)"
+
+  echo ""
+  echo "マージ後、次で確認してください:"
+  echo "  git pull && scripts/update-app-image.sh check-production ${APP}"
 }
 
 cmd_check() {
@@ -402,8 +423,8 @@ cmd_check() {
   fi
 }
 
-cmd_sync_staging_data() {
-  local data_dir parent_dir dir_name prod_pod stg_pod archive_name tmp_file
+cmd_sync_dev_data() {
+  local data_dir parent_dir dir_name prod_pod dev_pod archive_name tmp_file
   data_dir="$(persistent_data_dir_for "$APP")"
   parent_dir="$(dirname "$data_dir")"
   dir_name="$(basename "$data_dir")"
@@ -412,12 +433,12 @@ cmd_sync_staging_data() {
   # jsonpathはPodが0件だと非0で終了する(set -eで即死しないよう || true で受ける)。
   prod_pod="$(kubectl --context prod1 -n "$APP" get pods -l app="$APP" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
   [[ -n "$prod_pod" ]] || { echo "エラー: production(prod1)に${APP}のPodが見つかりません。" >&2; exit 1; }
-  stg_pod="$(kubectl --context staging1 -n "$APP" get pods -l app="$APP" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
-  [[ -n "$stg_pod" ]] || { echo "エラー: staging(staging1)に${APP}のPodが見つかりません。先にpromote-staging/deploy-stagingで${APP}をstagingへ展開してください。" >&2; exit 1; }
+  dev_pod="$(kubectl --context dev1 -n "$APP" get pods -l app="$APP" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+  [[ -n "$dev_pod" ]] || { echo "エラー: dev(dev1)に${APP}のPodが見つかりません。" >&2; exit 1; }
 
   echo "production Pod: ${prod_pod}" >&2
-  echo "staging Pod:    ${stg_pod}" >&2
-  echo "同期対象: ${data_dir} (production → staging。staging側の内容は上書きされます)" >&2
+  echo "dev Pod:        ${dev_pod}" >&2
+  echo "同期対象: ${data_dir} (production → dev。dev側の内容は上書きされます)" >&2
 
   tmp_file="$(mktemp "/tmp/${archive_name}.XXXXXX")"
   trap 'rm -f "$tmp_file"' EXIT
@@ -427,26 +448,33 @@ cmd_sync_staging_data() {
   kubectl --context prod1 -n "$APP" cp "${prod_pod}:/tmp/${archive_name}" "$tmp_file"
   kubectl --context prod1 -n "$APP" exec "$prod_pod" -- rm "/tmp/${archive_name}"
 
-  kubectl --context staging1 -n "$APP" cp "$tmp_file" "${stg_pod}:/tmp/${archive_name}"
+  kubectl --context dev1 -n "$APP" cp "$tmp_file" "${dev_pod}:/tmp/${archive_name}"
   # -m(mtime復元しない)/--no-same-permissions を付けないと、既存の(マウントポイントである)
   # ディレクトリ自体の属性復元でtarが失敗する(docs/manual-apps.md「実際に踏んだ問題」参照。
   # ファイル本体の展開自体はこのオプション無しでも成功するが、終了コードで失敗を検知できなくなるため付ける)。
-  kubectl --context staging1 -n "$APP" exec "$stg_pod" -- \
+  kubectl --context dev1 -n "$APP" exec "$dev_pod" -- \
     tar xzf "/tmp/${archive_name}" -C "$parent_dir" -m --no-same-permissions
-  kubectl --context staging1 -n "$APP" exec "$stg_pod" -- rm "/tmp/${archive_name}"
+  kubectl --context dev1 -n "$APP" exec "$dev_pod" -- rm "/tmp/${archive_name}"
 
   rm -f "$tmp_file"
   trap - EXIT
 
   echo ""
-  echo "同期しました。stagingで結合テストしてください: https://$(hostname_for_env staging)/"
+  echo "同期しました。devで本番相当データでの動作を確認してください: https://$(hostname_for_env dev)/"
 }
 
 cmd_promote_prepare() {
-  local from_env="$1" to_env="$2"
+  local from_env="dev" to_env="production"
   local from_dir="envs/${from_env}/apps/${APP}"
   local to_dir="envs/${to_env}/apps/${APP}"
   [[ -d "$from_dir" ]] || { echo "エラー: ${from_dir} がありません。" >&2; exit 1; }
+  [[ -d "${from_dir}/overlays/production" ]] || {
+    echo "エラー: ${from_dir}/overlays/production がありません。" >&2
+    echo "productionで変える値(ホスト名等)のパッチと、fleet.yamlのtargetCustomizationsを" >&2
+    echo "devのディレクトリに用意してdevへマージしてから実行してください" >&2
+    echo "(docs/operations-flow.md「環境差分の書き方」、既存のbrc-advanced-search等が参考になる)。" >&2
+    exit 1
+  }
   [[ -d "$to_dir" ]] && {
     echo "エラー: ${to_dir} は既に存在します。既存の昇格が進行中でないか確認してください。" >&2
     echo "既に${to_env}へ初回昇格済みで、イメージバージョンを更新したいだけの場合は" >&2
@@ -460,9 +488,8 @@ cmd_promote_prepare() {
   open_branch "promote/${APP}-${from_env}-to-${to_env}"
   mkdir -p "envs/${to_env}/apps"
   cp -r "$from_dir" "$to_dir"
-  sed -i "s#${APP}\\.${from_env}\\.ibid\\.lan#${APP}.${to_env}.ibid.lan#g" "${to_dir}/ingress.yaml"
 
-  echo "コピーとホスト名の書き換えが完了しました(まだコミットしていません):"
+  echo "コピーが完了しました(まだコミットしていません):"
   git status --short
 
   local to_ctx secret_file
@@ -499,15 +526,9 @@ EOF
 }
 
 cmd_promote_finish() {
-  local to_env="$1"
+  local from_env="dev" to_env="production"
   local to_dir="envs/${to_env}/apps/${APP}"
   local secret_file="envs/${to_env}/secrets/${APP}.yaml"
-  local from_env
-
-  case "$to_env" in
-    staging) from_env="dev" ;;
-    production) from_env="staging" ;;
-  esac
 
   case "$(git rev-parse --abbrev-ref HEAD)" in
     promote/"${APP}"-"${from_env}"-to-"${to_env}") ;;
@@ -532,9 +553,9 @@ cmd_promote_finish() {
     "feat: ${APP}を${to_env}環境へ昇格" \
     "$(cat <<EOF
 ## 昇格内容
-\`envs/${from_env}/apps/${APP}\` → \`envs/${to_env}/apps/${APP}\`(手動昇格。promote.yamlはsites/のみ対象)
+\`envs/${from_env}/apps/${APP}\` → \`envs/${to_env}/apps/${APP}\`(初回昇格。丸ごとコピー。promote.yamlはsites/のみ対象)
 
-- ホスト名を \`${APP}.${from_env}.ibid.lan\` → \`$(hostname_for_env "$to_env")\` に変更
+- productionで変える値(ホスト名 \`$(hostname_for_env "$to_env")\` 等)は \`overlays/production/\` で適用される
 ${secret_line}
 
 ## マージ後の確認
@@ -543,45 +564,15 @@ EOF
 )"
 }
 
-cmd_cleanup_staging() {
-  local dir="envs/staging/apps/${APP}"
-  local secret_file="envs/staging/secrets/${APP}.yaml"
-  if [[ ! -d "$dir" ]]; then
-    echo "envs/staging/apps/${APP} は既にありません。何もしません。"
-    exit 0
-  fi
-
-  ensure_clean_worktree
-  require_main_uptodate
-
-  open_branch "cleanup-staging/${APP}"
-  git rm -r "$dir" >/dev/null
-  [[ -f "$secret_file" ]] && git rm "$secret_file" >/dev/null
-
-  commit_push_pr \
-    "chore: ${APP}をstaging環境から削除" \
-    "production昇格を確認済みのため、待機コストを残さないようstagingの${APP}を削除する。"
-
-  echo ""
-  echo "マージ後、必ず以下を実行してください(keepResources: trueのためGit削除だけではnamespaceは消えません):"
-  echo "  kubectl --context staging1 delete namespace ${APP}"
-  echo "注意: 順序を守ること。マージ前にnamespaceを消すと、まだfleet.yamlを検知しているstagingのGitRepoがFleetに再作成させてしまいます。"
-}
-
 case "$SUBCOMMAND" in
   latest-src-ref)            cmd_latest_src_ref ;;
   set-image)                 cmd_set_image "$@" ;;
-  deploy-dev)                cmd_deploy dev ;;
+  deploy-dev)                cmd_deploy_dev ;;
   check-dev)                 cmd_check dev ;;
-  promote-staging)           cmd_promote_prepare dev staging ;;
-  promote-staging-finish)    cmd_promote_finish staging ;;
-  deploy-staging)            cmd_deploy staging ;;
-  check-staging)             cmd_check staging ;;
-  sync-staging-data)         cmd_sync_staging_data ;;
-  promote-production)        cmd_promote_prepare staging production ;;
-  promote-production-finish) cmd_promote_finish production ;;
-  deploy-production)         cmd_deploy production ;;
+  sync-dev-data)             cmd_sync_dev_data ;;
+  promote-production)        cmd_promote_prepare ;;
+  promote-production-finish) cmd_promote_finish ;;
+  deploy-production)         cmd_deploy_production ;;
   check-production)          cmd_check production ;;
-  cleanup-staging)           cmd_cleanup_staging ;;
   *) usage ;;
 esac

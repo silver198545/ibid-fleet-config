@@ -13,7 +13,7 @@
 # 使い方:
 #   scripts/seal-monitoring-secret.sh <env>
 #   例: SLACK_WEBHOOK_URL=https://hooks.slack.com/... scripts/seal-monitoring-secret.sh dev
-#   環境→kubectlコンテキストの対応は既定(dev1/staging1/prod1)。
+#   環境→kubectlコンテキストの対応は既定(dev1/prod1)。
 #   異なる場合は KUBE_CONTEXT=<コンテキスト名> で上書きする。
 set -euo pipefail
 
@@ -29,10 +29,9 @@ ENV_NAME="$1"
 
 case "$ENV_NAME" in
   dev) DEFAULT_CONTEXT="dev1" ;;
-  staging) DEFAULT_CONTEXT="staging1" ;;
   production) DEFAULT_CONTEXT="prod1" ;;
   *)
-    echo "エラー: envは dev / staging / production のいずれかを指定してください: $ENV_NAME" >&2
+    echo "エラー: envは dev / production のいずれかを指定してください: $ENV_NAME" >&2
     exit 1
     ;;
 esac

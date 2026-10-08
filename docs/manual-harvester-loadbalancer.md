@@ -216,7 +216,7 @@ kubectl --context <クラスタ名> get svc rke2-traefik -n kube-system
 払い出されたIP(dev1: `192.168.1.39`、pool1 `192.168.1.30-49`の範囲内)は、各サイトの
 ホスト名(`<site>.<env>.ibid.lan`)のDNS Aレコードとして登録する
 ([manual-cert-manager-freeipa-acme.md](manual-cert-manager-freeipa-acme.md) 参照)。
-staging/productionへ展開する際も同じ手順を各クラスタに対して行い、環境ごとに異なる
+productionへ展開する際も同じ手順をクラスタに対して行い、環境ごとに異なる
 LB IPを払い出させる(pool2/pool3からそれぞれ1つずつ消費するだけで済み、
 サイトごとのIP消費は発生しなくなる)。
 

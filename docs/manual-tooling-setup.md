@@ -11,7 +11,7 @@ DR復元など)をローカル端末から行うために必要なCLIツール�
 
 | ツール | 用途 | 使う場面 |
 |---|---|---|
-| `kubectl` | 各クラスタ(local/dev1/staging1/prod1)の操作 | 全般 |
+| `kubectl` | 各クラスタ(local/dev1/prod1)の操作 | 全般 |
 | `helm` | リリース状態の確認、break-glassデプロイ | [manual-multi-env.md](manual-multi-env.md)、`scripts/deploy-wordpress.sh` |
 | `kubeseal` | Secretの封印(SealedSecrets作成) | `scripts/seal-site-secrets.sh`、`scripts/seal-monitoring-secret.sh` |
 | `git` | このリポジトリの操作、ブランチ/PR作成 | 全般 |
@@ -96,7 +96,7 @@ Rundeckがそのノードへ接続するOSユーザーのホームディレク�
 
 各クラスタのkubeconfigはRancher UI(Cluster Management → 対象クラスタ → Download KubeConfig)
 から取得し、`~/.kube/config`にマージして`--context <クラスタ名>`で使い分ける運用にしている
-(このリポジトリでは `local`→`rancher`、`dev1`、`staging1`、`prod1` のcontext名で統一)。
+(このリポジトリでは `local`→`rancher`、`dev1`、`prod1` のcontext名で統一。staging1は2026-10-08の環境廃止で不要)。
 
 ```bash
 MERGED="$(mktemp)"

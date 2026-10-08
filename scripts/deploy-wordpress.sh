@@ -45,9 +45,9 @@ SITE="$2"
 shift 2
 
 case "$ENV_NAME" in
-  dev|staging|production) ;;
+  dev|production) ;;
   *)
-    echo "エラー: envは dev / staging / production のいずれかを指定してください: $ENV_NAME" >&2
+    echo "エラー: envは dev / production のいずれかを指定してください: $ENV_NAME" >&2
     exit 1
     ;;
 esac

@@ -1,8 +1,8 @@
 # envs/ — 環境別Fleetバンドル
 
-dev → staging → production の3クラスタそれぞれに適用する内容を、環境ごとの
+dev → production の2クラスタそれぞれに適用する内容を、環境ごとの
 ディレクトリで管理する(単一mainブランチ+環境別ディレクトリ方式)。
-Rancher側の3つのGitRepo([../fleet-bootstrap/](../fleet-bootstrap/)参照)が、
+Rancher側の2つのGitRepo([../fleet-bootstrap/](../fleet-bootstrap/)参照)が、
 それぞれ自分の環境のディレクトリだけを監視し、`env=<環境名>` ラベルの付いた
 クラスタへ適用する。
 
@@ -12,23 +12,31 @@ envs/
 │   ├── infra/    # catalog-repos / longhorn* / sealed-secrets / monitoring* (基盤バンドル)
 │   ├── sites/    # WordPressサイト(1サイト=1ディレクトリ、fleet.yaml)
 │   └── apps/     # WordPress以外の自作アプリ(1アプリ=1ディレクトリ、fleet.yaml)
-├── staging/      # 同構成
 └── production/   # 同構成
 ```
 
 `apps/` は `sites/` と違いWordPressラッパーチャート・PVC・3種のSecretを前提としない
 (DBを持たないステートレスなアプリを想定)ため別ディレクトリに分けている。
 追加手順は [../docs/manual-apps.md](../docs/manual-apps.md) 参照。
-**`promote.yaml` は `sites/` しかコピーしない**ため、`apps/` の昇格は同ドキュメントの
-手順で手動PRを作成すること。
+**`promote.yaml` は `sites/` しかコピーしない**ため、`apps/` の昇格は
+`scripts/update-app-image.sh`(同ドキュメント参照)でPRを作成すること。
+
+`sites/`・`apps/` のバンドルは**全環境で同一内容**にし、環境ごとに変わる値は
+fleet.yamlの`targetCustomizations`(とクラスタラベルのテンプレート展開)で書き分ける。
+昇格は丸ごとコピーで完結する([../docs/operations-flow.md](../docs/operations-flow.md)
+「環境差分の書き方」)。
 
 ## 運用ルール
 
-- **変更は必ずdevから入れ、staging→productionの順に昇格させる。**
+- **変更は必ずdevから入れ、productionへ昇格させる。**
+  2026-10-08にstagingは廃止した。本番相当データでの確認はdev1上の一時的な
+  リハーサルサイトで行う([../docs/operations-flow.md](../docs/operations-flow.md))。
   昇格は `.github/workflows/promote.yaml`(手動起動)が生成するPRのマージで行う。
   `envs/production/` 配下の変更はCODEOWNERSにより承認必須。
-- 環境間の差分は `diff -r envs/staging envs/production` でいつでも確認できる。
-  意図的な差分(devだけ新バージョン等)以外が出ていたら昇格漏れを疑うこと。
+- 環境間の差分は `diff -r envs/dev/sites envs/production/sites`(`apps`も同様)で
+  いつでも確認できる。昇格待ちの変更(`helm.version`、`plugins`、イメージタグ)以外が
+  出ていたら、環境固有の値の直書きか昇格漏れを疑うこと(devにしか無いサイト・アプリは
+  本番未展開のもの)。
 - サイトの追加は `scripts/new-wordpress-site.sh <env> <site>`(fleet.yaml生成)と
   `scripts/seal-site-secrets.sh <env> <site>`(認証情報のSealedSecret生成、
   `envs/<env>/secrets/` にコミット)で行う。

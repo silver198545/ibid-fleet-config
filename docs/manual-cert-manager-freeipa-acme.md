@@ -95,16 +95,16 @@ ipa-acme-manage status   # "ACME is enabled"になること
 
 `envs/<env>/infra/cert-manager/`でcert-manager本体を導入し、
 `envs/<env>/infra/cert-manager-issuer/`でTSIG鍵のSealedSecretと`ClusterIssuer`
-(`freeipa-acme`)を導入する。TSIG鍵の値は3環境で同一だが、SealedSecretは
+(`freeipa-acme`)を導入する。TSIG鍵の値は全環境で同一だが、SealedSecretは
 **環境ごとに個別にkubeseal(`--context <env1>`)し直す**必要がある
 (封印鍵が環境ごとに異なるため、他環境からのコピーは復号できない)。
 
 ```bash
-kubeseal --context <dev1|staging1|prod1> --format yaml < <平文Secretのyaml> \
+kubeseal --context <dev1|prod1> --format yaml < <平文Secretのyaml> \
   > envs/<env>/infra/cert-manager-issuer/sealedsecret-rfc2136-tsig.yaml
 ```
 
-`ClusterIssuer`は3環境で同一内容(同じFreeIPA ACMEエンドポイントを使う)。ACMEアカウント鍵
+`ClusterIssuer`は全環境で同一内容(同じFreeIPA ACMEエンドポイントを使う)。ACMEアカウント鍵
 (`freeipa-acme-account-key`)はcert-managerが初回発行時に自動生成するため、Git管理不要。
 
 ## サイト側でのCertificate発行
@@ -131,7 +131,7 @@ TSIG鍵(`certmanager-key`)はTXTレコードのみ許可(`grant certmanager-key 
 
 ```bash
 kinit admin
-# <env>には dev / staging / production、<TraefikのLB IP>は
+# <env>には dev / production、<TraefikのLB IP>は
 # manual-harvester-loadbalancer.md の手順で払い出されたIPを使う
 ipa dnsrecord-add ibid.lan <site>.<env> --a-rec <TraefikのLB IP>
 ```
@@ -152,5 +152,5 @@ dig @192.168.100.21 dna.dev.ibid.lan +short
 ```
 
 同一環境の複数サイトが同じIPを指すのは正常(Traefikがホスト名で振り分けるため)。
-staging/productionへ昇格する際は、各環境のTraefik LB IP(環境ごとに異なる)へ向けて
+productionへ昇格する際は、その環境のTraefik LB IP(環境ごとに異なる)へ向けて
 同様に登録すること。

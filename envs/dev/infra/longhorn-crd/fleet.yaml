@@ -8,7 +8,7 @@ keepResources: true
 
 helm:
   # 旧GitRepo(base-infra)時代のHelmリリースをそのまま引き継ぐための名前。
-  # (staging/productionは新規クラスタのため素直な名前 longhorn-crd を使っている)
+  # (productionは新規クラスタのため素直な名前 longhorn-crd を使っている)
   releaseName: base-infra-longhorn-crd
   chart: longhorn-crd
   repo: https://charts.rancher.io

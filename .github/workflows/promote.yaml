@@ -1,7 +1,9 @@
 # 環境間プロモーションPRの自動生成(手動起動)。
-# 指定したサイト(または全サイト)の設定を dev→staging または staging→production へ
-# コピーし、PRを作成する。PRのdiffがそのまま変更レビューになり、マージが昇格の承認になる。
+# 指定したサイト(または本番に既にある全サイト)の設定を dev→production へ丸ごとコピーし、
+# PRを作成する。PRのdiffがそのまま変更レビューになり、マージが昇格の承認になる。
 # envs/production/ 配下はCODEOWNERSにより承認必須。
+# 環境ごとに変わる値は各fleet.yaml内で書き分けてあるため、コピー後の手直しは不要
+# (docs/operations-flow.md「環境差分の書き方」)。
 #
 # 注意: github.token で作成されたPRでは validate ワークフローが自動起動しない
 # (GitHub Actionsの再帰防止仕様)。ブランチ保護で validate を必須チェックにする場合は、
@@ -12,15 +14,8 @@ name: promote
 on:
   workflow_dispatch:
     inputs:
-      from_env:
-        description: "昇格元の環境"
-        type: choice
-        required: true
-        options:
-          - dev
-          - staging
       site:
-        description: "サイト名(all で昇格元の全サイト)"
+        description: "サイト名(all で本番に既にある全サイトを更新。新規サイトは名前を指定)"
         type: string
         required: true
         default: all
@@ -40,18 +35,27 @@ jobs:
       - name: 昇格内容をコピーしてPRを作成
         env:
           GH_TOKEN: ${{ secrets.PROMOTE_TOKEN || github.token }}
-          FROM_ENV: ${{ inputs.from_env }}
+          FROM_ENV: dev
+          TO_ENV: production
           SITE: ${{ inputs.site }}
         run: |
           set -euo pipefail
 
-          if [ "$FROM_ENV" = "dev" ]; then TO_ENV=staging; else TO_ENV=production; fi
-
           if [ "$SITE" = "all" ]; then
-            # 全サイトを昇格元に完全同期する(昇格元で削除済みのサイトは昇格先からも消える。
-            # 各サイトは keepResources: true のためPVC等の実データはFleetに削除されない)
-            rsync -a --delete "envs/$FROM_ENV/sites/" "envs/$TO_ENV/sites/"
-            SUBJECT="全サイトを${FROM_ENV}から${TO_ENV}へ昇格"
+            # 本番に既にあるサイトだけを昇格元と同期する。devにしか無いサイト(本番未展開)は
+            # 対象外で、本番への新規追加はサイト名を指定して行う(SealedSecret等の準備が要るため)。
+            # devから消えたサイトも本番からは消さない(サイト削除は docs/manual-wordpress.md の手動手順)。
+            # --checksum: checkout直後はmtimeが揃うため、同サイズの変更(0.4.0→0.5.0等)をrsyncの
+            # quick checkが取りこぼす。内容比較を強制する。
+            for dir in envs/$TO_ENV/sites/*/; do
+              name="$(basename "$dir")"
+              if [ -d "envs/$FROM_ENV/sites/$name" ]; then
+                rsync -a --checksum --delete "envs/$FROM_ENV/sites/$name/" "envs/$TO_ENV/sites/$name/"
+              else
+                echo "警告: envs/$FROM_ENV/sites/$name が無いため $name はスキップします" >&2
+              fi
+            done
+            SUBJECT="本番の全サイトを${FROM_ENV}から${TO_ENV}へ昇格"
           else
             if [ ! -d "envs/$FROM_ENV/sites/$SITE" ]; then
               echo "エラー: envs/$FROM_ENV/sites/$SITE がありません" >&2
@@ -86,8 +90,10 @@ jobs:
 
           - [ ] diffの内容(チャートバージョン/values/イメージの変更点)を確認した
           - [ ] チャート/イメージ更新を含む場合、changelogに破壊的変更(DBマイグレーション等)がないか確認した
-          $( [ "$TO_ENV" = "production" ] && echo '- [ ] 対象サイトのLonghornスナップショット/バックアップを取得した' )
-          - [ ] 昇格元の環境で対象サイトが正常稼働していることを確認した
+          - [ ] diffが昇格させたい変更(helm.version、plugins等)だけで、環境固有の値の直書きが混ざっていない
+          - [ ] コア/プラグイン更新でDBマイグレーションを伴う場合、dev1の本番データリハーサルで確認した(docs/operations-flow.md)
+          - [ ] 対象サイトの本番バックアップ(Longhorn/DBダンプ)を取得した
+          - [ ] devで対象サイトが正常稼働していることを確認した
 
           🤖 Generated with promote.yaml
           EOF
