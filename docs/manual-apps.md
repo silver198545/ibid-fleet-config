@@ -120,9 +120,8 @@ productionで変える値(ホスト名、レプリカ数、アフィニティ等
    - `fleet.yaml` 末尾の `targetCustomizations`(`env: production` → `yaml.overlays: [production]`)
 6. dev確認後、上記「昇格についての注意」の初回昇格でproductionへ出す
    (pull用SealedSecretは環境ごとに作り直しが必要。他環境のSealedSecretはコピーできない)。
-   新しいホスト名 `<app>.production.ibid.lan` のDNS Aレコードもこのタイミングで登録する
-   ([manual-cert-manager-freeipa-acme.md](manual-cert-manager-freeipa-acme.md)。
-   `ipa dnsrecord-add ibid.lan <app>.production --a-rec <prod1のTraefik LB IP>`)。
+   DNSは環境ごとのワイルドカード(`*.production.ibid.lan`)なので、ホスト名の登録は不要
+   ([manual-cert-manager-freeipa-acme.md](manual-cert-manager-freeipa-acme.md)「サイトホスト名のDNS」)。
 
 ## 本番反映のサイクル
 

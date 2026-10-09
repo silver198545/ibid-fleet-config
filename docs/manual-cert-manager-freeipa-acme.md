@@ -120,37 +120,50 @@ metadata:
     cert-manager.io/cluster-issuer: freeipa-acme
 ```
 
-## サイトホスト名のDNS Aレコード登録(手動、環境ごとに1回)
+## サイトホスト名のDNS(環境ごとのワイルドカード、クラスタ作成時に1回)
 
-Ingress化により各サイトはTraefikの共有LoadBalancer IP(環境ごとに1つ)を経由するようになる。
-そのIPへ向けて、サイトのホスト名(`<site>.<env>.ibid.lan`)ごとにAレコードを登録する必要がある。
+各サイト・アプリはTraefikの共有LoadBalancer IP(環境ごとに1つ)を経由し、Traefikがホスト名で
+振り分ける。そのため、DNSは**環境ごとのワイルドカードAレコード1つ**で足りる(2026-10-09から)。
+
+| レコード | 値(2026-10-09) |
+|---|---|
+| `*.dev.ibid.lan` | `192.168.1.33`(dev1のTraefik) |
+| `*.production.ibid.lan` | `192.168.1.99`(prod1のTraefik) |
+
+- **サイトやアプリを追加しても、DNSの作業は無い**(リハーサルサイト`<site>-rh`も同じ)。
+- **TraefikのIPが変わったとき**(クラスタの作り直し等)は、このレコードを1件書き換える:
+  ```bash
+  kinit admin
+  kubectl --context <dev1|prod1> -n kube-system get svc rke2-traefik   # 新しいIP
+  ipa dnsrecord-mod ibid.lan '*.<dev|production>' --a-rec <新しいIP>
+  ```
+- **新しい環境を作ったとき**(例: staging)は追加する:
+  `ipa dnsrecord-add ibid.lan '*.<env>' --a-rec <TraefikのLB IP>`
 
 TSIG鍵(`certmanager-key`)はTXTレコードのみ許可(`grant certmanager-key subdomain ibid.lan TXT`)
-のため、Aレコードの登録はcert-manager用の自動化経路を流用できない。**IPA管理者権限で
-`ipa dnsrecord-add`を使う**(nsupdate+TSIGではない)。
+のため、Aレコードの操作はcert-manager用の自動化経路を流用できない。**IPA管理者権限で
+`ipa dnsrecord-*`を使う**(nsupdate+TSIGではない)。
+
+### ワイルドカードが効かなくなる場合(注意)
+
+- **個別のAレコードがあると、そちらが優先される。** 以前はサイトごとに個別のレコードを登録していたが、
+  クラスタの作り直しでTraefikのIPが変わった後も古い値のまま残り、サイトに届かなくなっていた
+  (2026-10-09に見つけて全て削除した)。個別のレコードは作らないこと。
+- **その名前の下に別のレコードがあると、その名前にはワイルドカードが効かない**(DNSの仕様)。
+  例えば`_acme-challenge.web.production`のTXTが残っていると、`web.production`はワイルドカードの対象外になる。
+  cert-managerは発行後にTXTを消すが、クラスタを作り直したときなどに消し忘れが残ることがある
+  (2026-10-09に本番の4件を削除した)。証明書が全てReadyなのに残っているTXTは消してよい:
+  ```bash
+  dig +short TXT _acme-challenge.<site>.<env>.ibid.lan @192.168.100.21   # 残っているか
+  ipa dnsrecord-del ibid.lan _acme-challenge.<site>.<env> --del-all
+  ```
+
+確認:
 
 ```bash
-kinit admin
-# <env>には dev / production、<TraefikのLB IP>は
-# manual-harvester-loadbalancer.md の手順で払い出されたIPを使う
-ipa dnsrecord-add ibid.lan <site>.<env> --a-rec <TraefikのLB IP>
+for ns in 192.168.100.21 192.168.100.22; do
+  dig +short web.dev.ibid.lan @$ns; dig +short web.production.ibid.lan @$ns
+done
 ```
 
-例(dev、2026-07-10時点でTraefikのLB IPは`192.168.1.39`):
-
-```bash
-kinit admin
-ipa dnsrecord-add ibid.lan web.dev --a-rec 192.168.1.39
-ipa dnsrecord-add ibid.lan dna.dev --a-rec 192.168.1.39
-```
-
-登録後の確認:
-
-```bash
-dig @192.168.100.21 web.dev.ibid.lan +short
-dig @192.168.100.21 dna.dev.ibid.lan +short
-```
-
-同一環境の複数サイトが同じIPを指すのは正常(Traefikがホスト名で振り分けるため)。
-productionへ昇格する際は、その環境のTraefik LB IP(環境ごとに異なる)へ向けて
-同様に登録すること。
+作業端末で古い値が返り続ける場合は、systemd-resolvedのキャッシュを消す(`sudo resolvectl flush-caches`)。

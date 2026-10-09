@@ -214,9 +214,9 @@ kubectl --context <クラスタ名> get svc rke2-traefik -n kube-system
 `kubectl --context rancher -n fleet-default get clusters.provisioning.cattle.io <クラスタ名> -o jsonpath='{.spec.rkeConfig.chartValues.rke2-traefik}'`
 で残存を確認すること。
 
-払い出されたIP(現在の値は`kubectl --context <クラスタ> -n kube-system get svc rke2-traefik`で確認する)は、各サイトの
-ホスト名(`<site>.<env>.ibid.lan`)のDNS Aレコードとして登録する
-([manual-cert-manager-freeipa-acme.md](manual-cert-manager-freeipa-acme.md) 参照)。
+払い出されたIP(現在の値は`kubectl --context <クラスタ> -n kube-system get svc rke2-traefik`で確認する)は、
+環境のワイルドカードDNSレコード(`*.<env>.ibid.lan`)に設定する
+([manual-cert-manager-freeipa-acme.md](manual-cert-manager-freeipa-acme.md)「サイトホスト名のDNS」)。
 クラスタごとに同じ手順を行い、環境ごとに異なるLB IPを払い出させる
 (各IPPoolから1つずつ消費するだけで済み、サイトごとのIP消費は発生しない)。
 
