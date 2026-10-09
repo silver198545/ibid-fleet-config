@@ -353,6 +353,6 @@
 - **本番データリハーサルのスクリプト化** — 現状は
   [operations-flow.md](operations-flow.md)の手順書+`scripts/rehearsal-site.sh`(名前置換のみ)。
   実運用で数回回して手順が固まったら、本番バックアップ取得〜リストアまでの自動化を検討。
-- **Bitnamiチャート依存からの脱却** — イメージは自前化済みだが、チャートは
-  bitnami/wordpress依存が残る。提供形態が再度変わった場合は公式イメージ+
+- **Bitnamiチャート依存からの脱却** — イメージはBitnami公式の`latest`をdigest固定、
+  チャートもbitnami/wordpress依存。提供形態が再度変わった場合は公式イメージ+
   汎用チャートへの移行を検討。

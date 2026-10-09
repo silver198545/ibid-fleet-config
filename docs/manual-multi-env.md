@@ -18,7 +18,7 @@
 | 環境の分離 | 単一mainブランチ + 環境別ディレクトリ([../envs/](../envs/))+ クラスタラベル `env=dev\|production`(サイト・アプリのバンドル内の環境差分の選択にも使う) |
 | 昇格の制御 | GitHubのPR承認(mainブランチ保護 + [CODEOWNERS](../.github/CODEOWNERS))。昇格PRは [promote.yaml](../.github/workflows/promote.yaml) が生成 |
 | 共通設定の配布 | ラッパーチャート [../charts/ibid-wordpress/](../charts/ibid-wordpress/)(GHCRへ公開、versionを環境ごとに昇格) |
-| イメージの固定 | [../images/wordpress/](../images/wordpress/)(digest固定のカスタムイメージをGHCRへ公開) |
+| イメージの固定 | ラッパーチャートの [values.yaml](../charts/ibid-wordpress/values.yaml) でBitnami公式イメージをdigest固定 |
 
 Gitで昇格するのは**構成のみ**(チャートバージョン、values、イメージ)。DBデータ・
 wp-contentの実データは昇格せず、必要な場合は [manual-wordpress-restore.md](manual-wordpress-restore.md)
@@ -228,9 +228,9 @@ Rancher UI(Continuous Delivery → Git Repos → base-infra)で `paths` を確�
 - **チャート更新**: `charts/ibid-wordpress/` を変更し `Chart.yaml` のversionを上げる →
   マージで `release-chart.yaml` がGHCRへ公開 → devサイトの `helm.version` を上げるPR →
   以後は通常の昇格フロー。
-- **イメージ更新**: [../images/wordpress/Dockerfile](../images/wordpress/Dockerfile) の
-  digestと `TAG` を更新 → マージで `build-image.yaml` が公開 → チャートの `image.*` を
-  切り替えてチャートversionを上げる → 昇格フロー。
+- **イメージ更新**(WordPressコア・MariaDB): [values.yaml](../charts/ibid-wordpress/values.yaml) の
+  `image.digest`(Bitnami公式イメージ。`docker buildx imagetools inspect docker.io/bitnami/wordpress:latest`
+  等で最新digestを確認)を差し替える → 以後は上記「チャート更新」と同じ。
 
 ### 定期メンテナンス日(月次、毎月1日を目安)
 
@@ -239,7 +239,7 @@ WordPressコア/プラグインのイメージはdigest固定(= セキュリテ�
 (前後にずれても良いが月を跨がないこと)。初回は2026-08-01。
 
 1. **WordPressコアの確認**: Bitnami公式イメージの最新digestを確認し、必要なら
-   [../images/wordpress/Dockerfile](../images/wordpress/Dockerfile) を更新(上記「イメージ更新」手順)。
+   チャートのdigestを更新(上記「イメージ更新」手順)。
 2. **プラグインの確認**: 各サイトの `fleet.yaml` の `plugins:` 一覧を見直し、
    セキュリティリリースが出ているものを更新([manual-wordpress.md](manual-wordpress.md)参照)。
    `wp-file-manager`(過去に重大脆弱性の履歴あり)は特に、その時点で必要かどうかを

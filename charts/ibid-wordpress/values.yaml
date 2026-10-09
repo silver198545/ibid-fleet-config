@@ -35,8 +35,8 @@ wordpress:
   # docker.io/bitnami の無償イメージは2025年後半のBroadcom移行以降 `latest` タグしか
   # 提供されないため、digestで固定して全環境・全サイトの再現性を確保する。
   # (digest未固定だとPod再作成のたびに中身の異なる`latest`を引く恐れがある)
-  # 更新時はこのdigestを差し替え、Chart.yamlのversionを上げて環境ごとに昇格させる。
-  # 将来的には images/wordpress/ でビルドする自社イメージ(ghcr.io)へ切り替える。
+  # 更新時はこのdigestを差し替え、Chart.yamlのversionを上げて環境ごとに昇格させる
+  # (scripts/bump-chart.sh。docs/manual-multi-env.md 4章「イメージ更新」)。
   image:
     registry: docker.io
     repository: bitnami/wordpress

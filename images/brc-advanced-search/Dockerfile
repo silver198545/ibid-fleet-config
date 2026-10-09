@@ -2,7 +2,7 @@
 # vue3-main-rikenブランチ)のNuxt 3 SSRサーバーを実行するイメージ。
 #
 # ビルド元はこのリポジトリ管理外のアプリ(プライベートリポジトリ)。
-# 「何が動いているか」をコミットSHAで固定する運用は images/wordpress と同じだが、
+# 「何が動いているか」をコミットSHAで固定する運用は 他の images/<app>/ と同じだが、
 # 認証情報をDockerイメージのレイヤー履歴に残さないため、ソース取得は
 # Dockerfile内でgit cloneせず、.github/workflows/build-brc-advanced-search-image.yaml の
 # actions/checkoutステップ(SRC_REFファイルの内容をrefに指定)で行い、
