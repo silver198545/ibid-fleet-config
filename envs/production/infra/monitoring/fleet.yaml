@@ -153,18 +153,18 @@ helm:
           cluster: production
         retention: 15d
         retentionSize: 27GiB
+        # TSDBはゲストLonghorn(3レプリカ)ではなくharvester StorageClassに置く。
+        # ワーカーのルートディスク(HDD)上のゲストLonghornだと、I/O遅延で
+        # レプリカがタイムアウト→数GBのスナップショットチェーンを丸ごと再構築
+        # →さらにI/O遅延、の悪循環になり、全Podのprobeがタイムアウトして
+        # Unhealthyイベントが多発した(2026-10-09、dev1)。harvesterならゲストLonghornの
+        # 再構築・スナップショットが発生しない(Longhornのrecurring jobの対象外)。
+        # volumeClaimTemplateは既存PVCに反映されないため、変更時はPVCの作り直しが
+        # 必要(docs/manual-monitoring.md参照、メトリクス履歴は消える)。
         storageSpec:
           volumeClaimTemplate:
-            metadata:
-              # TSDBの書き込み量が多くLonghornのdefaultスナップショットグループ
-              # (retain 4)だとノードディスクを圧迫するため、db-lightグループ
-              # (../longhorn-jobs/recurringjobs.yaml)に付け替える。
-              # 既存PVCには反映されないため、初回適用時は該当Volumeのラベルを
-              # 手動で付け替えること(docs/manual-dr-troubleshooting.md参照)。
-              annotations:
-                recurring-job-group.longhorn.io/db-light: enabled
             spec:
-              storageClassName: longhorn
+              storageClassName: harvester
               accessModes:
                 - ReadWriteOnce
               resources:
