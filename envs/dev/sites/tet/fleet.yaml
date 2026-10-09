@@ -33,6 +33,11 @@ helm:
     #   - name: advanced-custom-fields
     #     version: "6.8.4"
     wordpress:
+      # wp-contentは外部NFS(csi-driver-nfs の nfs-external)に置く。Longhorn RWX
+      # (share-manager/NFS-Ganesha)のRemote I/O error対策(docs/manual-storage-migration.md参照)。
+      # 既存PVCのstorageClassは変更できないため、切り替えにはPVCの作り直しが必要。
+      persistence:
+        storageClass: nfs-external
       # 管理者パスワードはGitに含めず、事前に作成したSecretを参照する。
       existingSecret: wordpress-tet-credentials
       mariadb:
@@ -58,19 +63,6 @@ helm:
 # 適用先クラスタの env ラベルに一致するエントリが1つ選ばれ、helm.values へ深くマージされる。
 # ingressのホスト名は上の values 内でクラスタラベルから展開している(${ .ClusterLabels.env })。
 targetCustomizations:
-  - name: dev
-    clusterSelector:
-      matchLabels:
-        env: dev
-    helm:
-      values:
-        wordpress:
-          # Longhorn RWX(share-manager/NFS-Ganesha)のRemote I/O error問題
-          # (dev1、docs/manual-storage-migration.md参照)への対策として、
-          # wp-contentを外部NFS(csi-driver-nfs)に置く。productionへの適用は未決
-          # (既存PVCのstorageClassは変更できないため、適用時は移行手順が別途必要)。
-          persistence:
-            storageClass: nfs-external
   - name: production
     clusterSelector:
       matchLabels:

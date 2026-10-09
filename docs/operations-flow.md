@@ -57,8 +57,8 @@ promoteワークフローは環境ディレクトリを丸ごとコピーする�
     validateワークフローが直書きを検出して落とす
   - 環境固有の値は`fleet.yaml`末尾の`targetCustomizations`(`env`ラベルで選ばれる
     `dev`/`production`エントリ)の`helm.values`に書く。選ばれたエントリだけが
-    `helm.values`へ深くマージされる。現在はdevの`persistence.storageClass: nfs-external`と、
-    productionの`replicaCount: 2`/`podAntiAffinityPreset: hard`
+    `helm.values`へ深くマージされる。現在はproductionの`replicaCount: 2`/`podAntiAffinityPreset: hard`のみ
+    (wp-contentの`nfs-external`は2026-10-09に全環境共通の値へ移した)
   - ひな形は`scripts/new-wordpress-site.sh`が生成する
 - **アプリ(`apps/`、raw YAML)**:
   - 直下のマニフェストはdevの値で書き、productionで変える部分だけを
