@@ -131,3 +131,19 @@ wordpress:
         accessModes:
           - ReadWriteOnce
         size: 8Gi
+      # Bitnamiイメージの起動スクリプト(libmariadb.sh)は、既存データで起動するたびに
+      # ${DB_BIN_DIR}/mariadb_upgrade を呼ぶが、実在するのは mariadb-upgrade(ハイフン)だけで、
+      # 失敗は「This installation is already upgraded」と表示して握りつぶされる。そのままだと
+      # メジャー更新(例: 12.3→13.1、チャート0.6.2)後もシステムテーブルが旧版のまま残る
+      # (2026-10-10、web-rhの本番データリハーサルで発覚)。正しいバイナリへ渡すだけの
+      # スクリプトを mariadb_upgrade として置き(templates/mariadb-upgrade-shim.yaml)、
+      # Bitnami本来の「起動時に必要ならアップグレード」を効かせる(既に最新なら数秒で終わる)。
+      extraVolumes:
+        - name: mariadb-upgrade-shim
+          configMap:
+            name: mariadb-upgrade-shim
+            defaultMode: 0555
+      extraVolumeMounts:
+        - name: mariadb-upgrade-shim
+          mountPath: /opt/bitnami/mariadb/bin/mariadb_upgrade
+          subPath: mariadb_upgrade

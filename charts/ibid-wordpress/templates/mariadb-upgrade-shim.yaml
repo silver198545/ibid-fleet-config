@@ -1,0 +1,21 @@
+{{- /*
+MariaDBイメージの起動スクリプトが呼ぶ mariadb_upgrade(実在しない名前)を、
+正しい mariadb-upgrade へ渡すスクリプト。values.yaml の wordpress.mariadb.primary.extraVolumes
+でこのConfigMapを /opt/bitnami/mariadb/bin/mariadb_upgrade にマウントする(経緯はvalues.yaml参照)。
+サイトごとにnamespaceが分かれているため名前は固定。
+*/ -}}
+{{- if .Values.wordpress.mariadb.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mariadb-upgrade-shim
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mariadb-upgrade-shim
+data:
+  mariadb_upgrade: |
+    #!/bin/bash
+    exec /opt/bitnami/mariadb/bin/mariadb-upgrade "$@"
+{{- end }}
