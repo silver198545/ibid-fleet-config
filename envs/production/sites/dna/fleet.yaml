@@ -57,7 +57,7 @@ helm:
       - name: wp-external-links
         version: "2.65"
       - name: wp-file-manager
-        version: "8.0.4"
+        version: "8.0.6"
       - name: wp-multibyte-patch
         version: "2.9.3"
       - name: wp-revisions-control
