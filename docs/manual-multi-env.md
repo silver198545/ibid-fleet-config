@@ -251,14 +251,15 @@ WordPressコア/プラグインのイメージはdigest固定(= セキュリテ�
 
 ## 5. Longhornバックアップの運用
 
-> **注意(2026-10-09時点): WordPressサイトのデータはこのバックアップの対象外。**
+> **注意: WordPressサイトのデータはこのバックアップの対象外。**
 > ゲストクラスタのLonghornの定期バックアップが守るのは、ゲストLonghorn上のボリューム
-> (Prometheus、sparqlist等)だけになった。WordPressのDBは`harvester` StorageClass
+> (Prometheus、sparqlist等)だけ。WordPressのDBは`harvester` StorageClass
 > (Harvester側のボリューム)、wp-contentは`nfs-external`(NFSサーバー`192.168.1.1`上の
-> ディレクトリ)にあり、どちらもゲストLonghornを通らない。Harvester側にも日次スナップショット
-> 1世代(バックアップではない)しか無い。対策は[roadmap.md](roadmap.md)の項目5で検討する。
-> それまでは、本番反映前などに[operations-flow.md](operations-flow.md)の
-> 「本番データリハーサル」1.の方法(mysqldump + wp-contentのtar)で手動で取る。
+> ディレクトリ)にあり、どちらもゲストLonghornを通らない。
+> WordPressは、チャート0.6.0のサイトごとの日次バックアップCronJob(DBダンプ + wp-contentのtar、
+> NFS `/data/nfs/backup/<env>/`、14日分)で守る
+> ([manual-wordpress-restore.md](manual-wordpress-restore.md)「日次バックアップ」)。
+> バックアップがNFSサーバー1台に集中している問題は残っている([roadmap.md](roadmap.md)の項目5)。
 
 - 定期ジョブとバックアップ先は `envs/<env>/infra/longhorn-jobs/` でGit管理
   (snapshot-6h: 6時間ごと保持4世代 / backup-daily: JST 2:00、保持はdev 7世代、
@@ -412,9 +413,10 @@ kubeletのマウントバックオフ、Fleetの所有権drift等)は
    >   (productionは`reclaimPolicy: Retain`)。新しいPVCは別のディレクトリになるので、中身を移す必要がある
    > - DB: `harvester`のボリュームはHarvester側にあり、ゲスト側のバックアップは無い
    >
-   > 現構成での全損からの復元手順は、まだ確立・検証していない([roadmap.md](roadmap.md)項目5)。
-   > 当面は、サイトごとのmysqldump + wp-contentのtarから`scripts/restore-wordpress.sh`で戻す
-   > ([manual-wordpress-restore.md](manual-wordpress-restore.md))。
+   > 現構成での復元: 新しいクラスタでサイトが空のWordPressとして起動したら、NFS上の日次バックアップ
+   > (`/data/nfs/backup/<env>/wordpress-<site>/`。namespace単位なので新クラスタからも同じ場所)から
+   > `scripts/restore-wordpress.sh`で戻す([manual-wordpress-restore.md](manual-wordpress-restore.md)
+   > 「日次バックアップ」)。この流れでのクラスタ全損からの復元は、まだ演習していない([roadmap.md](roadmap.md)項目5)。
 
    以下は旧構成(ゲストLonghorn)での手順:
    ```bash

@@ -17,6 +17,20 @@ plugins: []
 #     version: "1.7.0"
 #     activate: false   # インストールのみで有効化しない場合
 
+# サイトの日次バックアップ(templates/backup-cronjob.yaml)。DBダンプとwp-contentのtarを
+# NFS上の backup/<env>/<namespace>/ に置く。DB(harvester)とwp-content(nfs-external)は
+# ゲストLonghornの定期バックアップの対象外のため、サイト自身で取る(docs/roadmap.md 項目5)。
+# 形式は scripts/restore-wordpress.sh でそのまま戻せる <yyyymmdd_hhmm>.dump.gz / .tar.gz。
+backup:
+  enabled: true
+  # JST(CronJobのtimeZone)。Longhornのbackup-daily(JST 2:00)と重ならない時刻にする
+  schedule: "0 3 * * *"
+  retentionDays: 14
+  # envs/<env>/infra/csi-driver-nfs-storageclass/ で定義。両環境ともreclaimPolicy: Retain
+  storageClass: nfs-backup
+  # NFSではサイズは制限として効かない(PVCの必須項目として書いているだけ)
+  size: 20Gi
+
 wordpress:
   # docker.io/bitnami の無償イメージは2025年後半のBroadcom移行以降 `latest` タグしか
   # 提供されないため、digestで固定して全環境・全サイトの再現性を確保する。
@@ -29,15 +43,14 @@ wordpress:
     tag: latest
     digest: sha256:39d337946920c27adea7b0495692ab7c11734a2bd32564edb5a415d5ecf137bd
 
-  # Web層のデフォルトは1レプリカ(dev/staging向け)。production は冗長化のため
-  # 各サイトのfleet.yamlで replicaCount: 2 + podAntiAffinityPreset: hard を
-  # 上書きする(envs/production/sites/<site>/fleet.yaml参照)。wp-content は
-  # Longhorn の ReadWriteMany ボリュームで全レプリカ間共有するため、
-  # レプリカ数を変えてもマウント方式は変わらない。
+  # Web層のデフォルトは1レプリカ(dev向け)。production は冗長化のため
+  # 各サイトのfleet.yamlの targetCustomizations で replicaCount: 2 +
+  # podAntiAffinityPreset: hard を上書きする。wp-content は ReadWriteMany の
+  # ボリュームで全レプリカ間共有するため、レプリカ数を変えてもマウント方式は変わらない。
   replicaCount: 1
 
-  # 既定はLoadBalancer(サイト個別IP)。Traefik Ingress化する場合は各サイトの
-  # fleet.yamlでこのブロックとingressを下記例のように上書きする
+  # 既定はLoadBalancer(サイト個別IP)。現在の全サイトは、scripts/new-wordpress-site.sh が
+  # 生成するfleet.yamlでこのブロックとingressを下記例のように上書きしている
   # (docs/manual-harvester-loadbalancer.md「Traefikを LoadBalancer 化する」参照)。
   # service:
   #   type: ClusterIP
@@ -51,10 +64,9 @@ wordpress:
   service:
     type: LoadBalancer
 
-  # ゲストクラスタ内Longhorn(3重化)+その上のVM仮想ディスク(Harvester側Longhornで
-  # さらに3重化)の二重増幅対策として、レプリカ数1の longhorn-r1 を使う
-  # (RWXが必要なためharvester StorageClass(RWO専用)には載せられない。
-  # docs/roadmap.md 項目3参照)。
+  # 既定は longhorn-r1(二重増幅対策。docs/roadmap.md 項目3)。現在の全サイトは、
+  # Longhorn RWXのRemote I/O error対策で fleet.yaml により nfs-external(外部NFS)へ
+  # 上書きしている(docs/manual-storage-migration.md)。
   persistence:
     enabled: true
     storageClass: longhorn-r1

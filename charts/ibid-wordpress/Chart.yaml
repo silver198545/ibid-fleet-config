@@ -13,11 +13,11 @@
 apiVersion: v2
 name: ibid-wordpress
 description: >-
-  Bitnami WordPressチャートに全サイト共通デフォルト(1レプリカ+Longhorn RWX共有、
-  standalone MariaDB、LoadBalancer公開)を焼き込んだラッパーチャート。
-  productionはサイトごとのfleet.yamlで2レプリカ+Pod Anti-Affinityに上書きする。
+  Bitnami WordPressチャートに全サイト共通デフォルト(standalone MariaDB、digest固定イメージ、
+  プラグイン同期Job、日次バックアップCronJob)を焼き込んだラッパーチャート。
+  公開方式・wp-contentのStorageClass・productionのレプリカ数はサイトごとのfleet.yamlで上書きする。
 type: application
-version: 0.5.1
+version: 0.6.0
 appVersion: "7.0.0"
 
 dependencies:

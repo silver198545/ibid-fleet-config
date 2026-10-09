@@ -1,0 +1,163 @@
+{{- /*
+サイトの日次バックアップ(DBダンプ + wp-contentのtar)。
+DB(harvester StorageClass)とwp-content(nfs-external)はゲストLonghornの定期バックアップの
+対象外のため、サイト自身がバックアップを取る(docs/roadmap.md 項目5)。
+
+出力はscripts/restore-wordpress.shがそのまま読める形式:
+  <yyyymmdd_hhmm>.dump.gz  ... mariadb-dumpのプレーンSQL(gzip)
+  <yyyymmdd_hhmm>.tar.gz   ... /bitnami/wordpress 配下の wp-content のtar(gzip)
+時刻はJST。WordPressイメージにlzopが無いため圧縮はgzip。
+
+保存先のPVC(nfs-backup StorageClass)はNFS上の backup/<env>/<namespace> を指す。
+PVC名ではなくnamespaceでディレクトリが決まるため、PVCやクラスタを作り直しても
+同じディレクトリ(=過去のバックアップ)が見える。
+
+完了したJobのPodが残っているとwp-content PVCの削除が止まるため
+(docs/manual-dr-troubleshooting.md 4.)、ttlSecondsAfterFinishedで1時間後に消す。
+成否は監視(WordPressBackupStale)で見る。
+
+DBのrootパスワードはサイトのexistingSecretから読む。existingSecretが無い値(チャート単体の
+helm lint等)では描画しない(全サイトのfleet.yamlは必ず指定している)。
+*/ -}}
+{{- if and .Values.backup.enabled .Values.wordpress.mariadb.auth.existingSecret }}
+{{- $img := .Values.wordpress.image }}
+{{- $imgRef := printf "%s/%s" $img.registry $img.repository }}
+{{- if $img.digest }}
+{{- $imgRef = printf "%s@%s" $imgRef $img.digest }}
+{{- else }}
+{{- $imgRef = printf "%s:%s" $imgRef $img.tag }}
+{{- end }}
+{{- $dbSecret := .Values.wordpress.mariadb.auth.existingSecret }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-backup
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    # helm uninstallでもバックアップの入れ物を消さない
+    helm.sh/resource-policy: keep
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: backup
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: {{ .Values.backup.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.backup.size }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-backup
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: backup
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  timeZone: Asia/Tokyo
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  suspend: false
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 3600
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: {{ .Chart.Name }}
+            app.kubernetes.io/instance: {{ .Release.Name }}
+            app.kubernetes.io/component: backup
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsUser: 1001
+            runAsGroup: 1001
+            fsGroup: 1001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: backup
+              image: {{ $imgRef }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              env:
+                - name: MYSQL_PWD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $dbSecret }}
+                      key: mariadb-root-password
+                - name: DB_HOST
+                  value: {{ .Release.Name }}-mariadb
+                - name: DB_NAME
+                  value: {{ .Values.wordpress.mariadb.auth.database | quote }}
+                - name: RETENTION_DAYS
+                  value: {{ .Values.backup.retentionDays | quote }}
+              volumeMounts:
+                - name: wordpress-data
+                  mountPath: /bitnami/wordpress
+                  subPath: wordpress
+                  readOnly: true
+                - name: backup
+                  mountPath: /backup
+              command:
+                - bash
+                - -ec
+                - |
+                  set -o pipefail
+                  # ファイル名はJST(イメージにtzdataが無くても動くよう、UTCに9時間足す)
+                  TS="$(date -u -d '+9 hours' +%Y%m%d_%H%M)"
+                  cd /backup
+                  rm -f .*.tmp
+
+                  echo "=== DBダンプ: $DB_NAME@$DB_HOST"
+                  mariadb-dump -h "$DB_HOST" -u root --single-transaction --routines --triggers \
+                    "$DB_NAME" | gzip >".$TS.dump.gz.tmp"
+                  gzip -t ".$TS.dump.gz.tmp"
+                  first="$(gzip -dc ".$TS.dump.gz.tmp" | head -n 1 || true)"
+                  case "$first" in
+                    --*|/\**) ;;
+                    *) echo "ダンプがSQLに見えません(先頭行: ${first:0:60})" >&2; exit 1 ;;
+                  esac
+                  if ! gzip -dc ".$TS.dump.gz.tmp" | tail -n 1 | grep -q 'Dump completed'; then
+                    echo "ダンプが途中で終わっています" >&2
+                    exit 1
+                  fi
+
+                  echo "=== wp-contentのtar"
+                  # 稼働中のサイトなので、読んでいる間にファイルが変わると終了コード1になる(警告扱い)
+                  rc=0
+                  tar czf ".$TS.tar.gz.tmp" -C /bitnami/wordpress wp-content || rc=$?
+                  if [ "$rc" -gt 1 ]; then
+                    echo "tarが失敗しました(終了コード $rc)" >&2
+                    exit "$rc"
+                  fi
+                  gzip -t ".$TS.tar.gz.tmp"
+
+                  mv ".$TS.dump.gz.tmp" "$TS.dump.gz"
+                  mv ".$TS.tar.gz.tmp" "$TS.tar.gz"
+                  ls -l "$TS.dump.gz" "$TS.tar.gz"
+
+                  echo "=== ${RETENTION_DAYS}日より古いバックアップを削除"
+                  find /backup -maxdepth 1 -type f \( -name '*.dump.gz' -o -name '*.tar.gz' \) \
+                    -mtime +"$RETENTION_DAYS" -print -delete
+          volumes:
+            - name: wordpress-data
+              persistentVolumeClaim:
+                # bitnami/wordpressチャートのwp-content PVC名はリリース名と一致する
+                claimName: {{ .Release.Name }}
+                readOnly: true
+            - name: backup
+              persistentVolumeClaim:
+                claimName: {{ .Release.Name }}-backup
+{{- end }}

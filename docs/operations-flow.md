@@ -88,6 +88,11 @@ devのサイトは新品DB(またはテスト用コンテンツ)のため、**�
 
 ### 1. 本番のバックアップを取得する
 
+本番サイトの日次バックアップ(`/data/nfs/backup/production/wordpress-<site>/`)をそのまま使う。
+新しいものが必要なら、その場で1つ取る(どちらも
+[manual-wordpress-restore.md](manual-wordpress-restore.md)「日次バックアップ」)。
+
+日次バックアップがまだ無いサイト(チャート0.6.0より前)では、次の手動の方法で
 `scripts/restore-wordpress.sh` が読める形式(`yyyymmdd_hhmm.tar.lzo` +
 `yyyymmdd_hhmm.dump.lzo` の組)で、本番から取り出す。
 
@@ -128,6 +133,7 @@ scripts/seal-site-secrets.sh dev $SITE-rh       # envs/dev/secrets/<site>-rh.yam
 ```bash
 kubectl config use-context dev1
 scripts/restore-wordpress.sh $SITE-rh "$DIR" "$TS"
+# 日次バックアップを使う場合: DIR=/mnt/ibid-nfs/backup/production/wordpress-$SITE(NFSをroでマウント)
 ```
 
 スクリプトが最後に表示する手順に従い、URLを
@@ -182,10 +188,11 @@ production昇格PRをマージする直前に、対象サイトの
 - DBダンプ(mysqldump)
 - wp-contentのtar
 
-を必ず取得する。取得方法は上記「本番データリハーサル」の1.と同じ
-(`scripts/restore-wordpress.sh`がそのまま読める形式になる)。wp-content(`nfs-external`)と
-DB(`harvester`)はゲストLonghornの定期バックアップの対象外なので、Longhorn側には頼れない
-([manual-multi-env.md](manual-multi-env.md)の5.)。障害時はこのバックアップからの復元
+を必ず取得する。日次バックアップのCronJobから「今すぐ1つ取る」
+([manual-wordpress-restore.md](manual-wordpress-restore.md)「日次バックアップ」)。
+前夜の日次バックアップより後の変更も含めるため、マージ直前に取ること。
+wp-content(`nfs-external`)とDB(`harvester`)はゲストLonghornの定期バックアップの対象外なので、
+Longhorn側には頼れない([manual-multi-env.md](manual-multi-env.md)の5.)。障害時はこのバックアップからの復元
 ([manual-wordpress-restore.md](manual-wordpress-restore.md))がロールバック手段になる。
 
 ## プラグインの「削除」はGitOpsから漏れる(要手動作業)

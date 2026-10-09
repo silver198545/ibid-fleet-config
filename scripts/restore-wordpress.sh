@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 既存サイトのバックアップ(tar.lzo + dump.lzo)を、稼働中のWordPressサイトへリストアする。
+# 既存サイトのバックアップ(tar.lzo + dump.lzo、または tar.gz + dump.gz)を、稼働中のWordPressサイトへリストアする。
 # docs/manual-wordpress-restore.md の手順0(事前確認)と手順3〜5(転送・wp-content復元・
 # DB復元)を自動化したもの。
 #
@@ -8,6 +8,8 @@
 #       wp-content 以外のファイル(WordPress本体等)も含まれるが、復元に使うのは
 #       wp-content のみ(本体はコンテナイメージ側のものを使うため、上書きしてはいけない)
 #   <バックアップディレクトリ>/yyyymmdd_hhmm.dump.lzo ... mysqldumpのプレーンSQL(lzop圧縮)
+#   gzip圧縮の .tar.gz / .dump.gz の組も使える(チャートの日次バックアップCronJobの出力。
+#   NFS上の /data/nfs/backup/<env>/wordpress-<site>/ にある。中身はwp-contentのみのtar)
 #
 # 転送方式: kubectl exec の1本の長いストリームは、Rancherプロキシ経由などで途中の
 # i/oタイムアウトにより切断されることがある(実際にdev1で発生)。そのため、
@@ -19,7 +21,7 @@
 # 転送中に失敗してもサイトは元のまま残る。
 #
 # 自動化しない(できない)手順 — 実行前後に必ず docs/manual-wordpress-restore.md を確認すること:
-#   - 手順1: Longhornスナップショット取得(実行前に必ずLonghorn UIで取る)
+#   - 手順1: 復元先の現状のバックアップ取得(実行前に必ず取る。DBダンプ + wp-contentのtar)
 #   - 手順2: テーブル接頭辞が食い違う場合の fleet.yaml 修正とPVC再作成
 #     (このスクリプトは食い違いを検出したらエラーで中断するのみ)
 #   - 手順6: URL置換(終了時に実行すべきコマンドを表示する)
@@ -27,7 +29,7 @@
 #
 # 前提:
 #   - kubectl が対象環境のクラスタを指すよう設定済みであること
-#   - lzop がローカルにインストール済みであること
+#   - lzop がローカルにインストール済みであること(.lzo形式を使う場合)
 #   - 対象サイトのwordpress/mariadb PodがRunningであること
 #
 # 使い方:
@@ -69,7 +71,7 @@ WP_ROOT="/bitnami/wordpress"
 REMOTE_TMP="/tmp/ibid-restore"
 CHUNK_SIZE="${RESTORE_CHUNK_SIZE:-32m}"
 
-for cmd in kubectl lzop tar gzip split; do
+for cmd in kubectl tar gzip split; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "エラー: '$cmd' が見つかりません。インストールしてから再実行してください。" >&2
     exit 1
@@ -77,25 +79,46 @@ for cmd in kubectl lzop tar gzip split; do
 done
 
 # --- バックアップファイルの特定(時刻未指定なら最新のペアを使う) ---
+# 圧縮形式は .lzo(lzop)と .gz(gzip)のどちらでもよい。同じ時刻に両方ある場合は .lzo を使う。
 if [[ -z "$TIMESTAMP" ]]; then
-  TAR_LZO="$(find "$BACKUP_DIR" -maxdepth 1 -name '[0-9]*_[0-9]*.tar.lzo' | sort | tail -1)"
-  if [[ -z "$TAR_LZO" ]]; then
-    echo "エラー: $BACKUP_DIR に yyyymmdd_hhmm.tar.lzo 形式のファイルがありません。" >&2
+  LATEST_TAR="$(find "$BACKUP_DIR" -maxdepth 1 \( -name '[0-9]*_[0-9]*.tar.lzo' -o -name '[0-9]*_[0-9]*.tar.gz' \) \
+    | sort | tail -1)"
+  if [[ -z "$LATEST_TAR" ]]; then
+    echo "エラー: $BACKUP_DIR に yyyymmdd_hhmm.tar.lzo / .tar.gz 形式のファイルがありません。" >&2
     exit 1
   fi
-  TIMESTAMP="$(basename "$TAR_LZO" .tar.lzo)"
-else
-  TAR_LZO="$BACKUP_DIR/$TIMESTAMP.tar.lzo"
+  TIMESTAMP="$(basename "$LATEST_TAR")"
+  TIMESTAMP="${TIMESTAMP%%.tar.*}"
 fi
-DUMP_LZO="$BACKUP_DIR/$TIMESTAMP.dump.lzo"
+if [[ -f "$BACKUP_DIR/$TIMESTAMP.tar.lzo" ]]; then
+  EXT=lzo
+else
+  EXT=gz
+fi
+TAR_FILE="$BACKUP_DIR/$TIMESTAMP.tar.$EXT"
+DUMP_FILE="$BACKUP_DIR/$TIMESTAMP.dump.$EXT"
 
-for f in "$TAR_LZO" "$DUMP_LZO"; do
+for f in "$TAR_FILE" "$DUMP_FILE"; do
   if [[ ! -f "$f" ]]; then
     echo "エラー: バックアップファイルが見つかりません: $f" >&2
-    echo "(tar.lzo と dump.lzo は同じ時刻のペアで揃っている必要があります)" >&2
+    echo "(tar と dump は同じ時刻・同じ圧縮形式のペアで揃っている必要があります)" >&2
     exit 1
   fi
 done
+
+if [[ "$EXT" == lzo ]] && ! command -v lzop >/dev/null 2>&1; then
+  echo "エラー: 'lzop' が見つかりません。インストールしてから再実行してください。" >&2
+  exit 1
+fi
+
+# バックアップファイルを標準出力へ解凍する
+decompress() {
+  if [[ "$EXT" == lzo ]]; then
+    lzop -dc "$1"
+  else
+    gzip -dc "$1"
+  fi
+}
 
 # --- 対象Podの特定 ---
 CONTEXT="$(kubectl config current-context)"
@@ -174,7 +197,7 @@ exec_with_heartbeat() {
 # --- 手順0: DBダンプの事前確認 ---
 echo "DBダンプを解凍して内容を確認します..." >&2
 DUMP_SQL="$WORKDIR/backup.dump"
-lzop -dc "$DUMP_LZO" >"$DUMP_SQL"
+decompress "$DUMP_FILE" >"$DUMP_SQL"
 
 # プレーンSQLであること("-- MySQL dump"等のテキストで始まること)を確認する。
 FIRST_LINE="$(head -n 1 "$DUMP_SQL")"
@@ -238,16 +261,16 @@ cat >&2 <<EOF
 ===== リストア内容の確認 =====
   kubectlコンテキスト: $CONTEXT
   復元先サイト:        $SITE (namespace: $NAMESPACE)
-  wp-content:          $TAR_LZO
-  DBダンプ:            $DUMP_LZO
+  wp-content:          $TAR_FILE
+  DBダンプ:            $DUMP_FILE
   テーブル接頭辞:      ${DUMP_PREFIX:-不明} -> $TARGET_PREFIX
 
 このサイトの wp-content と DB($DB_NAME)を丸ごと上書きします。
-実行前にLonghorn UIで両PVC(wp-content用/mariadb用)のスナップショットを取ってください
-(docs/manual-wordpress-restore.md 手順1)。
+実行前に復元先の現状のバックアップ(DBダンプ + wp-contentのtar)を取ってください
+(docs/manual-wordpress-restore.md 手順1。新規の空サイトへの復元なら不要)。
 EOF
 if [[ "${IBID_ASSUME_YES:-}" != "1" ]]; then
-  read -r -p "スナップショット取得済みで、上記の内容で実行してよければ y を入力: " REPLY
+  read -r -p "バックアップ取得済み(または不要)で、上記の内容で実行してよければ y を入力: " REPLY
   if [[ "$REPLY" != "y" ]]; then
     echo "中断しました。" >&2
     exit 1
@@ -255,12 +278,12 @@ if [[ "${IBID_ASSUME_YES:-}" != "1" ]]; then
 fi
 
 # --- 手順3: バックアップの転送(ここまでは既存のwp-content/DBに手を付けない) ---
-# tar.lzo にはサイトルート一式(WordPress本体を含む)が入っているため、
+# tar にはサイトルート一式(WordPress本体を含む)が入っているため、
 # まずアーカイブ内での wp-content の位置(パス接頭辞)を特定し、そこだけを取り出す。
 echo "アーカイブ内の wp-content の位置を特定しています..." >&2
-lzop -dc "$TAR_LZO" | tar tf - >"$WORKDIR/tar-list.txt"
+decompress "$TAR_FILE" | tar tf - >"$WORKDIR/tar-list.txt"
 if ! grep -qE '(^|/)wp-content/' "$WORKDIR/tar-list.txt"; then
-  echo "エラー: アーカイブ内に wp-content ディレクトリが見つかりません: $TAR_LZO" >&2
+  echo "エラー: アーカイブ内に wp-content ディレクトリが見つかりません: $TAR_FILE" >&2
   exit 1
 fi
 # 複数マッチした場合(テーマ内のwp-content等)は、最も浅い(=サイトルート直下の)ものを採用する。
@@ -270,7 +293,7 @@ WPC_PREFIX="$(grep -E '(^|/)wp-content/' "$WORKDIR/tar-list.txt" \
 
 echo "wp-content を取り出して圧縮しています(アーカイブ内パス: ${WPC_PREFIX}wp-content)..." >&2
 mkdir -p "$WORKDIR/extract"
-lzop -dc "$TAR_LZO" | tar xf - -C "$WORKDIR/extract" "${WPC_PREFIX}wp-content"
+decompress "$TAR_FILE" | tar xf - -C "$WORKDIR/extract" "${WPC_PREFIX}wp-content"
 tar cf - -C "$WORKDIR/extract/${WPC_PREFIX:-.}" wp-content | gzip >"$WORKDIR/wp-content.tar.gz"
 rm -rf "$WORKDIR/extract"
 gzip -c "$DUMP_SQL" >"$WORKDIR/dump.sql.gz"
