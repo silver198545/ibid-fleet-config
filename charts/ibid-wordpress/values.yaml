@@ -82,6 +82,17 @@ wordpress:
   # envs/<env>/sites/<site>/fleet.yaml の helm.values で上書きする。
   wordpressTablePrefix: "tp_"
 
+  # readinessProbeはPod IP宛てにhttpで /wp-login.php を叩くが、WP_HOMEが
+  # https://<site>.<env>.ibid.lan に固定されたサイトでは別ホストへの302が返り、
+  # kubeletは追従せず成功扱いにして毎回 ProbeWarning(Probe terminated redirects)を出す。
+  # TLS終端(Traefik)経由のリクエストと同じヘッダを付けて200を返させる。
+  # httpGetの他のキー(path/port/scheme)はBitnamiチャートの既定値がそのまま使われる。
+  readinessProbe:
+    httpGet:
+      httpHeaders:
+        - name: X-Forwarded-Proto
+          value: https
+
   mariadb:
     enabled: true
     architecture: standalone
