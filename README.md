@@ -36,7 +36,7 @@ WordPressのデータの置き場所:
 | MariaDB | `harvester` | Harvester側のボリューム | 同上(DBダンプ) |
 | (参考)Prometheus、sparqlist等 | `longhorn`/`longhorn-r1` | ゲストLonghorn | Longhornの日次バックアップ(NFS `/data/nfs/longhorn/<env>`) |
 
-WordPressのバックアップCronJobはチャート0.6.0から(2026-10-09に両環境へ導入)。バックアップがNFSサーバー1台に集中している問題は残っている
+WordPressのバックアップCronJobはチャート0.6.0から(2026-10-09に両環境へ導入)。NFSサーバー上のデータの二次コピーは、組織のBaculaのバックアップで取られている(本リポジトリの管理外)。
 ([docs/roadmap.md](docs/roadmap.md)の項目5)。戻し方は
 [docs/manual-wordpress-restore.md](docs/manual-wordpress-restore.md)「日次バックアップ」。
 

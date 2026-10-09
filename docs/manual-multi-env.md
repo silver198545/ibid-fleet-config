@@ -260,7 +260,8 @@ WordPressコア/プラグインのイメージはdigest固定(= セキュリテ�
 > WordPressは、チャート0.6.0のサイトごとの日次バックアップCronJob(DBダンプ + wp-contentのtar、
 > NFS `/data/nfs/backup/<env>/`、14日分)で守る
 > ([manual-wordpress-restore.md](manual-wordpress-restore.md)「日次バックアップ」)。
-> バックアップがNFSサーバー1台に集中している問題は残っている([roadmap.md](roadmap.md)の項目5)。
+> NFSサーバー上のデータ(バックアップを含む)の二次コピーは、組織のBaculaのバックアップで取られている
+> (本リポジトリの管理外。[roadmap.md](roadmap.md)の項目5)。
 
 - 定期ジョブとバックアップ先は `envs/<env>/infra/longhorn-jobs/` でGit管理
   (snapshot-6h: 6時間ごと保持4世代 / backup-daily: JST 2:00、保持はdev 7世代、
