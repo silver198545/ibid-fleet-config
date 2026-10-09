@@ -146,7 +146,7 @@ diskSelectorが無いので、またHDD上にもレプリカが置かれる。20
 
 恒久対策を入れるまでは、作り直した後にこのページの手順2〜4を対象ボリュームについてやり直す。
 
-## 恒久対策: クラスタ・ノードプール作成時の設定(prod1は2026-10-08に実施済み、dev1は未実施)
+## 恒久対策: クラスタ・ノードプール作成時の設定(prod1は2026-10-08、dev1は2026-10-09に実施済み)
 
 VMのルートディスクは、HarvesterConfigの`diskInfo`で指定したVMイメージ(現在は`harvester-public/image-dkwx4`)
 から作られる。そのStorageClassの設定は、イメージの`spec.storageClassParameters`で決まる。
@@ -249,13 +249,24 @@ for i in json.load(sys.stdin)["items"]:print(i["metadata"]["name"],i["spec"].get
 
 HarvesterConfig(イメージ、User Data、anti-affinity)を書き換えると、**そのプールのVMが全て順番に作り直される**。
 
+- 作業前に、ゲストクラスタ側の取り残されたLonghornインスタンス(orphan)を片付けておく。消したボリュームの
+  engineがinstance-managerに残っていると、Longhornが「まだattachedのボリュームがある」と判断してPDBを外さず、
+  そのノードのdrainが止まる(dev1では9月のnfs-external移行で消したボリュームのengineが残っていた)。
+  orphanのCRを消すと、Longhornがプロセスを止める:
+
+  ```bash
+  kubectl --context <cluster> -n longhorn-system get orphans.longhorn.io
+  kubectl --context <cluster> -n longhorn-system delete orphans.longhorn.io <orphan名>
+  ```
+
 - 作業前に、ゲストクラスタ側のLonghornボリュームが全てattachedであることを確認する
   (2026-07-27/28に、ノードプールの入れ替えでdetachedなボリュームが失われた)。
 - HarvesterConfigの`networkData`(FreeIPA用の2枚目のNIC)の指定を消さない。編集の前後で、
   harvester-cloud-providerのclusterNameのchartValuesを確認する。
 - 3つの変更は1回の編集にまとめて、作り直しを1回で済ませる。
-- UIでの編集でchartValuesが`{}`に消されることがある。保存した直後に
-  [manual-harvester-loadbalancer.md](manual-harvester-loadbalancer.md)のpatchで`clusterName`を入れ直す。
+- UIでの編集でchartValuesが`{}`に消されることがある。編集の前と、保存した直後の両方で
+  [manual-harvester-loadbalancer.md](manual-harvester-loadbalancer.md)のpatchで`clusterName`を入れておく
+  (既にLoadBalancerが動いているクラスタでは、入れ替え中に`kubernetes-*`名でLBが作り直されるのを防ぐため)。
 - プールの入れ替えではetcdがそのまま残るので、sealed-secretsの鍵は変わらない(クラスタの再作成とは違う)。
 - **入れ替えの途中はanti-affinityが効かない。** 古いVMにも同じ`machineSetName`ラベルが付いていて、
   古いVMと新しいVMが全ホストに散らばるため、Preferredでは避けられるホストが無い。prod1では入れ替え後に
@@ -270,11 +281,29 @@ HarvesterConfig(イメージ、User Data、anti-affinity)を書き換えると�
 - **レプリカ1つ(`longhorn-r1`)のゲスト側ボリュームがあると、workerのdrainが止まる。** ゲスト側Longhornの
   `node-drain-policy`が`block-if-contains-last-replica`なので、最後のレプリカが載ったノードの
   instance-managerのPDBがevictionを拒否し、Machineが`Deleting`(`DrainingNode`)のまま進まない。
-  一時的にレプリカを2つに増やすと、他のノードにコピーができた後でdrainが進む。Machineが消えたら1つに戻す:
+  一時的にレプリカを2つに増やすと、他のノードにコピーができた後でdrainが進む。Machineが消えたら1つに戻す。
+  データのあるクラスタ(dev1)では、編集の前に増やしておくとよい:
 
   ```bash
   kubectl --context <cluster> -n longhorn-system patch volumes.longhorn.io <pvc-...> --type merge \
     -p '{"spec":{"numberOfReplicas":2}}'
+  ```
+
+- **workerの入れ替えがLonghornの作り直し(rebuild)より速く進むと、drainが待たされる。** 古いノードが
+  続けて消えると、ボリュームのhealthyなレプリカが減り、Longhornは作り直しが終わるまで残りのノードを手放さない
+  (PDBが外れず、`DrainingNode`のまま)。Longhornは作り直しを1ボリュームずつしか行わないので時間がかかるが、
+  データを守るための正常な動きなので、待てば進む。dev1では1台あたり10〜15分待った。
+- **入れ替えの後、古いノードのLonghornの記録が残る。** ゲスト側のLonghornに、消えたノードの`nodes.longhorn.io`と、
+  そこにあった`stopped`のレプリカが残る。全ボリュームがhealthyになってから片付ける。ノードの記録は
+  スケジューリングを無効にしないと削除できない(webhookが拒否する)。無効にすると、Longhornが
+  `KubernetesNodeGone`のノードを自分で消す:
+
+  ```bash
+  kubectl --context <cluster> -n longhorn-system get replicas.longhorn.io \
+    -o custom-columns=NAME:.metadata.name,NODE:.spec.nodeID,STATE:.status.currentState | grep stopped
+  kubectl --context <cluster> -n longhorn-system delete replicas.longhorn.io <stoppedのレプリカ>
+  kubectl --context <cluster> -n longhorn-system patch nodes.longhorn.io <消えたノード> --type merge \
+    -p '{"spec":{"allowScheduling":false}}'
   ```
 
 ## 実施記録
@@ -285,3 +314,4 @@ HarvesterConfig(イメージ、User Data、anti-affinity)を書き換えると�
 | 2026-10-08 | dev1 | 55x4v(v22vwを削除して作り直したノード) | 新しいディスクはレプリカ3つが全てHDD上に作られていた。3つとも移した |
 | 2026-10-08 | prod1 | pool1の3台(2jbgr/s9rdr/wcsxv) | 07:09の再作成直後から、レプリカ9つのうち7つがHDD上にあった。s9rdrのfdatasyncは最大17.6秒で、apiserverが繰り返し再起動し、Rancher上でReady=Falseになっていた。7つとも移した後はReady=Trueに戻った |
 | 2026-10-08 | prod1 | 恒久対策(全8台を入れ替え) | pool1を`image-fpm2h`(ssd)に変更し、User DataにNTP、pool1にanti-affinityを設定した。入れ替え後、control-plane 3台とも全レプリカがSSD上。入れ替え中に偏ったため、1台をhrvest2へlive migrationした。`sparqlist-repository`(`longhorn-r1`)のせいでworkerのdrainが止まったため、一時的にレプリカを2つにした |
+| 2026-10-09 | dev1 | 恒久対策(全8台を入れ替え) | 事前にchartValuesを入れ、`sparqlist-repository`(`longhorn-r1`)を2レプリカにしてから、prod1と同じ設定で入れ替えた。9月に消したボリュームのengineがorphanとして残っていてworkerのdrainが止まったため、orphanを消した。Longhornの作り直し待ちでも数回待たされた。control-plane 3台は、今回はanti-affinityが効いて別々のホストに置かれた。入れ替え後に古いLonghornノードの記録を片付けた(prod1の分も)。15サイトとも正常、LoadBalancerのIP(192.168.1.33)は変わらず |

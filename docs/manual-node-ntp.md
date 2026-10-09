@@ -83,7 +83,7 @@ sudo chronyc reload sources
 クラスタの再作成で新しく作られたVMは、既定のNTSの設定に戻る。恒久対策を入れるまでは、
 作り直した後にこのページの手順をやり直す。
 
-## 恒久対策: cloud-init(User Data)に入れる(prod1は2026-10-08に実施済み、dev1は未実施)
+## 恒久対策: cloud-init(User Data)に入れる(prod1は2026-10-08、dev1は2026-10-09に実施済み)
 
 Rancherのプール設定(HarvesterConfig)のUser Dataに、次の`write_files`と`runcmd`の3行を足す。
 これで、新しく作られるVMは最初から`ntp.nict.jp`で同期する。現在のUser Dataは
@@ -120,3 +120,4 @@ runcmd:
 | 2026-10-08 | dev1 | 全8台 | mbjvt 92秒、mq45p 109秒、pn8dq 117秒、td4mg 140秒 |
 | 2026-10-08 | prod1 | 全8台 | 作成から7時間で、ずれはまだ小さかった |
 | 2026-10-08 | prod1 | 恒久対策(全8台を入れ替え) | User Dataにchronyの設定を入れて入れ替えた。新しい8台とも`ntp-nict.sources`があり、`^*`で同期していることを確認 |
+| 2026-10-09 | dev1 | 恒久対策(全8台を入れ替え) | User Dataにchronyの設定を入れて入れ替えた。入れ替え後、etcdのclock drift警告は0件、全ノードのLeaseの時刻が現在時刻と一致 |
