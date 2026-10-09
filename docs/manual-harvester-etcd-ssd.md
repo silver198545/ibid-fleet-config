@@ -146,7 +146,7 @@ diskSelectorが無いので、またHDD上にもレプリカが置かれる。20
 
 恒久対策を入れるまでは、作り直した後にこのページの手順2〜4を対象ボリュームについてやり直す。
 
-## 恒久対策: クラスタ・ノードプール作成時の設定(2026-10-08時点で未実施)
+## 恒久対策: クラスタ・ノードプール作成時の設定(prod1は2026-10-08に実施済み、dev1は未実施)
 
 VMのルートディスクは、HarvesterConfigの`diskInfo`で指定したVMイメージ(現在は`harvester-public/image-dkwx4`)
 から作られる。そのStorageClassの設定は、イメージの`spec.storageClassParameters`で決まる。
@@ -177,7 +177,32 @@ parameters:
 Harvester UIで「Images → Create」を選び、現在のイメージと同じURL
 (`https://cloud-images.ubuntu.com/resolute/current/resolute-server-cloudimg-amd64.img`)を指定する。
 Storageの欄で`harvester-longhorn-ssd`を選ぶ。名前は例えば`ubuntu-cloudimg-26.04-lts-ssd`にする。
-作成後、`storageClassParameters`に`diskSelector`が入っていることを確認する:
+UIの代わりに、次のYAMLで作ってもよい(prod1で実際に使った方法。作られたイメージは`image-fpm2h`):
+
+```bash
+cat <<'EOF' | $H create -f -
+apiVersion: harvesterhci.io/v1beta1
+kind: VirtualMachineImage
+metadata:
+  generateName: image-
+  namespace: harvester-public
+  annotations:
+    harvesterhci.io/storageClassName: harvester-longhorn-ssd
+spec:
+  displayName: ubuntu-cloudimg-26.04-lts-ssd
+  sourceType: download
+  url: https://cloud-images.ubuntu.com/resolute/current/resolute-server-cloudimg-amd64.img
+  backend: backingimage
+  storageClassParameters:
+    diskSelector: ssd
+    migratable: "true"
+    numberOfReplicas: "3"
+    staleReplicaTimeout: "30"
+EOF
+```
+
+作成後、ダウンロードが100%になり、`storageClassParameters`に`diskSelector`が入っていることを確認する。
+イメージ用に自動で作られるStorageClass(`lh-...`)にも引き継がれる:
 
 ```bash
 $H -n harvester-public get virtualmachineimages -o json | python3 -c '
@@ -197,14 +222,28 @@ for i in json.load(sys.stdin)["items"]:print(i["metadata"]["name"],i["spec"].get
   workerも載せる場合は容量を計算してから決める。
 - anti-affinityは、Rancherのプール設定の「VM Scheduling」で設定する。prod1では2026-10-08時点で、
   control-plane 3台のうち2台(s9rdr、2jbgr)が同じホスト(hrvest4)に載っていた。
-  この状態でホストが落ちるとetcdがquorumを失う。
+  この状態でホストが落ちるとetcdがquorumを失う。設定値は次のとおり:
+
+  | 項目 | 値 |
+  |---|---|
+  | Type / Priority | Anti-Affinity / Preferred |
+  | 名前空間 | This VM's namespace |
+  | Rule(Add Ruleで追加) | `harvesterhci.io/machineSetName` In `harvester-public-<クラスタ名>-pool1` |
+  | Topology Key | `kubernetes.io/hostname`(空欄に見えるのは入力例。必ず手で入力する) |
+  | Weight | 100 |
+
+  Requiredにしないのは、入れ替えの途中で一時的にVMが4台になったときに、ホストのメモリが足りずに
+  起動できなくなるのを避けるため。
 
 ### 4. 作成後のチェック
 
 1. control-planeのディスクのレプリカが全て`defaultdisk`上にある(「症状と確認方法」のコマンド)
 2. 全ノードで`chronyc -n sources`に`^*`が出ている
 3. etcdのログに`slow fdatasync`も`clock drift`も出ていない
-4. SealedSecretが全件`SYNCED=True`になっている。またはsealed-secretsの鍵を復元済みである
+4. SealedSecretが全件`SYNCED=True`になっている。クラスタを再作成した場合は、
+   sealed-secretsの鍵を復元するか([manual-multi-env.md](manual-multi-env.md)の6章)、全件を封印し直す
+5. control-plane VMが別々のホストに置かれている(下の「既存クラスタに入れる場合の注意」を参照)
+6. LoadBalancerにIPが付いている(chartValuesの`clusterName`が残っている)
 
 ### 既存クラスタ(dev1/prod1)に入れる場合の注意
 
@@ -215,7 +254,28 @@ HarvesterConfig(イメージ、User Data、anti-affinity)を書き換えると�
 - HarvesterConfigの`networkData`(FreeIPA用の2枚目のNIC)の指定を消さない。編集の前後で、
   harvester-cloud-providerのclusterNameのchartValuesを確認する。
 - 3つの変更は1回の編集にまとめて、作り直しを1回で済ませる。
+- UIでの編集でchartValuesが`{}`に消されることがある。保存した直後に
+  [manual-harvester-loadbalancer.md](manual-harvester-loadbalancer.md)のpatchで`clusterName`を入れ直す。
 - プールの入れ替えではetcdがそのまま残るので、sealed-secretsの鍵は変わらない(クラスタの再作成とは違う)。
+- **入れ替えの途中はanti-affinityが効かない。** 古いVMにも同じ`machineSetName`ラベルが付いていて、
+  古いVMと新しいVMが全ホストに散らばるため、Preferredでは避けられるホストが無い。prod1では入れ替え後に
+  control-plane 2台が同じホストに載った。入れ替えが終わったらホストの配置を確認し、偏っていれば
+  Harvester UIの「Migrate」でcontrol-planeの載っていないホストへlive migrationする
+  (VMは止まらず、ディスクの配置も変わらない):
+
+  ```bash
+  $H -n harvester-public get vmi -o custom-columns=NAME:.metadata.name,HOST:.status.nodeName | grep -- '-pool1-'
+  ```
+
+- **レプリカ1つ(`longhorn-r1`)のゲスト側ボリュームがあると、workerのdrainが止まる。** ゲスト側Longhornの
+  `node-drain-policy`が`block-if-contains-last-replica`なので、最後のレプリカが載ったノードの
+  instance-managerのPDBがevictionを拒否し、Machineが`Deleting`(`DrainingNode`)のまま進まない。
+  一時的にレプリカを2つに増やすと、他のノードにコピーができた後でdrainが進む。Machineが消えたら1つに戻す:
+
+  ```bash
+  kubectl --context <cluster> -n longhorn-system patch volumes.longhorn.io <pvc-...> --type merge \
+    -p '{"spec":{"numberOfReplicas":2}}'
+  ```
 
 ## 実施記録
 
@@ -224,3 +284,4 @@ HarvesterConfig(イメージ、User Data、anti-affinity)を書き換えると�
 | 2026-10-08 | dev1 | pool1の3台(mbjvt/mq45p/v22vw) | HDD上のレプリカ4つ(mbjvt、v22vwで各2つ)を`defaultdisk`へ移した。mq45pは元から全て`defaultdisk`上 |
 | 2026-10-08 | dev1 | 55x4v(v22vwを削除して作り直したノード) | 新しいディスクはレプリカ3つが全てHDD上に作られていた。3つとも移した |
 | 2026-10-08 | prod1 | pool1の3台(2jbgr/s9rdr/wcsxv) | 07:09の再作成直後から、レプリカ9つのうち7つがHDD上にあった。s9rdrのfdatasyncは最大17.6秒で、apiserverが繰り返し再起動し、Rancher上でReady=Falseになっていた。7つとも移した後はReady=Trueに戻った |
+| 2026-10-08 | prod1 | 恒久対策(全8台を入れ替え) | pool1を`image-fpm2h`(ssd)に変更し、User DataにNTP、pool1にanti-affinityを設定した。入れ替え後、control-plane 3台とも全レプリカがSSD上。入れ替え中に偏ったため、1台をhrvest2へlive migrationした。`sparqlist-repository`(`longhorn-r1`)のせいでworkerのdrainが止まったため、一時的にレプリカを2つにした |
