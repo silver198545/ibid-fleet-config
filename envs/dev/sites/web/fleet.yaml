@@ -63,7 +63,7 @@ helm:
       - name: wp-external-links
         version: "2.65"
       - name: wp-file-manager
-        version: "8.0.4"
+        version: "8.0.6"
       - name: wpfront-scroll-top
         version: "3.0.1"
       - name: wp-last-modified-info
