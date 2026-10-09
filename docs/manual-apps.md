@@ -420,12 +420,43 @@ devへコピーして本番相当データで確認できる**(`update-app-image
   `read:packages`スコープのPersonal access token(専用に新規発行したものを推奨)から
   作成)が必要(`scripts/update-app-image.sh`の`ghcr_secret_needed_for`に`yes`として
   登録済み)。
-- 環境変数`SPARQL_ENDPOINT`/`NEXT_PUBLIC_SPARQL_ENDPOINT`はアプリ側`.env.example`の
-  デフォルトと同じ理研BRCの公開SPARQLエンドポイント(`https://knowledge.brc.riken.jp/sparql`)
-  を`deployment.yaml`に直接設定している(非機密情報)。社内向けの別エンドポイントに
-  切り替える場合はここを書き換える。
-- PVCを持たないため、brc-advanced-search/riken-diipsと同じくWordPressのような
-  容量解放待ちの考慮は不要。
+- 環境変数`SPARQL_ENDPOINT`/`NEXT_PUBLIC_SPARQL_ENDPOINT`は設定せず、`SITE_ENV`に応じた
+  アプリ側の既定値(development: `https://knowledge.brc.riken.jp/sparql2`、
+  production: `https://knowledge.brc.riken.jp/sparql`)を使う。管理画面のシステム設定で
+  保存した値があればそちらが優先される。
+- 管理用SQLite(`metadatabase-v2-admin-data`、Longhorn RWO)と、既存NFS上の実データを
+  直接指す静的PV/PVC(`pv-nfs-uploadrdf.yaml`・`pv-nfs-download.yaml`、`Retain`)を持つ。
+  RWOのため`replicas: 1`・`strategy: Recreate`で運用する(productionも1レプリカ)。
+- **dev/productionの差分**(`overlays/production/`):
+
+  | 項目 | dev | production |
+  |---|---|---|
+  | イメージ(`BASE_PATH`) | `metadatabase-v2:<TAG>`(`/tsukuba`) | `metadatabase-v2-bioresource:<TAG>`(`/bioresource`) |
+  | `SITE_ENV` | `development`(基調色が赤) | `production`(青) |
+  | `TRUSTED_ORIGINS` | `https://wpdev2.brc.riken.jp` | `https://knowledge.brc.riken.jp` |
+  | `VIRTUOSO_ISQL_HOST` | `192.168.1.102:1111` | `192.168.1.101:1111` |
+  | NFSマウント | `/mnt/{uploadrdf,download}/tsukuba` | `/mnt/{uploadrdf,download}/bioresource` |
+
+  - Next.jsの`basePath`はビルド時に埋め込まれるため、`build-metadatabase-v2-image.yaml`が
+    同じ`TAG`・`SRC_REF`から2つのイメージを公開する。`deploy-dev`は
+    `deployment.yaml`と`overlays/production/deployment_patch.yaml`の両方のタグを揃えて
+    更新する(両者のタグがずれないよう、手で片方だけ直さないこと)。
+  - アップロード先はVirtuosoのホストと同じ絶対パスで見える必要があるため、NFSの
+    マウント先パスも環境ごとに変える。Deploymentのパッチは`$patch: replace`で
+    `volumeMounts`/`volumes`を丸ごと置き換え、PVファイルは同名ファイルで丸ごと置き換える
+    (Fleetのoverlayは`_patch.yaml`をstrategic merge patchとして、同名ファイルは
+    置き換えとして扱う)。直下のマウント・ボリュームを変えたらパッチ側も直すこと。
+  - 管理画面の「アップロード先ディレクトリ」「ダウンロード用ディレクトリ」は
+    SQLiteに保存される設定で、Gitでは管理しない。productionは初回ログイン後に
+    `/mnt/uploadrdf/bioresource`(オントロジーは`…/ontology`)・`/mnt/download/bioresource`
+    を設定する。
+- **productionの管理画面用Secret**(`envs/production/secrets/metadatabase-v2-admin.yaml`):
+  `ADMIN_SECRET_KEY`/`ADMIN_INITIAL_PASSWORD`はproduction用に新規生成し、
+  `VIRTUOSO_ISQL_PASSWORD`はproductionのVirtuoso(192.168.1.101)のdbaパスワードを入れる
+  (2026-10-09時点ではdevと同じ値)。作成コマンドは`update-app-image.sh promote-production`が表示する。
+  初期管理者パスワードは`kubectl --context prod1 -n metadatabase-v2 get secret
+  metadatabase-v2-admin -o jsonpath='{.data.ADMIN_INITIAL_PASSWORD}' | base64 -d`で確認し、
+  初回ログイン後に変更する。
 - **導入時に必要な手動手順(dev)**:
   1. `METADATABASE_V2_ACCESS_TOKEN`(`repo`スコープのclassic PAT、専用に新規発行)を
      `gh secret set METADATABASE_V2_ACCESS_TOKEN --repo silver198545/ibid-fleet-config`

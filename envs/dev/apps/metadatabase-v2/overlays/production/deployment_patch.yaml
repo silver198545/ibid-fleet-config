@@ -1,0 +1,47 @@
+# production固有の値。Deploymentへのパッチはstrategic merge patchとして適用される
+# (Fleetのoverlay。containers・envは name をキーにマージされる)。
+# replicasはadmin-data(SQLite、RWO)のため1のまま変えない。
+spec:
+  template:
+    spec:
+      containers:
+        - name: metadatabase-v2
+          # BASE_PATH=/bioresourceでビルドした別イメージ(build-metadatabase-v2-image.yaml)。
+          # タグは直下のdeployment.yamlと常に同じにする(update-app-image.sh deploy-devが両方を更新する)。
+          image: ghcr.io/silver198545/metadatabase-v2-bioresource:0.6.1-r0
+          env:
+            # 基調色が青になり、SPARQLの既定エンドポイントが https://knowledge.brc.riken.jp/sparql になる。
+            - name: SITE_ENV
+              value: "production"
+            - name: TRUSTED_ORIGINS
+              value: "https://knowledge.brc.riken.jp"
+            - name: VIRTUOSO_ISQL_HOST
+              value: "192.168.1.101:1111"
+          # アップロード先はVirtuosoのホストと同じ絶対パス(/mnt/uploadrdf/bioresource)で
+          # 見える必要がある。volumeMountsはmountPathをキーにマージされ、パスを変えると
+          # 項目が追加されてしまうため、$patch: replace でリスト全体を置き換える。
+          volumeMounts:
+            - $patch: replace
+            - name: admin-data
+              mountPath: /app/data
+            - name: nfs-uploadrdf-bioresource
+              mountPath: /mnt/uploadrdf/bioresource
+            - name: nfs-download-bioresource
+              mountPath: /mnt/download/bioresource
+          readinessProbe:
+            httpGet:
+              path: /bioresource
+          livenessProbe:
+            httpGet:
+              path: /bioresource
+      volumes:
+        - $patch: replace
+        - name: admin-data
+          persistentVolumeClaim:
+            claimName: metadatabase-v2-admin-data
+        - name: nfs-uploadrdf-bioresource
+          persistentVolumeClaim:
+            claimName: metadatabase-v2-uploadrdf-bioresource
+        - name: nfs-download-bioresource
+          persistentVolumeClaim:
+            claimName: metadatabase-v2-download-bioresource

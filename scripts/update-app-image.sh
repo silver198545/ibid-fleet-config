@@ -329,10 +329,19 @@ cmd_deploy_dev() {
   ensure_clean_worktree
   require_main_uptodate
 
+  # productionで別イメージ名(例: metadatabase-v2-bioresource。BASE_PATH違い)を使うアプリは
+  # overlays/production/deployment_patch.yaml にもimage行があるため、同じタグに揃える。
+  local patch_file="envs/${env}/apps/${APP}/overlays/production/deployment_patch.yaml"
+  local files=("$dep_file")
+  if [[ -f "$patch_file" ]] && grep -q "ghcr\.io/${GH_OWNER}/${APP}" "$patch_file"; then
+    files+=("$patch_file")
+  fi
+
   open_branch "deploy-${env}/${APP}-${tag}"
-  sed -i -E "s#(ghcr\.io/${GH_OWNER}/${APP}):[^\"[:space:]]+#\1:${tag}#" "$dep_file"
-  echo "更新後のimage行: $(grep 'image:' "$dep_file")"
-  git add "$dep_file"
+  sed -i -E "s#(ghcr\.io/${GH_OWNER}/${APP}(-[a-z0-9]+)?):[^\"[:space:]]+#\1:${tag}#" "${files[@]}"
+  echo "更新後のimage行:"
+  grep -H 'image:' "${files[@]}"
+  git add "${files[@]}"
 
   commit_push_pr \
     "feat: ${env}環境の${APP}を${tag}に更新" \
@@ -409,6 +418,13 @@ cmd_check() {
   dep_file="envs/${env}/apps/${APP}/deployment.yaml"
   [[ -f "$dep_file" ]] || { echo "エラー: ${dep_file} が見つかりません。git pullでmainを最新化してから再実行してください。" >&2; exit 1; }
   path="$(awk '/readinessProbe:/{f=1} f && /path:/{print $2; exit}' "$dep_file")"
+  # productionでパスを変えているアプリ(例: metadatabase-v2の/bioresource)はパッチ側を優先する。
+  local patch_file="envs/${env}/apps/${APP}/overlays/production/deployment_patch.yaml"
+  if [[ "$env" == "production" && -f "$patch_file" ]]; then
+    local patch_path
+    patch_path="$(awk '/readinessProbe:/{f=1} f && /path:/{print $2; exit}' "$patch_file")"
+    path="${patch_path:-$path}"
+  fi
   path="${path:-/}"
 
   echo ""
@@ -509,6 +525,20 @@ kubectl create secret docker-registry ghcr-${APP} \\
   --dry-run=client -o json \\
 | kubeseal --context ${to_ctx} --format yaml > ${secret_file}
 EOF
+    if [[ "$APP" == "metadatabase-v2" ]]; then
+      echo ""
+      echo "=== 管理画面用SealedSecret(metadatabase-v2-admin)も${to_env}向けに作成してください ==="
+      echo "ADMIN_SECRET_KEY/ADMIN_INITIAL_PASSWORDは${to_env}用に新規生成、VIRTUOSO_ISQL_PASSWORDは${to_env}のVirtuosoのもの:"
+      cat <<EOF
+kubectl create secret generic metadatabase-v2-admin \\
+  -n ${APP} \\
+  --from-literal=ADMIN_SECRET_KEY="\$(openssl rand -base64 32)" \\
+  --from-literal=ADMIN_INITIAL_PASSWORD="\$(openssl rand -base64 18)" \\
+  --from-literal=VIRTUOSO_ISQL_PASSWORD='<Virtuosoのdbaパスワード>' \\
+  --dry-run=client -o json \\
+| kubeseal --context ${to_ctx} --format yaml > envs/${to_env}/secrets/${APP}-admin.yaml
+EOF
+    fi
   else
     echo "${APP}のGHCRイメージは公開設定のため、pull用SealedSecretは不要です。"
     if [[ "$APP" == "sparqlist" ]]; then
@@ -540,7 +570,19 @@ cmd_promote_finish() {
   [[ -d "$to_dir" ]] || { echo "エラー: ${to_dir} がありません。先に promote-${to_env} を実行してください。" >&2; exit 1; }
   [[ -f "$secret_file" ]] || { echo "エラー: ${secret_file} がありません。SealedSecretを先に作成してください。" >&2; exit 1; }
 
+  if [[ "$APP" == "metadatabase-v2" && ! -f "envs/${to_env}/secrets/${APP}-admin.yaml" ]]; then
+    echo "エラー: envs/${to_env}/secrets/${APP}-admin.yaml がありません。promote-${to_env}の表示どおり作成してください。" >&2
+    exit 1
+  fi
+
   git add "$to_dir" "$secret_file"
+  # アプリ用の追加Secret(例: metadatabase-v2-admin.yaml)があれば一緒に含める。
+  local extra
+  for extra in "envs/${to_env}/secrets/${APP}"-*.yaml; do
+    if [[ -f "$extra" ]]; then
+      git add "$extra"
+    fi
+  done
 
   local secret_line
   if [[ "$(ghcr_secret_needed_for "$APP")" == "yes" ]]; then

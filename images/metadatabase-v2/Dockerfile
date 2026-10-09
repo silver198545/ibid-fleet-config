@@ -38,8 +38,9 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 RUN npm install
 # アプリを置くパス。Next.jsのbasePathはビルド時に埋め込まれるため、ビルド引数で渡す
-# (docs/manual-apps.md「metadatabase-v2 固有のメモ」参照。dev/staging/productionとも
-# 同じ/tsukubaにする運用)。
+# (docs/manual-apps.md「metadatabase-v2 固有のメモ」参照)。既定値はdev用の/tsukuba。
+# production用(/bioresource)はbuild-metadatabase-v2-image.yamlが--build-argで渡し、
+# 別イメージ名(metadatabase-v2-bioresource)で公開する。
 ARG BASE_PATH=/tsukuba
 ENV BASE_PATH=${BASE_PATH}
 RUN npm run build

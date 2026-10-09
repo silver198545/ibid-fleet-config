@@ -6,6 +6,12 @@
 # 公開後、envs/<env>/apps/metadatabase-v2/deployment.yaml の image タグを
 # 切り替える(docs/manual-apps.md参照)。
 #
+# Next.jsのbasePathはビルド時に埋め込まれるため、同じTAG・SRC_REFから
+# BASE_PATHだけ変えた2つのイメージを公開する:
+#   ghcr.io/<owner>/metadatabase-v2:<TAG>              BASE_PATH=/tsukuba(dev)
+#   ghcr.io/<owner>/metadatabase-v2-bioresource:<TAG>  BASE_PATH=/bioresource(production)
+# productionは overlays/production/deployment_patch.yaml で後者のイメージ名を使う。
+#
 # metadatabase-v2 はプライベートリポジトリのため、ソース取得には
 # METADATABASE_V2_ACCESS_TOKEN シークレット(`repo`スコープのPersonal access token
 # (classic)。silver198545アカウント自身が所有するリポジトリなのでOrganizationの
@@ -69,8 +75,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="$(tr -d '[:space:]' < images/metadatabase-v2/TAG)"
-          IMAGE="ghcr.io/${{ github.repository_owner }}/metadatabase-v2:$TAG"
           echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          docker build -t "$IMAGE" images/metadatabase-v2
-          docker push "$IMAGE"
-          echo "公開しました: $IMAGE"
+          # <イメージ名>:<BASE_PATH> の組。どちらかが失敗したらワークフローを失敗させ、
+          # deploy-devの成功確認で片方だけ公開された状態を拾えるようにする。
+          for variant in "metadatabase-v2:/tsukuba" "metadatabase-v2-bioresource:/bioresource"; do
+            IMAGE="ghcr.io/${{ github.repository_owner }}/${variant%%:*}:$TAG"
+            docker build --build-arg BASE_PATH="${variant#*:}" -t "$IMAGE" images/metadatabase-v2
+            docker push "$IMAGE"
+            echo "公開しました: $IMAGE (BASE_PATH=${variant#*:})"
+          done
