@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metadatabase-v2
+  namespace: metadatabase-v2
+spec:
+  replicas: 1
+  # 管理用SQLite(admin-data)がLonghorn RWOのため、RollingUpdateだと新Podが別ノードに
+  # 載った際にMulti-Attachで起動できず、旧Podも新PodのReady待ちで止まらずデッドロックする。
+  # SQLiteへの二重書き込みも避けるため、旧Podを止めてから新Podを起動する。
+  # rollingUpdate: null は、RollingUpdate時代にクラスタ側で補完されたrollingUpdateが
+  # 3-way mergeで残り「Recreateでは指定不可」とapplyが拒否されるのを防ぐため明示的に削除する。
+  strategy:
+    type: Recreate
+    rollingUpdate: null
+  selector:
+    matchLabels:
+      app: metadatabase-v2
+  template:
+    metadata:
+      labels:
+        app: metadatabase-v2
+    spec:
+      imagePullSecrets:
+        - name: ghcr-metadatabase-v2
+      # 管理用SQLite(/app/data、Longhorn RWO)をnonroot(UID 1000)から書き込めるようにする。
+      # NFSのPV(uploadrdf/download)を起動のたびに再帰chownすると時間がかかるため、
+      # ルートの所有者が既に一致していればスキップする。
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: metadatabase-v2
+          image: ghcr.io/silver198545/metadatabase-v2:0.6.1-r1
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            # SPARQL_ENDPOINT/NEXT_PUBLIC_SPARQL_ENDPOINTは未設定にし、SITE_ENVに応じた
+            # 既定値(開発: https://knowledge.brc.riken.jp/sparql2)を使う。
+            - name: SITE_ENV
+              value: "development"
+            # 外部nginx(wpdev2.brc.riken.jp)がTraefikへプロキシする際、Harvester LBの
+            # SNATでTraefikには実IPが届かずX-Forwarded-Hostも上書きされてしまうため、
+            # isSameOriginのホスト一致チェックをバイパスする許可リストとして追加(#172)。
+            - name: TRUSTED_ORIGINS
+              value: "https://wpdev2.brc.riken.jp"
+            - name: ADMIN_INITIAL_LOGIN_ID
+              value: "admin"
+            - name: ADMIN_UPLOAD_MAX_BYTES
+              value: "21474836480"
+            - name: VIRTUOSO_ISQL_HOST
+              value: "192.168.1.102:1111"
+            - name: VIRTUOSO_ISQL_USER
+              value: "dba"
+            - name: VIRTUOSO_LOADER_THREADS
+              value: "12"
+            - name: VIRTUOSO_LOAD_TIMEOUT_HOURS
+              value: "24"
+            - name: VIRTUOSO_QUERY_TIMEOUT_MINUTES
+              value: "60"
+            - name: ADMIN_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: metadatabase-v2-admin
+                  key: ADMIN_SECRET_KEY
+            - name: ADMIN_INITIAL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: metadatabase-v2-admin
+                  key: ADMIN_INITIAL_PASSWORD
+            - name: VIRTUOSO_ISQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: metadatabase-v2-admin
+                  key: VIRTUOSO_ISQL_PASSWORD
+          volumeMounts:
+            - name: admin-data
+              mountPath: /app/data
+            - name: nfs-uploadrdf-tsukuba
+              mountPath: /mnt/uploadrdf/tsukuba
+            - name: nfs-download-tsukuba
+              mountPath: /mnt/download/tsukuba
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              # 管理画面のアップロード機能(最大20GB)・isql経由のデータロードを見込んで
+              # 0.4.0-r0時点の512Miから引き上げ。
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              # BASE_PATH=/tsukubaがビルド時に焼き込まれているため、ルート(/)は404になる。
+              path: /tsukuba
+              port: 3000
+          livenessProbe:
+            httpGet:
+              path: /tsukuba
+              port: 3000
+      volumes:
+        - name: admin-data
+          persistentVolumeClaim:
+            claimName: metadatabase-v2-admin-data
+        - name: nfs-uploadrdf-tsukuba
+          persistentVolumeClaim:
+            claimName: metadatabase-v2-uploadrdf-tsukuba
+        - name: nfs-download-tsukuba
+          persistentVolumeClaim:
+            claimName: metadatabase-v2-download-tsukuba
