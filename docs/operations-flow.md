@@ -25,7 +25,10 @@ promoteワークフローは環境ディレクトリを丸ごとコピーする�
 「**devで確認した構成を、一切手を加えずにproductionへ昇格する**」が大原則。
 
 1. **devで変更・互換性テスト**: `envs/dev/` のfleet.yaml(プラグイン一覧、
-   `helm.version`)や `charts/`・`images/` を変更するPRを出しマージ。
+   `helm.version`)や `charts/`・`images/` を変更するPRを出す。productionに触れないPRは
+   `validate` が通れば承認なしでマージできる(auto-merge可)。チャートの変更は
+   `scripts/bump-chart.sh`、アプリのイメージ更新は `scripts/update-app-image.sh set-image` が
+   devへの反映まで一括で行う([manual-multi-env.md](manual-multi-env.md) 4章)。
    全サイトの表示・管理画面を確認する
 2. **本番データリハーサル(DBマイグレーションを伴う変更のとき)**: 下記
    「本番データリハーサル」の手順で、本番のコピーに対して変更を適用して確認する。

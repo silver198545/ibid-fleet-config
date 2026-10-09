@@ -27,8 +27,15 @@ wp-contentの実データは昇格せず、必要な場合は [manual-wordpress-
 ## 1. GitHub側の初期設定(1回だけ)
 
 1. **mainのブランチ保護**(Settings → Branches → Add rule, パターン `main`):
-   - Require a pull request before merging(承認1件以上)
+   - Require a pull request before merging(**承認数は0**)
    - Require review from Code Owners
+   - Settings → General → Pull Requests で **Allow auto-merge** を有効にする
+   - この組み合わせで、CODEOWNERS(`/envs/production/`)に触れるPRだけがCode Owner承認待ちになり、
+     dev・`charts/`・`images/`・docs等のPRは `validate` が通れば auto-merge でマージされる
+     (2026-10-10に「承認1件以上」から変更。それまではソロ運用で自己承認できないため全PRを
+     `--admin` で手動マージしており、dev向けの更新でも1回ごとに手作業が要っていた)。
+     `scripts/bump-chart.sh`・`scripts/update-app-image.sh set-image` はdev向けPRを
+     auto-mergeして次の段階まで自動で進む
    - Require status checks to pass: `validate`
    - `enforce_admins`(Do not allow bypassing the above settings)は**無効のまま**にする。
      現状collaboratorが `@silver198545` 一人のため、有効化すると
@@ -225,12 +232,13 @@ Rancher UI(Continuous Delivery → Git Repos → base-infra)で `paths` を確�
   (DBマイグレーションを伴う変更ならdev1で本番データリハーサル。
   [operations-flow.md](operations-flow.md)) →
   Actionsの `promote`(dev→production)を手動起動 → CODEOWNERS承認を経てマージ。
-- **チャート更新**: `charts/ibid-wordpress/` を変更し `Chart.yaml` のversionを上げる →
-  マージで `release-chart.yaml` がGHCRへ公開 → devサイトの `helm.version` を上げるPR →
-  以後は通常の昇格フロー。
-- **イメージ更新**(WordPressコア・MariaDB): [values.yaml](../charts/ibid-wordpress/values.yaml) の
-  `image.digest`(Bitnami公式イメージ。`docker buildx imagetools inspect docker.io/bitnami/wordpress:latest`
-  等で最新digestを確認)を差し替える → 以後は上記「チャート更新」と同じ。
+- **チャート更新**: `charts/ibid-wordpress/` を変更(未コミットのまま)→
+  `scripts/bump-chart.sh "<種類>: <説明>"` を実行。`Chart.yaml` のversion上げ・PR・auto-merge・
+  `release-chart.yaml` の公開待ち・devの全サイトの `helm.version` を上げるPR・auto-mergeまで
+  一括で行う → 以後は通常の昇格フロー。
+- **イメージ更新**(WordPressコア・MariaDB): `scripts/bump-chart.sh --update-images "feat: WordPress/MariaDBイメージを最新のdigestへ更新"`。
+  Bitnami公式イメージ(`docker.io/bitnami/{wordpress,mariadb}:latest`)の現在のdigestを
+  [values.yaml](../charts/ibid-wordpress/values.yaml) に書き込み、上記「チャート更新」と同じ流れでdevまで反映する。
 
 ### 定期メンテナンス日(月次、毎月1日を目安)
 
@@ -238,8 +246,8 @@ WordPressコア/プラグインのイメージはdigest固定(= セキュリテ�
 止まる設計、[roadmap.md](roadmap.md) #6)なので、以下を**毎月1日を目安に**まとめて実施する
 (前後にずれても良いが月を跨がないこと)。初回は2026-08-01。
 
-1. **WordPressコアの確認**: Bitnami公式イメージの最新digestを確認し、必要なら
-   チャートのdigestを更新(上記「イメージ更新」手順)。
+1. **WordPressコアの確認**: `scripts/bump-chart.sh --update-images "feat: WordPress/MariaDBイメージを最新のdigestへ更新"`
+   を実行(上記「イメージ更新」。既に最新なら何もせず終了する)。
 2. **プラグインの確認**: 各サイトの `fleet.yaml` の `plugins:` 一覧を見直し、
    セキュリティリリースが出ているものを更新([manual-wordpress.md](manual-wordpress.md)参照)。
    `wp-file-manager`(過去に重大脆弱性の履歴あり)は特に、その時点で必要かどうかを

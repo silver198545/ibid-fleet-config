@@ -7,13 +7,15 @@ Rundeckから実行するためのジョブ定義。定義本体は
 
 ## 設計方針
 
-`update-app-image.sh`は「1サブコマンド実行→人が結果(PR URL・CI結果・rollout状況・
-WEB疎通)を確認→次のサブコマンドを手動実行」という運用を前提にしている
-(スクリプト冒頭コメント参照)。PRの自動マージやSealedSecret作成の自動化は意図的に
-行っていない(ブランチ保護の承認必須・PATの秘匿のため)。
+`update-app-image.sh`のdev側(`set-image`)は、イメージPRのauto-merge → ビルド完了待ち →
+devへ反映するPRのauto-merge → check-devまでを1回で行う(2026-10-10から。ブランチ保護が
+production以外のPRを承認なしでマージできる設定になったため。
+[manual-multi-env.md](manual-multi-env.md)「1. GitHub側の初期設定」)。
+productionへの昇格PRのマージとSealedSecret作成は、引き続き意図的に自動化していない
+(本番の承認ゲート・PATの秘匿のため)。
 
-このため、Rundeck側もサブコマンドごとに独立したジョブとして定義し、全体を1本の
-自動ワークフローに連結することはしていない。各ジョブの実行順序・確認事項は
+Rundeck側はサブコマンドごとに独立したジョブとして定義しており、途中で止まった場合は
+該当ステージのジョブから再開できる。各ジョブの実行順序・確認事項は
 `scripts/update-app-image.sh`冒頭コメントの使用例と同一。
 
 ## 前提
@@ -60,9 +62,9 @@ Rundeck上のグループは`app-image-update`直下に環境非依存のジョ�
 | --- | --- | --- | --- |
 | `app-image-update` | `01-sync-repo` | (なし) | PRマージ後、repo_pathのmainを最新化したいとき |
 | `app-image-update` | `02-latest-src-ref` | `latest-src-ref` | イメージ更新の起点。取り込み元コミットSHAを確認 |
-| `app-image-update` | `03-set-image` | `set-image` | `02-latest-src-ref`確認後。PR作成・CI待ち。`tag`は空欄可(現在のTAGが`<version>-r<N>`形式なら自動採番) |
-| `app-image-update/dev` | `01-deploy-dev` | `deploy-dev` | `03-set-image`のPRマージ・イメージビルド成功確認後 |
-| `app-image-update/dev` | `02-check-dev` | `check-dev` | `01-deploy-dev`のPRマージ後 |
+| `app-image-update` | `03-set-image` | `set-image` | `02-latest-src-ref`確認後。イメージPRのauto-merge → ビルド完了待ち → devへ反映するPRのauto-merge → check-devまで**一括で行う**。`tag`は空欄可(現在のTAGが`<version>-r<N>`形式なら自動採番) |
+| `app-image-update/dev` | `01-deploy-dev` | `deploy-dev` | 通常は不要(`03-set-image`が自動で行う)。`03-set-image`がビルド後に止まった場合の再開用 |
+| `app-image-update/dev` | `02-check-dev` | `check-dev` | devの再確認をしたいとき(`03-set-image`の最後にも自動で実行される) |
 | `app-image-update/dev` | `03-sync-dev-data` | `sync-dev-data` | `02-check-dev`確認後(任意)。**sparqlist限定**。productionの永続データ(`repository/`)をdevへコピーし、本番相当データで確認する。**devの内容は上書きされる** |
 | `app-image-update/production` | `01-promote-production` | `promote-production` | **新規アプリの初回昇格のみ**。dev確認後。devのディレクトリに`overlays/production/`が必要。実行後は下記「dirty worktree」注意を参照。`envs/production/apps/<app>`が既にある場合はエラーになるので`03-deploy-production`を使う |
 | `app-image-update/production` | `02-promote-production-finish` | `promote-production-finish` | `01-promote-production`後、kubesealでSecretを手動作成した後 |
@@ -91,7 +93,7 @@ Rundeck上のグループは`app-image-update`直下に環境非依存のジョ�
   実行にPersonal Access Token等の秘密情報が必要で、これをRundeckジョブの引数や
   ログに残すことは避けたい。`01-promote-production`ジョブの出力に
   表示されるコマンド例を、踏み台端末上で人が直接実行する。
-- **PRのマージ**: リポジトリのブランチ保護(CODEOWNERSレビュー必須、ソロ運用のため
-  自己承認者なし)により、`gh pr merge --auto`は無効、`--admin`によるバイパスは
-  意図的なゲートを崩すため使わない。マージは常にGitHub UI(または人手での
-  `gh pr merge --squash --admin`判断)に委ねる。
+- **productionに触れるPRのマージ**: CODEOWNERS(`/envs/production/`)のレビュー必須で、
+  ソロ運用のため自己承認者がいない。`--admin`によるバイパスは意図的なゲートを崩すため
+  スクリプトでは使わず、マージは常にGitHub UI(または人手での`gh pr merge --squash --admin`判断)に委ねる
+  (dev向けのPRはauto-mergeする)。

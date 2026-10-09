@@ -10,29 +10,29 @@
 # 以下は意図的に自動化していない:
 #   - SealedSecret(GHCR pull用)の再作成: kubeseal実行にPAT等の秘密情報と対象クラスタへの
 #     kubectlアクセスが要るため、コマンド例を表示して人手に委ねる。
-#   - 全PRのマージ: mainのブランチ保護は`allow_auto_merge: false`かつ
-#     required_approving_review_count: 1(CODEOWNERSレビュー必須)で、dev/production
-#     問わず全PRに適用される(ソロ運用のため自己承認者がいない)。このスクリプトは
-#     `gh pr merge --auto`もブランチ保護をバイパスする`--admin`も使わない
-#     (前者はリポジトリ側の設定が無効、後者は意図的な安全ゲートのバイパスになるため)。
-#     PR作成・CIチェック待ちまでを行い、マージは常に手動(GitHub UIまたは
-#     `gh pr merge --squash --admin`)に委ねる。
+#   - productionに触れるPRのマージ: mainのブランチ保護は「承認数0 + Code Ownersレビュー必須」
+#     (CODEOWNERSは/envs/production/のみ)。dev・images/だけに触れるPR(set-image・deploy-dev)は
+#     validate通過後にこのスクリプトがauto-mergeするが、production向け(deploy-production・
+#     promote-production-finish)はPR作成・CI待ちまでで止め、マージはレビューの上で手動
+#     (GitHub UIまたは`gh pr merge --squash --admin`)に委ねる。
 #
-# 各ステージは独立したサブコマンドで、前段の結果(マージ完了・pod Ready・
-# WEBアクセス200等)を確認してから次を手動で実行する運用を想定している。
+# 通常のイメージ更新は set-image 1回で「イメージPR→マージ→ビルド完了待ち→devへ反映するPR→
+# マージ→devの確認」まで進む。各ステージはサブコマンドとしても単独で実行できる
+# (途中で止まった場合の再開用。例: ビルド成功後に deploy-dev から)。
 #
 # サブコマンド:
 #   latest-src-ref <app>               取り込み元リポジトリ(upstream_repo_for/upstream_branch_for
 #                                       で登録済みのブランチ)のHEADコミットSHAとメッセージを表示する。
 #                                       set-imageのsrc_refに使う値を手打ちしないためのもの。
-#   set-image <app> [tag] <src_ref>    images/<app>/{TAG,SRC_REF}を更新しPR作成、CI完了を待つ。
-#                                       マージ後 build-<app>-image.yaml が自動発火する。
+#   set-image <app> [tag] <src_ref>    images/<app>/{TAG,SRC_REF}を更新しPR作成 → auto-merge →
+#                                       build-<app>-image.yamlの成功を待ち、続けてdeploy-devを行う。
 #                                       tagを省略すると、現在のTAGが<version>-r<N>形式の場合に
 #                                       限り自動採番する(N+1。例: 2.0.0-r7 → 2.0.0-r8)。
 #                                       その形式でない場合はエラーになるので明示指定すること。
 #   deploy-dev <app>                   build-<app>-image.yamlの最新実行が成功していることを確認した上で、
 #                                       envs/dev/apps/<app>/deployment.yamlのイメージタグを
-#                                       images/<app>/TAGに合わせて更新しPR作成。
+#                                       images/<app>/TAGに合わせて更新しPR作成 → auto-merge →
+#                                       check-devまで行う(通常はset-imageから自動で呼ばれる)。
 #   check-dev <app>                    devのrollout状況とWEBアクセス(readinessProbeのpathで200か)を確認。
 #   sync-dev-data <app>                PVCで永続データを持つアプリ限定(persistent_data_dir_forに
 #                                       登録済みのアプリのみ。現状sparqlistのみ)。productionの
@@ -58,12 +58,8 @@
 #   scripts/update-app-image.sh set-image brc-advanced-search <新SRC_REF(コミットSHA)>
 #   (tagは省略。現在のTAGから自動採番される。明示指定したい場合は
 #    scripts/update-app-image.sh set-image brc-advanced-search 2.0.0-r6 <新SRC_REF>)
-#   (PRをマージし、build-brc-advanced-search-imageの成功を確認)
-#   git pull
-#   scripts/update-app-image.sh deploy-dev brc-advanced-search
-#   (PRをマージ)
-#   git pull
-#   scripts/update-app-image.sh check-dev brc-advanced-search
+#   (イメージPRのマージ・ビルド・devへの反映PRのマージ・check-devまで自動で進む)
+#   (devで動作確認)
 #   scripts/update-app-image.sh deploy-production brc-advanced-search
 #   (レビューの上、手動でPRをマージ)
 #   git pull
@@ -82,6 +78,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
+# shellcheck source=lib/pr.sh
+source "$SCRIPT_DIR/lib/pr.sh"
 
 GH_OWNER="silver198545"
 
@@ -162,66 +160,17 @@ hostname_for_env() {
   echo "${APP}.$1.ibid.lan"
 }
 
-ensure_clean_worktree() {
-  if [[ -n "$(git status --porcelain)" ]]; then
-    echo "エラー: 作業ツリーに未コミットの変更があります。先にcommit/stashしてください。" >&2
-    git status --short >&2
-    exit 1
-  fi
-}
-
-require_main_uptodate() {
-  if [[ "$(git rev-parse --abbrev-ref HEAD)" != "main" ]]; then
-    echo "エラー: mainブランチで実行してください(現在: $(git rev-parse --abbrev-ref HEAD))。" >&2
-    exit 1
-  fi
-  git fetch origin main >/dev/null
-  local local_head remote_head
-  local_head="$(git rev-parse main)"
-  remote_head="$(git rev-parse origin/main)"
-  if [[ "$local_head" != "$remote_head" ]]; then
-    echo "エラー: ローカルのmainがorigin/mainと同期していません。git pullしてください。" >&2
-    exit 1
-  fi
-}
+ensure_clean_worktree() { pr_ensure_clean_worktree; }
+require_main_uptodate() { pr_require_main_uptodate; }
 
 open_branch() {
   git checkout -b "$1"
 }
 
-# 呼び出し前にgit add/git rm済みであることを前提とする。
-# マージは行わない(mainのブランチ保護が全PRに承認必須のため。スクリプト冒頭コメント参照)。
+# 呼び出し前にgit add/git rm済みであることを前提とする。PR作成・CI待ちまで(マージはしない)。
+# devだけに触れるPRは呼び出し側で続けて pr_automerge_and_wait する(scripts/lib/pr.sh参照)。
 commit_push_pr() {
-  local title="$1" body="$2"
-  git commit -m "$title"
-  git push -u origin "$(git rev-parse --abbrev-ref HEAD)"
-  local pr_url
-  pr_url="$(gh pr create --title "$title" --body "$body")"
-  git checkout main
-  echo "PR作成: $pr_url"
-  echo "CIチェックを待っています(gh pr checks --watch)..."
-
-  # gh pr checks --watchはPR作成直後、workflowがまだ1件も登録されていない
-  # (GitHub Actions側の登録がPR作成に対してわずかに遅れる)場合、待たずに
-  # 「no checks reported」で即座に失敗する。この場合だけ数秒待って再試行する
-  # (実際にチェックが失敗した場合は再試行せずそのまま結果を表示する)。
-  local checks_output attempt=0
-  while true; do
-    attempt=$((attempt + 1))
-    if checks_output="$(gh pr checks "$pr_url" --watch 2>&1)"; then
-      echo "$checks_output"
-      echo "チェック成功。レビュー・マージしてください: $pr_url"
-      return
-    fi
-    echo "$checks_output"
-    if [[ "$checks_output" == *"no checks reported"* && $attempt -lt 6 ]]; then
-      echo "CIチェックがまだ登録されていないようです。10秒待って再試行します...(${attempt}/6)"
-      sleep 10
-      continue
-    fi
-    echo "警告: CIチェックが失敗、またはタイムアウトしました。内容を確認してください: $pr_url" >&2
-    return
-  done
+  pr_commit_push_create "$1" "$2"
 }
 
 cmd_latest_src_ref() {
@@ -298,16 +247,16 @@ cmd_set_image() {
 - \`${img_dir}/TAG\`: ${tag}
 - \`${img_dir}/SRC_REF\`: ${src_ref}
 
-マージ後、\`.github/workflows/build-${APP}-image.yaml\` が自動発火し、
-\`ghcr.io/${GH_OWNER}/${APP}:${tag}\` を公開します。
+\`scripts/update-app-image.sh set-image\` で作成。マージ後、\`.github/workflows/build-${APP}-image.yaml\`
+が \`ghcr.io/${GH_OWNER}/${APP}:${tag}\` を公開し、続けて同スクリプトがdevへ反映するPRを作成します。
 EOF
 )"
+  pr_automerge_and_wait "$PR_URL"
+  pr_wait_workflow "build-${APP}-image.yaml" "$MERGE_SHA"
 
   echo ""
-  echo "マージ後、イメージビルドの成功を確認してから、次を実行してください:"
-  echo "  gh run list --workflow=build-${APP}-image.yaml --branch main --limit 1"
-  echo "  git pull"
-  echo "  scripts/update-app-image.sh deploy-dev ${APP}"
+  echo "イメージが公開されました。続けてdevへ反映します(deploy-dev)。"
+  cmd_deploy_dev
 }
 
 cmd_deploy_dev() {
@@ -346,10 +295,18 @@ cmd_deploy_dev() {
   commit_push_pr \
     "feat: ${env}環境の${APP}を${tag}に更新" \
     "envs/${env}/apps/${APP}/deployment.yamlのイメージタグを${tag}に更新。マージ後${env}クラスタのFleetが自動適用します。"
+  pr_automerge_and_wait "$PR_URL"
 
-  echo ""
-  echo "マージ後、次で確認してください:"
-  echo "  git pull && scripts/update-app-image.sh check-${env} ${APP}"
+  # Fleetがマージを検知して適用するまで少し待ってから確認する(GitRepoのポーリング間隔は既定15秒)。
+  echo "Fleetの適用を待っています(60秒)..."
+  sleep 60
+  if cmd_check "$env"; then
+    echo ""
+    echo "devで動作確認後、productionへ昇格する: scripts/update-app-image.sh deploy-production ${APP}"
+  else
+    echo "devの確認に失敗しました。あとで再確認: scripts/update-app-image.sh check-${env} ${APP}" >&2
+    exit 1
+  fi
 }
 
 # productionの<app>をdevと同じ内容に同期する(昇格=丸ごとコピー)。productionで変える値は
@@ -435,7 +392,7 @@ cmd_check() {
     echo "OK: ${host}${path} は200を返しました。"
   else
     echo "警告: 200以外です。DNS未登録・cert-manager未発行・SealedSecret未投入等を確認してください(docs/manual-apps.md参照)。" >&2
-    exit 1
+    return 1
   fi
 }
 
