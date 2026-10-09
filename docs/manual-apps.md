@@ -24,7 +24,7 @@ DBなし。外部のSPARQLエンドポイントを参照するのみ)はriken-di
 
 - `images/<app>/`: アプリのビルド定義。アプリ本体は別リポジトリにあるため、
   `SRC_REF`(取り込むコミットSHA)と `TAG`(公開イメージタグ)をファイルで固定し、
-  `images/wordpress/` と同じ「ファイルを書き換えてPR→マージで公開」の運用にする。
+  「ファイルを書き換えてPR→マージで公開」の運用にする。
   対応する `.github/workflows/build-<app>-image.yaml` が
   `ghcr.io/silver198545/<app>:<TAG>` を公開する。
 - `envs/<env>/apps/<app>/`: Fleetバンドル本体。`fleet.yaml` + 素のKubernetesマニフェスト

@@ -84,7 +84,7 @@ dev検証→本番適用する。セキュリティ緊急パッチのみ、ス�
 コア本体はコンテナイメージ(digest固定)に含まれ、永続化されるのはwp-contentのみ。
 wp-admin上の「更新してください」通知からコアを更新しても、Pod再作成で消えるか
 書き込み失敗になる。**コア・PHPの更新は基盤チームが
-[images/wordpress/](../images/wordpress/) のdigest更新→チャート版数上げ→
+ラッパーチャート([values.yaml](../charts/ibid-wordpress/values.yaml))のdigest更新→チャート版数上げ→
 dev→production昇格で行う**([manual-multi-env.md](manual-multi-env.md) 4章)。
 サイトチームには「管理画面の更新ボタンは押さない」ことをルールとして明示する。
 

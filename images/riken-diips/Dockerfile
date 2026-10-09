@@ -2,8 +2,8 @@
 # Next.js 15 SSRサーバーを実行するイメージ。
 #
 # ビルド元はこのリポジトリ管理外のアプリ(プライベートリポジトリ)。
-# 「何が動いているか」をコミットSHAで固定する運用は images/wordpress や
-# images/brc-advanced-search と同じだが、認証情報をDockerイメージのレイヤー履歴に
+# 「何が動いているか」をコミットSHAで固定する運用は images/brc-advanced-search と
+# 同じだが、認証情報をDockerイメージのレイヤー履歴に
 # 残さないため、ソース取得は Dockerfile内でgit cloneせず、
 # .github/workflows/build-riken-diips-image.yaml の actions/checkoutステップ
 # (SRC_REFファイルの内容をrefに指定)で行い、ビルドコンテキストの app/ ディレクトリ

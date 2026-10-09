@@ -50,9 +50,12 @@ resource state with `kubectl`.
   `oci://ghcr.io/silver198545/charts/ibid-wordpress` by `release-chart.yaml` on merge. **Any values
   change requires bumping `Chart.yaml` version**; environments adopt it by bumping `helm.version` in
   their site fleet.yamls (that bump is the promotion unit).
-- `images/wordpress/` — custom WordPress image (digest-pinned Bitnami base), published to GHCR by
-  `build-image.yaml`. Exists because docker.io/bitnami free images only offer a mutable `latest` tag
-  since Broadcom's 2025 change; digests are how reproducibility is kept.
+- WordPress/MariaDB images are the upstream `docker.io/bitnami/*` images pinned by digest directly in
+  the wrapper chart's values.yaml (Bitnami free images only offer a mutable `latest` tag since
+  Broadcom's 2025 change; digests are how reproducibility is kept). There is no custom WordPress image
+  build — a core update is a digest change in `charts/ibid-wordpress/values.yaml` + chart version bump.
+- `images/<app>/` — build definitions for the custom apps under `envs/<env>/apps/`, published to GHCR
+  by `build-<app>-image.yaml`.
 - `fleet-bootstrap/` — the two GitRepo definitions (manual apply to Rancher local; `.fleetignore`d).
 - `scripts/` — `new-wordpress-site.sh <env> <site>` (scaffold a site bundle, required for every site),
   `seal-site-secrets.sh <env> <site>` (generate/migrate the 3 per-site Secrets as SealedSecrets under

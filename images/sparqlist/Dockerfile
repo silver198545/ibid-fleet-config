@@ -1,7 +1,7 @@
 # SPARQList (https://github.com/dbcls/sparqlist, mainブランチ)のExpressサーバーを
 # 実行するイメージ。
 #
-# ビルド元は公開リポジトリ(dbcls/sparqlist)。images/wordpress と同じく
+# ビルド元は公開リポジトリ(dbcls/sparqlist)。WordPressのdigest固定と同じく
 # 「何が動いているか」をコミットSHAで固定する運用にするため、ソース取得は
 # Dockerfile内でgit cloneせず、.github/workflows/build-sparqlist-image.yaml の
 # actions/checkoutステップ(SRC_REFファイルの内容をrefに指定)で行い、ビルド

@@ -81,8 +81,6 @@ WordPressのバックアップCronJobはチャート0.6.0から(2026-10-09に両
 - `charts/ibid-wordpress/`: 全サイト共通デフォルトを内包したラッパーチャート
   (Bitnami `wordpress` を依存に持つ)。値を変えたら`Chart.yaml`のversionを上げる。
   mainマージで `release-chart.yaml` がGHCRへ公開し、各サイトの `helm.version` を上げて取り込む
-- `images/wordpress/`: カスタムWordPressイメージ(digest固定。Bitnami無償イメージが
-  `latest` のみになったことへの対策)
 - `images/<app>/`: 自作アプリのビルド定義(アプリ本体は別リポジトリ。`SRC_REF`で固定)
 - `fleet-bootstrap/`: 環境別GitRepo定義(Rancher localクラスタへ手動適用する控え)
 - `rundeck/jobs/`: `update-app-image.sh`用のRundeckジョブ定義
@@ -90,7 +88,6 @@ WordPressのバックアップCronJobはチャート0.6.0から(2026-10-09に両
   - `validate`: PR検証(YAML構文、fleet.yamlの必須キー、helm lint/template)
   - `promote`: `sites/`の昇格PR生成(手動起動。`site`にサイト名か`all`)
   - `release-chart`: チャート公開
-  - `build-image`: WordPressイメージ公開
   - `build-<app>-image`: 自作アプリのイメージ公開(brc-advanced-search、riken-diips、sparqlist、metadatabase-v2)
 
 ## スクリプト
