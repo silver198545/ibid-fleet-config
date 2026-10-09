@@ -156,6 +156,10 @@ PRにしてマージすると、本番昇格時と同じ順序で、本番デー
 - プラグイン同期Job(`plugin-sync`)が成功したか、所要時間
   (`kubectl --context dev1 -n wordpress-<site>-rh logs job/<Job名>`)
 - WordPressのDB更新(管理画面の「データベースの更新が必要です」が出るなら実行し、所要時間を記録)
+- MariaDBのイメージが変わったとき: システムテーブルのアップグレードが済んだか
+  (`kubectl --context dev1 -n wordpress-<site>-rh exec wordpress-<site>-rh-mariadb-0 -c mariadb -- cat /bitnami/mariadb/data/mariadb_upgrade_info`
+  がイメージのバージョンと一致するか。チャート0.6.3より前は、Bitnamiイメージの不具合で
+  メジャー更新しても実行されていなかった。charts/ibid-wordpress/values.yaml の `extraVolumes` 参照)
 - 記事表示、管理画面操作、プラグイン固有の画面
 - エラーログ(`kubectl logs` のPHPエラー)
 
