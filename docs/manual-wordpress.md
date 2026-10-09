@@ -112,6 +112,26 @@ kubectl -n wordpress-<site> get ingress,certificate                   # Certific
 curl -sI https://<site>.<env>.ibid.lan/                               # HTTP 200(または302)
 ```
 
+新規インストールで生成された`wp-config.php`は、`WP_HOME`/`WP_SITEURL`が
+`http://<site>.<env>.ibid.lan//`(スキームがhttp、末尾スラッシュ重複)になります
+(2026-10-09にproductionのweb/dnaで確認)。確認して`https://<site>.<env>.ibid.lan`に直し、
+OPcacheに古い値が残らないようPodを入れ替えます。ファイルはRWXのwp-content側ボリューム上に
+あるため、1つのPodで書き換えれば全レプリカに反映されます。
+
+```bash
+H=<site>.<env>.ibid.lan
+kubectl -n wordpress-<site> exec deploy/wordpress-<site> -c wordpress -- grep -n "WP_HOME\|WP_SITEURL" /bitnami/wordpress/wp-config.php
+kubectl -n wordpress-<site> exec deploy/wordpress-<site> -c wordpress -- sh -c "
+  cp -p /bitnami/wordpress/wp-config.php /bitnami/wordpress/wp-config.php.bak-\$(date +%Y%m%d) &&
+  sed -i \"s|WP_HOME', 'http://$H//'|WP_HOME', 'https://$H'|; s|WP_SITEURL', 'http://$H//'|WP_SITEURL', 'https://$H'|\" /bitnami/wordpress/wp-config.php &&
+  grep -n 'WP_HOME\|WP_SITEURL' /bitnami/wordpress/wp-config.php && php -l /bitnami/wordpress/wp-config.php"
+kubectl -n wordpress-<site> rollout restart deploy/wordpress-<site>
+```
+
+DBの`home`/`siteurl`は`http://`のままで構いません(wp-config.phpの定数が優先されます)。
+readinessProbeは`X-Forwarded-Proto: https`を付けて叩くため(チャート0.6.1以降)、
+https化した後もProbeWarningは出ません。
+
 ## 4. Pod とストレージの状態を確認する
 
 ```bash
