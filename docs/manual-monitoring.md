@@ -130,7 +130,8 @@ promoteワークフローは `sites/` しかコピーしないため、monitorin
   そのため`storageSpec.volumeClaimTemplate`の`storageClassName`を`harvester`にしている
   (`envs/<env>/infra/monitoring/fleet.yaml`)。ゲストLonghornのrecurring job
   (snapshot/backup)の対象外になる。メトリクスはバックアップしない方針。
-  現状はdevのみ移行済みで、productionは`longhorn`+`db-light`のままである(移行予定)。
+  dev・productionとも2026-10-09に移行済み。productionの`db-light`グループ
+  (`envs/production/infra/longhorn-jobs/recurringjobs.yaml`)は、移行後は対象ボリュームが無い。
 
   **storageClassを変えた後のPVC作り直し手順**(volumeClaimTemplateは既存PVCに反映されない。
   メトリクス履歴は消える):
