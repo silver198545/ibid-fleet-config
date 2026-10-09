@@ -21,7 +21,8 @@ resource state with `kubectl`.
   to `envs/production/sites/` and opens a PR; apps promote the same way via
   `scripts/update-app-image.sh deploy-production`;
   `envs/production/**` requires CODEOWNERS approval via branch protection. Only approved merges reach
-  the production cluster. Do not invent other promotion paths.
+  the production cluster. Branch protection requires 0 approvals + Code Owner review, so PRs that do
+  not touch `envs/production/` merge on `validate` alone (auto-merge enabled). Do not invent other promotion paths.
 - **What promotes via Git: configuration only** (chart version, values, image digests/tags). DB data and
   wp-content never promote; they move via `docs/manual-wordpress-restore.md`. Secrets are generated
   per-site *and per-environment* and never shared or committed.
@@ -64,7 +65,9 @@ resource state with `kubectl`.
   creation, emergencies only), `deploy-wordpress.sh <env> <site>` (**break-glass only** —
   normal changes go through PR merge; pause the env's GitRepo before using it on production),
   `rehearsal-site.sh <site> <production|dev>` (temporary `<site>-rh` bundle on dev for production-data
-  rehearsals), `update-app-image.sh` (apps: image bump → dev → production).
+  rehearsals), `update-app-image.sh` (apps: `set-image` does image bump → build → dev in one run; production via
+  `deploy-production`), `bump-chart.sh [--update-images] "<title>"` (chart change/Bitnami digest bump →
+  publish → all dev sites' `helm.version`, one run). Both auto-merge dev-only PRs; see branch protection below.
 - `docs/` — manual runbooks for steps Fleet cannot automate. Always check these before changing
   behavior they document, and update them when the corresponding config changes. Key one:
   `docs/manual-multi-env.md` (environment setup, dev1 migration, promotion operation, break-glass).

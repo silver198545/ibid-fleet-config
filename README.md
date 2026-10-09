@@ -98,7 +98,8 @@ WordPressのバックアップCronJobはチャート0.6.0から(2026-10-09に両
 | `scripts/seal-site-secrets.sh <env> <site>` | サイトの認証情報Secret(3種)をSealedSecretとして生成(環境ごと・サイトごとにランダム) |
 | `scripts/rehearsal-site.sh <site> <production\|dev>` | 本番データリハーサル用の`<site>-rh`バンドルを生成 |
 | `scripts/restore-wordpress.sh <site> <dir> [ts]` | `yyyymmdd_hhmm.tar.lzo`/`.dump.lzo`のバックアップをサイトへリストア |
-| `scripts/update-app-image.sh <subcommand>` | 自作アプリのイメージ更新〜dev→production昇格PR |
+| `scripts/bump-chart.sh [--update-images] "<種類>: <説明>"` | ラッパーチャートの変更(WordPress/MariaDBのdigest更新を含む)を公開し、devの全サイトへ反映するまでを一括実行 |
+| `scripts/update-app-image.sh <subcommand>` | 自作アプリのイメージ更新(`set-image`でdev反映まで一括)〜dev→production昇格PR |
 | `scripts/seal-monitoring-secret.sh <env>` | アラート通知用Slack Webhook URLのSealedSecret |
 | `scripts/seal-sparqlist-secret.sh <env>` | sparqlistのADMIN_PASSWORDのSealedSecret |
 | `scripts/deploy-wordpress.sh <env> <site>` | **緊急用(break-glass)**の手動デプロイ。通常はPRマージ→Fleet適用 |

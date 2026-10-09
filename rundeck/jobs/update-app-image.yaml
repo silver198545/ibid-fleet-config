@@ -68,7 +68,8 @@
 - name: 03-set-image
   group: app-image-update
   description: |
-    images/<app>/TAG・SRC_REFを更新するPRを作成し、CIチェック完了まで待つ(マージはしない)。
+    images/<app>/TAG・SRC_REFを更新するPRを作成し、CI通過後にauto-merge → イメージビルドの成功を待ち、
+    続けてdevへ反映するPR(deploy-dev)の作成・auto-merge・check-devまで行う。
     src_refには必ず02-latest-src-refジョブの出力(コミットSHA)を使うこと。
 
     tagは空欄でよい。現在のTAGが<version>-r<N>形式(例: 2.0.0-r7)の場合、N+1で自動採番される
@@ -76,7 +77,7 @@
   loglevel: INFO
   executionEnabled: true
   multipleExecutions: false
-  timeout: 30m
+  timeout: 60m
   nodefilters:
     filter: 'tags: rancher'
   options:
@@ -110,8 +111,8 @@
 - name: 01-deploy-dev
   group: app-image-update/dev
   description: |
-    set-imageのPRマージ後、build-<app>-image.yamlの成功を確認したうえで実行する。
-    envs/dev/apps/<app>/deployment.yamlのイメージタグを更新するPRを作成する。
+    通常は03-set-imageが自動で行うため不要。set-imageがイメージビルド後に止まった場合の再開用。
+    envs/dev/apps/<app>/deployment.yamlのイメージタグを更新するPRを作成し、auto-merge・check-devまで行う。
   loglevel: INFO
   executionEnabled: true
   multipleExecutions: false

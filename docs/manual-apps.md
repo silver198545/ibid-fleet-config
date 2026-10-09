@@ -45,8 +45,8 @@ productionで変える値(ホスト名、レプリカ数、アフィニティ等
 そのためコピー後のホスト名書き換え等は不要で、`envs/dev/apps/<app>` と
 `envs/production/apps/<app>` は、昇格待ちの変更(イメージタグ等)を除き同じ内容になる。
 
-- **2回目以降(通常のイメージ更新)**: `deploy-dev` → `check-dev` →
-  `deploy-production`(productionをdevと同じ内容に同期するPR。イメージタグに限らず
+- **2回目以降(通常のイメージ更新)**: `set-image`(イメージPR→ビルド→`deploy-dev`→`check-dev`
+  まで自動で進む)→ devで動作確認 → `deploy-production`(productionをdevと同じ内容に同期するPR。イメージタグに限らず
   devに入っている変更はすべて昇格対象になるので、PRのdiffを確認する)→ `check-production`
 - **初回昇格(新規アプリ)**: `promote-production` → SealedSecret作成 →
   `promote-production-finish`。devのディレクトリに `overlays/production/` が無いと
