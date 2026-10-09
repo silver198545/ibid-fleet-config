@@ -270,7 +270,7 @@ kubectl --context rancher patch gitrepo <同上> -n fleet-default --type=merge \
 上記の根本原因調査のためノードを1台ずつ(`cordon`→`drain`→Harvester UIでVM再起動→
 `uncordon`)実施したところ、**`drain`が完了していたにもかかわらず、そのノードに
 単一レプリカ(`numberOfReplicas: 1`)が乗っていた別の2ボリュームが再起動と同時に
-`faulted`になった**(このリポジトリの`wp-content`ボリュームは全サイトreplicas=1
+`faulted`になった**(当時は`wp-content`ボリュームが全サイトreplicas=1(`longhorn-r1`)。現在のwp-contentは`nfs-external`だが、sparqlist等`longhorn-r1`のボリュームには今も当てはまる。replicas=1
 がデフォルト)。
 
 **原因**: Longhornの`instance-manager`Pod(実際のレプリカ/エンジンプロセスが

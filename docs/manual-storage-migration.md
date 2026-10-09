@@ -1,4 +1,16 @@
-# 既存サイトのストレージバックエンド移行(二重増幅対策)
+# 既存サイトのストレージバックエンド移行【完了済み・記録】
+
+> **現状(2026-10-09)**: この文書の2つの移行は、どちらも全環境で完了している。
+> - DB: `harvester` StorageClass(2026-07-10、全環境)
+> - wp-content: `longhorn-r1`(2026-07-10)を経て、`nfs-external`(dev 2026-09-04、production 2026-10-09)
+>
+> 新しいサイトは`scripts/new-wordpress-site.sh`が最初から`nfs-external`/`harvester`で作るので、
+> この手順を使うことはない。既存PVCのStorageClassを変える(PVCを作り直す)ときの注意点
+> (Fleetバンドルの一時停止、plugin-sync JobによるPVC削除の停止、reclaimPolicy `Delete`での即時削除)の
+> 記録として残している。
+>
+> **重要**: 移行の結果、WordPressのデータはゲストLonghornの定期バックアップの対象外になった
+> ([manual-multi-env.md](manual-multi-env.md)の5.)。
 
 [docs/roadmap.md](roadmap.md) 項目3で判明した問題への対応手順。ゲストクラスタ内のLonghorn
 (`numberOfReplicas: 3`)は、そのボリュームが載っているVM仮想ディスク自体もHarvester側の
@@ -335,5 +347,6 @@ productionの`nfs-external`は`reclaimPolicy: Retain`なので、PVCを削除し
   kougaku/mcd/mus/pms/tet/webへ展開。このうちdna/hdm/info/mus/webは移行作業開始前から
   Podが繰り返しCrashLoop/Not Ready(129〜200回再起動)だった状態で、移行後はいずれも
   HTTP 200・`find`3回連続エラー0件まで復旧した。dev環境は全15サイトがnfs-externalへ
-  移行済み。次はproductionへの展開判断(サイトのfleet.yamlではdev用の`targetCustomizations`に入っている。
-  productionへ広げる際は既存PVCの移行手順が必要)。
+  移行済み。
+- **production(2026-10-09)**: csi-driver-nfsを導入し(PR#190)、`nfs-external`をサイトの
+  全環境共通の値にして(PR#191)、productionへ昇格した(PR#192/#194)。

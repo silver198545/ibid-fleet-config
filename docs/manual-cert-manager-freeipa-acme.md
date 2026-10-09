@@ -1,8 +1,8 @@
 # cert-manager + FreeIPA ACME 導入手順(TLS証明書の自動発行)
 
-社内限定サイトのTLSは、FreeIPA(`ibid.lan`)のACME(Dogtag CA)から発行する。詳細な設計判断・
-ネットワーク構成は[freeipa-harvester-networkの検討記録]内部メモ相当だが、本リポジトリでは
-以下に手順として残す。ホスト名規約は`<site>.<env>.ibid.lan`。外部公開が必要なサイトは別ドメイン+
+社内限定サイトのTLSは、FreeIPA(`ibid.lan`)のACME(Dogtag CA)から発行する。設計判断は
+[roadmap.md](roadmap.md)の項目2、ゲストクラスタのノードに必要な2枚目のNIC(FreeIPA向け)は
+[manual-multi-env.md](manual-multi-env.md)の「2. クラスタの新規作成」を参照。ホスト名規約は`<site>.<env>.ibid.lan`。外部公開が必要なサイトは別ドメイン+
 外部NginxProxyManager経由とし、本手順の対象外。
 
 ## 前提: なぜDNS-01(RFC2136)なのか

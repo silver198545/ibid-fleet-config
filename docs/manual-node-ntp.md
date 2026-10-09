@@ -86,8 +86,8 @@ sudo chronyc reload sources
 ## 恒久対策: cloud-init(User Data)に入れる(prod1は2026-10-08、dev1は2026-10-09に実施済み)
 
 Rancherのプール設定(HarvesterConfig)のUser Dataに、次の`write_files`と`runcmd`の3行を足す。
-これで、新しく作られるVMは最初から`ntp.nict.jp`で同期する。現在のUser Dataは
-`qemu-guest-agent`と`nfs-common`を入れるだけなので、全体は次のようになる:
+これで、新しく作られるVMは最初から`ntp.nict.jp`で同期する。以前のUser Dataは
+`qemu-guest-agent`と`nfs-common`を入れるだけだった。全体は次のとおり(dev1・prod1の全プールで使っている。クラスタ作成時のチェックリストは[manual-multi-env.md](manual-multi-env.md)の「2. クラスタの新規作成」):
 
 ```yaml
 #cloud-config

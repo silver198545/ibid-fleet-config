@@ -1,6 +1,6 @@
 # 今後の開発方針(ロードマップ)
 
-2026-07-05時点の到達点と、数十サイトの本番運用に向けて残る課題の整理。
+2026-07-05に作成し、以後更新している(最終更新: 2026-10-09)。到達点と、数十サイトの本番運用に向けて残る課題の整理。
 優先度と「いつまでに決めるべきか」のトリガーを明記する。
 完了した項目は消さず「済」に更新し、この文書を意思決定の記録として育てる。
 
@@ -12,9 +12,13 @@
 - PR承認ゲート付きの昇格フロー(promoteワークフロー、本番はCODEOWNERS必須)
 - 全サイト共通のラッパーチャート(GHCR公開、digest固定イメージ)
 - プラグインのGit宣言同期(fleet.yamlの `plugins:` → wp-cli Job)
-- Longhorn定期バックアップ(NFS、環境別、本番14世代)
+- Longhorn定期バックアップ(NFS、環境別、本番14世代)。**ただし対象はゲストLonghorn上のボリュームのみで、
+  WordPressのDB・wp-contentは含まない**(下記5.)
 - Sealed SecretsによるサイトSecretのGit管理化(封印鍵は全環境ともオフラインバックアップ済み)
-- **DR実証済み**: クラスタ全損→完全復元([manual-multi-env.md](manual-multi-env.md) 8.参照)
+- **DR実証済み(2026-07時点の構成で)**: クラスタ全損→完全復元([manual-multi-env.md](manual-multi-env.md) 8.参照)。
+  wp-contentを`nfs-external`、DBを`harvester`に移した現構成では未検証(下記5.)
+- control-plane VMのSSD限定・chrony・anti-affinity(etcd遅延と時刻ずれの対策。2026-10-08〜09に
+  prod1/dev1を入れ替え済み。[manual-harvester-etcd-ssd.md](manual-harvester-etcd-ssd.md))
 
 ## 環境構成の見直し: staging廃止と2環境化 【済(Git側: 2026-10-08)】
 
@@ -196,6 +200,10 @@
   30サイト運用が可能な見込み。ディスク増設自体は今回のタスクの対象外
   (次にサイト量産を計画する際、実施の要否を判断する)。
 - 監視スタック(Prometheus PVC)は対象外(サイト数と連動して増える容量ではないため)。
+- **その後(2026-09〜10)**: wp-contentはLonghorn RWX(share-manager/NFS-Ganesha)の
+  Remote I/O error対策で、さらに外部NFS直結の`nfs-external`へ移した(dev 2026-09-04、
+  production 2026-10-09)。wp-contentはゲストLonghornのプールを全く消費しなくなった
+  ([manual-storage-migration.md](manual-storage-migration.md)の後半)。
 
 ## 🟠 優先度・中: 本番コンテンツが入る前に塞ぐ運用の穴
 
@@ -213,13 +221,28 @@
 - 制約: probeはクラスタ内経由のため**LB IP経路の障害・IPPool枯渇は検知不可**。
   1.のIngress化・2.のDNS導入時に外形監視を再検討する。
 
-### 5. バックアップの3-2-1化
+### 5. WordPressデータのバックアップ(定期バックアップの欠落と3-2-1化) 【🔴 未対応、2026-10-09発覚】
 
-- **現状**: 全環境のバックアップがNFSサーバー(192.168.1.1)1台に集中。
-  **そこが壊れると全環境のバックアップが同時消失**する。
-- **方針**: NFSの先のオフサイト/別メディアへの二次コピーを検討
-  (S3互換への複製、別NASへのrsync等)。封印鍵バックアップの保管場所も冗長化する。
-- **トリガー**: 本番コンテンツの重要度が上がる前。
+- **現状(2026-10-09にクラスタで確認)**: WordPressサイトのデータは、**どの定期バックアップの対象にも
+  入っていない**。
+  - DB: `harvester` StorageClass(Harvester側のLonghornボリューム)。ゲストクラスタの
+    Longhorn RecurringJobの対象外。Harvester側には日次スナップショット1世代
+    (`c-mk1hng`、バックアップではない)しか無い
+  - wp-content: `nfs-external`(NFSサーバー`192.168.1.1`の`/data/nfs/wordpress/<env>/`)。
+    Longhornを通らないので、Longhornのバックアップの対象外
+  - ゲストLonghornの`backup-daily`が今守っているのは、Prometheus・sparqlist等だけ
+  - 項目3でDBを`harvester`へ、その後wp-contentを`nfs-external`へ移した結果、
+    気づかないうちにバックアップの対象から外れていた
+- **さらに**: 全環境のバックアップ(と、今はwp-contentの実体も)がNFSサーバー`192.168.1.1`
+  1台に集中している。**そこが壊れると全環境のデータとバックアップが同時に消える**。
+- **当面の運用**: 本番反映前・リストア前に、mysqldump + wp-contentのtarを手動で取る
+  ([operations-flow.md](operations-flow.md)「本番反映前のバックアップ」)。
+- **方針(要検討)**: サイトごとの定期バックアップ(例: CronJobでmysqldump + wp-contentのtarを
+  NFSの別パスへ。`restore-wordpress.sh`の入力形式に合わせる)を入れる。そのうえで、
+  NFSの先のオフサイト/別メディアへの二次コピー(S3互換への複製、別NASへのrsync等)を検討する。
+  封印鍵バックアップの保管場所も冗長化する。現構成でのDR手順も作り直して検証する
+  ([manual-multi-env.md](manual-multi-env.md) 8.の7.)。
+- **トリガー**: 本番にコンテンツが入る前(本番のweb/dnaは2026-10-08に作り直したばかり)。
 
 ### 6. WordPressコア/プラグインの定期更新サイクル 【済(運用ルール化: 2026-07-08)】
 
@@ -268,6 +291,16 @@
   互換性を調査し、スキューを解消する(アップグレードまたはダウングレード)。
   `docs/operations-flow.md`の「本番データリハーサル」でリハーサルサイトを削除するたびに、
   この詰まりに都度対応が必要な点に注意(2026-10-08以前はstagingサイトの削除で発生していた)。
+
+### 9. 環境構成の再検討(staging再導入の可否)
+
+- 2026-10-08にHWリソース(Harvesterホストのメモリ)を理由にstagingを廃止した(上記「環境構成の見直し」)。
+  etcd遅延・時刻ずれの対策(SSD限定・chrony)が確立したため、クラスタ作成自体は安定してできる見込み。
+  ただし、廃止の理由だったメモリの制約は変わっていない。
+- 検討するときの順序: (1)Harvesterホストのメモリの空きを確認、(2)小さい構成で`staging1`クラスタだけを
+  作り(GitOpsにはまだ入れない)、dev1/prod1への影響を数日観察、(3)問題なければGit側の再導入
+  (`envs/staging/`、GitRepo、promoteワークフローの3段階化、`targetCustomizations`等)を設計する。
+  クラスタの作り方は[manual-multi-env.md](manual-multi-env.md)の「2. クラスタの新規作成」。
 
 ## 🟡 優先度・低: 小さいが効く宿題
 

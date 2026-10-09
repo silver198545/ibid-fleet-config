@@ -9,50 +9,39 @@ Rancher側の2つのGitRepo([../fleet-bootstrap/](../fleet-bootstrap/)参照)が
 ```
 envs/
 ├── dev/
-│   ├── infra/    # catalog-repos / longhorn* / sealed-secrets / monitoring* (基盤バンドル)
+│   ├── infra/    # 基盤バンドル(下記)
 │   ├── sites/    # WordPressサイト(1サイト=1ディレクトリ、fleet.yaml)
-│   └── apps/     # WordPress以外の自作アプリ(1アプリ=1ディレクトリ、fleet.yaml)
+│   ├── apps/     # WordPress以外の自作アプリ(1アプリ=1ディレクトリ、fleet.yaml)
+│   └── secrets/  # サイト・アプリのSealedSecret(環境ごとの鍵で封印。環境間コピー不可)
 └── production/   # 同構成
 ```
 
-`apps/` は `sites/` と違いWordPressラッパーチャート・PVC・3種のSecretを前提としない
-(DBを持たないステートレスなアプリを想定)ため別ディレクトリに分けている。
-追加手順は [../docs/manual-apps.md](../docs/manual-apps.md) 参照。
-**`promote.yaml` は `sites/` しかコピーしない**ため、`apps/` の昇格は
-`scripts/update-app-image.sh`(同ドキュメント参照)でPRを作成すること。
-
-`sites/`・`apps/` のバンドルは**全環境で同一内容**にし、環境ごとに変わる値は
-fleet.yamlの`targetCustomizations`(とクラスタラベルのテンプレート展開)で書き分ける。
-昇格は丸ごとコピーで完結する([../docs/operations-flow.md](../docs/operations-flow.md)
-「環境差分の書き方」)。
+`infra/`の中身: `catalog-repos`(Bitnami ClusterRepo)、`longhorn-crd`・`longhorn`・
+`longhorn-jobs`(定期スナップショット/バックアップ)・`longhorn-r1`(レプリカ1のStorageClass)、
+`csi-driver-nfs`・`csi-driver-nfs-storageclass`(`nfs-external`)、`sealed-secrets`、
+`cert-manager`・`cert-manager-issuer`、`monitoring*`(5バンドル。
+[../docs/manual-monitoring.md](../docs/manual-monitoring.md))。
+devのinfraの`helm.releaseName`が`base-infra-*`なのは、単一クラスタ時代のリリースを
+引き継いでいるため。変更しないこと([../docs/manual-multi-env.md](../docs/manual-multi-env.md)の3.)。
 
 ## 運用ルール
 
-- **変更は必ずdevから入れ、productionへ昇格させる。**
-  2026-10-08にstagingは廃止した。本番相当データでの確認はdev1上の一時的な
-  リハーサルサイトで行う([../docs/operations-flow.md](../docs/operations-flow.md))。
-  昇格は `.github/workflows/promote.yaml`(手動起動)が生成するPRのマージで行う。
+- **変更は必ずdevから入れ、productionへ昇格させる。** 昇格の経路は種類ごとに決まっている:
+
+  | 対象 | 昇格の方法 |
+  |---|---|
+  | `sites/` | `promote`ワークフロー(手動起動)が作るPR |
+  | `apps/` | `scripts/update-app-image.sh deploy-production`(Rundeckからも可)が作るPR |
+  | `infra/` | 手動のPR(SealedSecretは環境ごとに封印し直す) |
+
   `envs/production/` 配下の変更はCODEOWNERSにより承認必須。
-- 環境間の差分は `diff -r envs/dev/sites envs/production/sites`(`apps`も同様)で
-  いつでも確認できる。昇格待ちの変更(`helm.version`、`plugins`、イメージタグ)以外が
-  出ていたら、環境固有の値の直書きか昇格漏れを疑うこと(devにしか無いサイト・アプリは
-  本番未展開のもの)。
-- サイトの追加は `scripts/new-wordpress-site.sh <env> <site>`(fleet.yaml生成)と
-  `scripts/seal-site-secrets.sh <env> <site>`(認証情報のSealedSecret生成、
-  `envs/<env>/secrets/` にコミット)で行う。
-  手順の全体は [../docs/manual-wordpress.md](../docs/manual-wordpress.md) を参照。
-- Gitでプロモーションするのは**構成のみ**(チャートバージョン、values、イメージ)。
-  DBデータやwp-contentの実データは昇格しない
+- `sites/`・`apps/` のバンドルは**全環境で同一内容**にし、環境ごとに変わる値は
+  fleet.yamlの`targetCustomizations`(とクラスタラベルのテンプレート展開)で書き分ける
+  ([../docs/operations-flow.md](../docs/operations-flow.md)「環境差分の書き方」)。
+  `diff -r envs/dev/sites envs/production/sites`(`apps`も同様)で出るのは昇格待ちの変更
+  (`helm.version`、`plugins`、イメージタグ)だけのはず。それ以外が出たら、環境固有の値の
+  直書きか昇格漏れを疑う(devにしか無いサイト・アプリは本番未展開のもの)。
+- サイトの追加は [../docs/manual-wordpress.md](../docs/manual-wordpress.md)、
+  アプリの追加は [../docs/manual-apps.md](../docs/manual-apps.md)。
+- Gitで昇格するのは**構成のみ**。DBデータやwp-contentは昇格しない
   ([../docs/manual-wordpress-restore.md](../docs/manual-wordpress-restore.md) の手順で個別に移送する)。
-
-- infraバンドル(monitoring系を含む)はpromoteワークフローの対象外
-  (`sites/` のみコピーされる)。環境への展開は手動PRで行い、監視のSlack通知用
-  SealedSecretは環境ごとに `scripts/seal-monitoring-secret.sh <env>` で生成し直す
-  ([../docs/manual-monitoring.md](../docs/manual-monitoring.md) 参照)。
-
-## infra/ について
-
-dev1クラスタは従来リポジトリ直下のバンドル(`catalog-repos/`等)で運用してきたため、
-`envs/dev/infra/` への移設は [../docs/manual-multi-env.md](../docs/manual-multi-env.md) の
-手順に従って段階的に行う(旧バンドルの削除がLonghornのアンインストールを誘発しない
-よう、`keepResources: true` の同期とリリース名の引き継ぎが必要)。
