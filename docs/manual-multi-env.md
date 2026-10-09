@@ -36,6 +36,10 @@ wp-contentの実データは昇格せず、必要な場合は [manual-wordpress-
      `--admin` で手動マージしており、dev向けの更新でも1回ごとに手作業が要っていた)。
      `scripts/bump-chart.sh`・`scripts/update-app-image.sh set-image` はdev向けPRを
      auto-mergeして次の段階まで自動で進む
+   - **同じ内容のリポジトリルールセット(Settings → Rules → Rulesets の `main`)もある**
+     (2026-07-03作成。PR必須・承認数・Code Owners・`validate`必須(ブランチ最新化必須)・
+     削除/force push禁止)。ブランチ保護とルールセットは両方が適用されるため、承認数などを
+     変えるときは**両方**を変えること(2026-10-10にブランチ保護だけ変えてPRが止まったままになった)
    - Require status checks to pass: `validate`
    - `enforce_admins`(Do not allow bypassing the above settings)は**無効のまま**にする。
      現状collaboratorが `@silver198545` 一人のため、有効化すると
