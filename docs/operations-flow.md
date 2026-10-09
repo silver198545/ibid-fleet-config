@@ -125,8 +125,7 @@ scripts/seal-site-secrets.sh dev $SITE-rh       # envs/dev/secrets/<site>-rh.yam
 
 この2ファイルを1つのPRにしてマージする(devのみの変更)。Fleetがdev1に
 `wordpress-<site>-rh` を本番と同じチャート版・プラグインで作る。
-アクセス用に `<site>-rh.dev.ibid.lan` → dev1のTraefik LB IPのDNS Aレコードを登録する
-(または手元の hosts に書く。証明書はDNS-01で発行されるためAレコードの有無に依存しない)。
+`<site>-rh.dev.ibid.lan`は、DNSのワイルドカード(`*.dev.ibid.lan`)でそのまま引ける。
 
 ### 3. 本番データをリストアする
 
@@ -169,7 +168,7 @@ PRにしてマージすると、本番昇格時と同じ順序で、本番デー
    ```
    `harvester` StorageClassのPV(mariadb)は、Harvester CSIドライバの既知の問題で
    `Released`のまま残ることがある。その場合は [roadmap.md](roadmap.md) 項目8の手順で片付ける
-3. 手元のバックアップ(`~/rehearsal/<site>`)を削除する。DNSレコードを登録した場合は削除する
+3. 手元のバックアップ(`~/rehearsal/<site>`)を削除する
 
 ## Harvester物理層の容量
 

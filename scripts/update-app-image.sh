@@ -518,8 +518,8 @@ EOF
     fi
   fi
   echo ""
-  echo "${to_env}向けのDNS Aレコード($(hostname_for_env "$to_env"))が未登録なら"
-  echo "docs/manual-apps.md / docs/manual-cert-manager-freeipa-acme.md の手順で登録してください。"
+  echo "DNSは環境ごとのワイルドカード(*.${to_env}.ibid.lan)なので、$(hostname_for_env "$to_env") の登録は不要です"
+  echo "(docs/manual-cert-manager-freeipa-acme.md「サイトホスト名のDNS」)。"
   echo ""
   echo "SealedSecret作成後、次を実行してください:"
   echo "  scripts/update-app-image.sh promote-${to_env}-finish ${APP}"

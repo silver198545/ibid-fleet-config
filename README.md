@@ -26,7 +26,7 @@ dev → production の2つのRKE2クラスタ(Harvester上、Rancher管理)で
 | WordPressサイト | 15 | 2(web、dna) |
 | 自作アプリ | 4(brc-advanced-search、riken-diips、sparqlist、metadatabase-v2) | 3(metadatabase-v2以外) |
 | TraefikのLB IP(IPPool) | `192.168.1.33`(pool1 `.30-.49`) | `192.168.1.99`(pool3 `.90-.100`) |
-| ホスト名 | `<site>.dev.ibid.lan` | `<site>.production.ibid.lan` |
+| ホスト名(DNS) | `<site>.dev.ibid.lan`(`*.dev`のワイルドカード) | `<site>.production.ibid.lan`(`*.production`のワイルドカード) |
 
 WordPressのデータの置き場所:
 
@@ -36,8 +36,7 @@ WordPressのデータの置き場所:
 | MariaDB | `harvester` | Harvester側のボリューム | 同上(DBダンプ) |
 | (参考)Prometheus、sparqlist等 | `longhorn`/`longhorn-r1` | ゲストLonghorn | Longhornの日次バックアップ(NFS `/data/nfs/longhorn/<env>`) |
 
-WordPressのバックアップCronJobはチャート0.6.0から(2026-10-09にdevへ導入開始。productionは
-devで確認後)。バックアップがNFSサーバー1台に集中している問題は残っている
+WordPressのバックアップCronJobはチャート0.6.0から(2026-10-09に両環境へ導入)。バックアップがNFSサーバー1台に集中している問題は残っている
 ([docs/roadmap.md](docs/roadmap.md)の項目5)。戻し方は
 [docs/manual-wordpress-restore.md](docs/manual-wordpress-restore.md)「日次バックアップ」。
 
@@ -114,7 +113,7 @@ devで確認後)。バックアップがNFSサーバー1台に集中している
   「2. クラスタの新規作成」のチェックリストに従う(SSDイメージ、User Data、anti-affinity、
   2枚目のNIC、chartValues、IPPool、`env`ラベル、封印鍵)。
 - **サイトの追加**: `seal-site-secrets.sh dev <site>` と `new-wordpress-site.sh dev <site>` の
-  生成物を1つのPRにしてマージ → DNSのAレコードを登録 → devで確認 → `promote`で本番へ
+  生成物を1つのPRにしてマージ → devで確認(DNSはワイルドカードなので登録不要) → `promote`で本番へ
   (本番用のSealedSecretは`seal-site-secrets.sh production <site>`で別に作る)。
   [docs/manual-wordpress.md](docs/manual-wordpress.md)
 - **設定変更・バージョンアップ**: devのfleet.yamlやチャートを変更 → devで確認 →

@@ -100,12 +100,11 @@ PRを作成してマージしてください。マージされると対象環境
 昇格先の環境でも手順1と同様に、その環境用のSealedSecretを生成・コミットしておく
 必要があります(封印は環境ごとの鍵のため、devのファイルは流用できません)。
 
-## 3. DNSを登録し、HTTPSで開けることを確認する
+## 3. HTTPSで開けることを確認する
 
-`<site>.<env>.ibid.lan` のAレコードを、その環境のTraefikのLB IPへ向けて登録します
+DNSは環境ごとのワイルドカード(`*.<env>.ibid.lan`)なので、サイトごとの登録は不要です
 ([manual-cert-manager-freeipa-acme.md](manual-cert-manager-freeipa-acme.md)の
-「サイトホスト名のDNS Aレコード登録」)。証明書はDNS-01で発行されるので、Aレコードより先に
-発行されていても問題ありません。
+「サイトホスト名のDNS」)。個別のAレコードは作らないでください(ワイルドカードより優先されます)。
 
 ```bash
 kubectl --context <dev1|prod1> -n kube-system get svc rke2-traefik   # TraefikのLB IP
@@ -176,7 +175,7 @@ uninstallしてください。全環境から消す場合は環境ごとに繰�
   ([roadmap.md](roadmap.md)項目8の手順で片付けます)。
 - 日次バックアップの`/data/nfs/backup/<env>/wordpress-<site>/`は両環境とも残ります(`nfs-backup`は`Retain`)。
   最後の数日分は念のため残し、不要になったら手動で消します。
-- `envs/<env>/secrets/<site>.yaml`も削除し、DNSのAレコードも消します。
+- `envs/<env>/secrets/<site>.yaml`も削除します(DNSはワイルドカードなので作業は無い)。
 
 ## 補足
 

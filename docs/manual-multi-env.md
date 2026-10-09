@@ -109,8 +109,9 @@ wp-contentの実データは昇格せず、必要な場合は [manual-wordpress-
 1. **sealed-secretsの鍵**: 再作成なら、バックアップした鍵をリストアする(6.)。新しい鍵のままにする場合は、
    その環境の全SealedSecretを封印し直す。どちらの場合も、新しい鍵をすぐバックアップする。
    2026-08-31のprod1再作成ではこれが漏れ、本番のSecretが全件復号できなかった(PR#180で再封印)。
-2. **TraefikのLB IP**をDNSに登録する(`<site>.<env>.ibid.lan`ごとのAレコード。
-   [manual-cert-manager-freeipa-acme.md](manual-cert-manager-freeipa-acme.md))。
+2. **TraefikのLB IP**を、環境のワイルドカードレコード(`*.<env>.ibid.lan`)に設定する。作り直しで
+   IPが変わったら`ipa dnsrecord-mod`で1件書き換える。消し忘れの`_acme-challenge.*`のTXTが残っていれば消す
+   ([manual-cert-manager-freeipa-acme.md](manual-cert-manager-freeipa-acme.md)「サイトホスト名のDNS」)。
 3. **作成後のチェック**([manual-harvester-etcd-ssd.md](manual-harvester-etcd-ssd.md)の「4. 作成後のチェック」):
    control-planeのレプリカが全て`defaultdisk`上 / 全ノードで`chronyc -n sources`に`^*` /
    etcdに`slow fdatasync`・`clock drift`が出ない / control-plane VMが別々のホスト /

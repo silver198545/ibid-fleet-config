@@ -132,8 +132,11 @@
   双方のACMEエンドポイント経由での発行成功を確認済み。production導入後の疎通確認
   (cert-manager Pod Running、ClusterIssuer Ready、TSIG鍵SealedSecret Synced)も完了(2026-07-10)。
   3環境ともIngress化・DNS登録・Certificate発行(FreeIPA CA発行)まで一通り完了(上記1.参照)。
-- **残作業**: なし(サイト追加時は`<site>.<env>.ibid.lan`のIngress設定とDNS登録を
-  同じ手順で行うだけでよい)。
+- **DNSのワイルドカード化(2026-10-09)**: サイトごとのAレコードが、クラスタの作り直しでTraefikのIPが
+  変わった後も古い値のまま残り、dev web/dnaと本番の全ホスト名に届かなくなっていた。
+  環境ごとのワイルドカード(`*.dev`→`.33`、`*.production`→`.99`)にまとめ、個別のレコードと
+  消し忘れの`_acme-challenge`のTXTを削除した。
+- **残作業**: なし(サイト追加時は`<site>.<env>.ibid.lan`のIngress設定だけでよい。DNSはワイルドカード)。
 
 ### 3. ストレージ容量計画 【済(3環境、2026-07-10)】
 
@@ -221,7 +224,7 @@
 - 制約: probeはクラスタ内経由のため**LB IP経路の障害・IPPool枯渇は検知不可**。
   1.のIngress化・2.のDNS導入時に外形監視を再検討する。
 
-### 5. WordPressデータのバックアップ(定期バックアップの欠落と3-2-1化) 【一部対応中(2026-10-09〜)】
+### 5. WordPressデータのバックアップ(定期バックアップの欠落と3-2-1化) 【日次バックアップは済(両環境、2026-10-09)。残りあり】
 
 - **現状(2026-10-09にクラスタで確認)**: WordPressサイトのデータは、**どの定期バックアップの対象にも
   入っていない**。
@@ -241,7 +244,8 @@
   (JST 3:00、DBダンプ + wp-contentのtar、gzip、14日分)。保存先はStorageClass `nfs-backup`
   (NFS `/data/nfs/backup/<env>/<namespace>/`、両環境とも`Retain`)。`restore-wordpress.sh`を
   `.gz`形式に対応させた。監視: `WordPressBackupStale` / `WordPressBackupNeverSucceeded`。
-  devから導入し、確認後にproductionのinfra(StorageClass・アラート)を入れてサイトを昇格する。
+  2026-10-09に両環境へ導入(#198〜#201)。devのkougakuで、NFS上のバックアップから
+  `restore-wordpress.sh`で戻す通し試験も行った(HTTP 200、wp-contentはmd5で完全一致)。
 - **残り**: (1)NFSサーバー1台への集中の解消(オフサイト/別メディアへの二次コピー。S3互換への複製、
   別NASへのrsync等)、(2)封印鍵バックアップの保管場所の冗長化、(3)現構成でのクラスタ全損からの
   復元演習([manual-multi-env.md](manual-multi-env.md) 8.の7.)。
