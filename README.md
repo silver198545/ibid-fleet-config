@@ -23,10 +23,11 @@ dev → production の2つのRKE2クラスタ(Harvester上、Rancher管理)で
     [docs/roadmap.md](docs/roadmap.md) 項目3参照)・
     監視スタック(rancher-monitoring + blackbox-exporter + アラートルール、
     [docs/manual-monitoring.md](docs/manual-monitoring.md)参照)・
-    `csi-driver-nfs`/`csi-driver-nfs-storageclass`(dev限定・検証中。Longhorn RWX
+    `csi-driver-nfs`/`csi-driver-nfs-storageclass`(Longhorn RWX
     (share-manager/NFS-Ganesha)のRemote I/O error対策として、既存の外部NFS
-    (Longhornバックアップ先と同一ホスト)へ直接マウントする代替StorageClass
-    `nfs-external` の実証実験。有効性未確認、他環境への昇格は未定)
+    (Longhornバックアップ先と同一ホスト)へ直接マウントするStorageClass
+    `nfs-external`。devは2026-09-04、productionは2026-10-09に導入。
+    NFS上のパスは`wordpress/<env>/`・`apps/<env>/`で分け、productionは`reclaimPolicy: Retain`)
   - `sites/<site>/`: WordPressサイト(1サイト=1ディレクトリ、`fleet.yaml`)
   - `apps/<app>/`: WordPress以外の自作アプリ(1アプリ=1ディレクトリ、`fleet.yaml`+素の
     Kubernetesマニフェスト)。`sites/`とは性質が異なる(DBなし・ラッパーチャート未使用)ため

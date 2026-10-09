@@ -1,0 +1,22 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-external-apps
+provisioner: nfs.csi.k8s.io
+parameters:
+  server: "192.168.1.1"
+  share: "/data/nfs"
+  # nfs-external(wordpress/配下)とは別系統にして、apps/配下の自作アプリが
+  # WordPressサイトや他アプリのデータを見れないように隔離する。
+  subDir: "apps/production/${pvc.metadata.namespace}/${pvc.metadata.name}"
+  mountPermissions: "0777"
+# productionはRetain(devはDelete)。PVCを消してもNFS上のデータを残し、操作ミスや
+# Fleetの誤動作で本番データが消えないようにする(keepResources: trueと同じ考え方)。
+# PVCを消した後のディレクトリは、サイト削除手順の中で手動で片付ける。
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+allowVolumeExpansion: true
+mountOptions:
+  # noresvportは付けない: このNFSサーバーのエクスポートは非特権ポートからの
+  # マウント要求を"Operation not permitted"で拒否する(insecureオプション無し)。
+  - nfsvers=4.1

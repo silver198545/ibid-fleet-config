@@ -235,7 +235,9 @@ dev1で長期間未解決だった、大量ファイル操作時にwp-contentが
 成功済み(PR#148)。
 
 **前提**: 対象環境に`envs/<env>/infra/csi-driver-nfs`・`csi-driver-nfs-storageclass`が
-導入済みであること(現状dev限定)。
+導入済みであること(devは2026-09-04、productionは2026-10-09に導入)。
+productionの`nfs-external`は`reclaimPolicy: Retain`なので、PVCを削除してもNFS上の
+`/data/nfs/wordpress/production/<namespace>/<pvc>`は残る(不要になったら手動で消す)。
 
 ### 手順
 
