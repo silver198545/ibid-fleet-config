@@ -1,0 +1,17 @@
+# production固有: ホスト名(<app>.production.ibid.lan)。リストは丸ごと置き換わるため全体を書く。
+spec:
+  tls:
+    - hosts:
+        - metadatabase-v2.production.ibid.lan
+      secretName: metadatabase-v2-tls
+  rules:
+    - host: metadatabase-v2.production.ibid.lan
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: metadatabase-v2
+                port:
+                  number: 80
