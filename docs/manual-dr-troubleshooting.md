@@ -347,4 +347,7 @@ $L get jobs,pods | grep <machine>   # 約2分以内に削除ジョブが走る
 
 > 削除中でないHarvesterMachineも古い認証情報を参照したままになっている。将来削除するときに
 > 同じ問題で止まるので、再インポートの後は全件のspecを書き換えておくとよい。
-> 2026-10-08時点では、dev1の残り7台がまだ書き換えていない。
+> 2026-10-09に、dev1の残り7台も書き換えた。あわせて、VMが既に無いのに削除待ちで残っていたHarvesterMachine
+> (対応するMachineが無いので、Rancherが`machines ... not found`や`no matching controller owner ref`を出し続ける)は、
+> VMとディスクが無いことを確認したうえでfinalizerを外して削除した。同じ名前の`rkebootstraps.rke.cattle.io`や
+> `<名前>-machine-state`のSecretが残っていれば、それも消す。
