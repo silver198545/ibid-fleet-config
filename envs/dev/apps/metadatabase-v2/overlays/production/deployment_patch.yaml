@@ -8,7 +8,7 @@ spec:
         - name: metadatabase-v2
           # BASE_PATH=/bioresourceでビルドした別イメージ(build-metadatabase-v2-image.yaml)。
           # タグは直下のdeployment.yamlと常に同じにする(update-app-image.sh deploy-devが両方を更新する)。
-          image: ghcr.io/silver198545/metadatabase-v2-bioresource:0.6.1-r0
+          image: ghcr.io/silver198545/metadatabase-v2-bioresource:0.6.1-r1
           env:
             # 基調色が青になり、SPARQLの既定エンドポイントが https://knowledge.brc.riken.jp/sparql になる。
             - name: SITE_ENV
