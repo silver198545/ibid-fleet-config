@@ -58,23 +58,74 @@ wp-contentの実データは昇格せず、必要な場合は [manual-wordpress-
    GitHubの Packages → `charts/ibid-wordpress` と `wordpress` → Package settings →
    Change visibility → Public。クラスタが匿名でpullできるようにするため。
 
-## 2. クラスタの追加(production 等)
+## 2. クラスタの新規作成(再作成・DR時も同じ)
 
-1. Rancher UIからHarvester上にRKE2クラスタを作成する。マシンプールのcloud-initに
-   `nfs-common` を含めること(Longhorn RWXの前提。[manual-wordpress.md](manual-wordpress.md)参照)。
-2. Harvester**管理クラスタ**に、そのクラスタ用の `IPPool` を作成する
-   ([manual-harvester-loadbalancer.md](manual-harvester-loadbalancer.md)参照)。
-   IPレンジは環境ごとに別レンジを割り当てる。
-3. Rancherの Cluster Management → 対象クラスタ → Labels & Annotations で
-   ラベル `env=production` を付与する。
-4. Rancher localクラスタへ対応するGitRepoを適用する:
+ゲストクラスタを作るときの唯一のチェックリスト。個々の設定の理由と詳細は各リンク先にある。
+2026-10-08〜09にprod1/dev1をこの設定で作り直して安定している(etcd遅延・時刻ずれの再発なし)。
+
+### 作る前に
+
+- **Harvesterホストのメモリの空き**を確認する(Harvester UIのHosts)。制約はCPUではなくメモリで、
+  オーバーコミットが効いているため「Reserved」の空きは当てにならない。「Used」を見る。
+- 作業端末に必要なツールがあること([manual-tooling-setup.md](manual-tooling-setup.md))。
+- Harvester側の準備が済んでいること(1回だけ。済み): `defaultdisk`への`ssd`タグ、
+  StorageClass `harvester-longhorn-ssd`、SSD用VMイメージ`ubuntu-cloudimg-26.04-lts-ssd`
+  (`harvester-public/image-fpm2h`)。手順は[manual-harvester-etcd-ssd.md](manual-harvester-etcd-ssd.md)の「恒久対策」1〜2。
+
+### Rancher UIでのクラスタ作成
+
+既存クラスタ(prod1)のプール設定を見ながら同じ値を入れるのが確実。
+
+| 項目 | pool1(etcd + control-plane、3台) | pool2(worker) |
+|---|---|---|
+| VMイメージ | `ubuntu-cloudimg-26.04-lts-ssd`(SSD上に限定) | 通常のイメージ |
+| User Data | `qemu-guest-agent`・`nfs-common`・chrony(`ntp.nict.jp`)入りのcloud-config。全文は[manual-node-ntp.md](manual-node-ntp.md)の「恒久対策」 | 同じもの |
+| VM Scheduling | anti-affinity(Preferred、`harvesterhci.io/machineSetName` In `harvester-public-<クラスタ名>-pool1`、Topology Key `kubernetes.io/hostname`、Weight 100)。[manual-harvester-etcd-ssd.md](manual-harvester-etcd-ssd.md)の「3. Rancherのプール設定」 | なし |
+| Network | 1枚目: `default/public`(v140)、2枚目: `default/management`(FreeIPA向け、v3333)。2枚目が無いとcert-manager(DNS-01)がFreeIPAに届かない。Network Data(`networkData`)も既存クラスタと同じ値を明示する | 同じもの |
+| ディスク | 現在はdev1 30GB / prod1 40GB | 60GB |
+
+- `nfs-common`は`nfs-external`(wp-content)とLonghorn RWXのマウントに必要。
+- namespaceは`harvester-public`。
+
+### 作成直後(Rancher local側)
+
+1. **chartValuesを入れる**。Rancher UIでの編集で`{}`に消されることがあるので、作成直後と、以後UIで
+   クラスタを編集するたびに確認する([manual-harvester-loadbalancer.md](manual-harvester-loadbalancer.md)):
+   - `harvester-cloud-provider`の`global.cattle.clusterName`(無いとLBが`kubernetes-*`名で作られ、IPが付かない)
+   - `rke2-traefik`の`service.spec.type: LoadBalancer`(キーは`service.type`ではない)
+2. Harvester**管理クラスタ**に、そのクラスタ用の`IPPool`を作る。レンジは環境ごとに分け、
+   Harvester UIのVIPと重ねない(現在: pool1=dev1 `.30-.49`、pool3=prod1 `.90-.100`)。
+3. ラベル `env=<環境名>` を付ける(Cluster Management → 対象クラスタ → Labels & Annotations)。
+4. kubeconfigを`~/.kube/config`にマージする。同名で作り直した場合は、先に古いcontext/clusterを消す
+   ([manual-dr-troubleshooting.md](manual-dr-troubleshooting.md)の1.)。
+5. 対応するGitRepoを適用する(初回のみ。再作成なら既にある):
    ```bash
-   kubectl --context <rancher-local> apply -f fleet-bootstrap/gitrepo-production.yaml
+   kubectl --context rancher apply -f fleet-bootstrap/gitrepo-<env>.yaml
    ```
-5. `envs/<env>/infra/` が空のうちは何も適用されない。手順4(移行)完了後は、
-   dev の `envs/dev/infra/` を昇格PRでコピーして Longhorn 等を導入する。
+   Fleetが`envs/<env>/infra/`(Longhorn、sealed-secrets、cert-manager、監視、csi-driver-nfs等)を入れる。
 
-## 3. 既存クラスタ(dev1)の移行手順
+### Fleetがinfraを入れた後
+
+1. **sealed-secretsの鍵**: 再作成なら、バックアップした鍵をリストアする(6.)。新しい鍵のままにする場合は、
+   その環境の全SealedSecretを封印し直す。どちらの場合も、新しい鍵をすぐバックアップする。
+   2026-08-31のprod1再作成ではこれが漏れ、本番のSecretが全件復号できなかった(PR#180で再封印)。
+2. **TraefikのLB IP**をDNSに登録する(`<site>.<env>.ibid.lan`ごとのAレコード。
+   [manual-cert-manager-freeipa-acme.md](manual-cert-manager-freeipa-acme.md))。
+3. **作成後のチェック**([manual-harvester-etcd-ssd.md](manual-harvester-etcd-ssd.md)の「4. 作成後のチェック」):
+   control-planeのレプリカが全て`defaultdisk`上 / 全ノードで`chronyc -n sources`に`^*` /
+   etcdに`slow fdatasync`・`clock drift`が出ない / control-plane VMが別々のホスト /
+   LoadBalancerにIPが付いている / SealedSecretが全件`SYNCED=True`。
+
+新しい**環境**を増やす場合(例: stagingの再導入)は、上記に加えてGit側の作業が必要になる
+(`envs/<env>/`、`fleet-bootstrap/gitrepo-<env>.yaml`、promoteワークフロー、サイトの`targetCustomizations`等)。
+2026-10-08の廃止時に削除した内容は「9. staging環境の廃止」と、PR#177/#178を参照。
+
+## 3. 既存クラスタ(dev1)の移行手順【完了済み・記録】
+
+2026-07に実施済み。単一クラスタ時代のGitRepo `base-infra`から、環境別GitRepo
+(`ibid-dev`)と`envs/dev/`へ移した記録。**再実施することはない**が、devのinfraの
+`helm.releaseName`が`base-infra-*`のままである理由(3-4の2.)を説明するため残している。
+この名前を変えると、Fleetが別名のリリースを作って既存のLonghorn等と衝突する。
 
 **順序厳守。** 旧GitRepo(`base-infra`)のバンドルが消えるとFleetがLonghornごと
 アンインストールしようとするのを、`keepResources: true` とリリース名の引き継ぎで防ぐ。
@@ -199,6 +250,15 @@ WordPressコア/プラグインのイメージはdigest固定(= セキュリテ�
 4. 更新はdevから着手し、通常の昇格フロー(本節冒頭)でproductionへ展開する。
 
 ## 5. Longhornバックアップの運用
+
+> **注意(2026-10-09時点): WordPressサイトのデータはこのバックアップの対象外。**
+> ゲストクラスタのLonghornの定期バックアップが守るのは、ゲストLonghorn上のボリューム
+> (Prometheus、sparqlist等)だけになった。WordPressのDBは`harvester` StorageClass
+> (Harvester側のボリューム)、wp-contentは`nfs-external`(NFSサーバー`192.168.1.1`上の
+> ディレクトリ)にあり、どちらもゲストLonghornを通らない。Harvester側にも日次スナップショット
+> 1世代(バックアップではない)しか無い。対策は[roadmap.md](roadmap.md)の項目5で検討する。
+> それまでは、本番反映前などに[operations-flow.md](operations-flow.md)の
+> 「本番データリハーサル」1.の方法(mysqldump + wp-contentのtar)で手動で取る。
 
 - 定期ジョブとバックアップ先は `envs/<env>/infra/longhorn-jobs/` でGit管理
   (snapshot-6h: 6時間ごと保持4世代 / backup-daily: JST 2:00、保持はdev 7世代、
@@ -328,31 +388,35 @@ kubeletのマウントバックオフ、Fleetの所有権drift等)は
    PVC名・namespaceの対応を必ず控える**(復元時のfromBackup指定に必要)。
 2. **クラスタ削除**(Rancher UI)。GitRepo・IPPool・NFS上のバックアップ・Git上の
    SealedSecretは残る。
-3. **再構築**: Rancher UIでRKE2作成(**cloud-initにnfs-common**)→ `env=<環境名>` ラベル
-   → 新kubeconfig取得。クラスタ名を変えた場合は、Harvesterの該当IPPoolの
-   `spec.selector.scope[].guestCluster` を新クラスタ名へ変更する。
-   **同名で再作成した場合は、`~/.kube/config`に残っている旧クラスタの
-   context/cluster/user(古いクラスタID`c-m-xxxxx`を指したまま)を新kubeconfigの
-   マージ前に必ず削除すること**(削除しないと古い認証情報が生き残り、
-   `kubectl --context <env>`が`system:unauthenticated`や`the server has asked for
-   the client to provide credentials`で失敗する)。手順は
-   [manual-dr-troubleshooting.md](manual-dr-troubleshooting.md)の1.を参照
-   (`kubectl config delete-context/delete-cluster/delete-user` → 新kubeconfigをマージ)。
+3. **再構築**: 「2. クラスタの新規作成」のチェックリストどおりに作る(SSDイメージ、User Data、
+   anti-affinity、2枚目のNIC、chartValues、`env`ラベル、kubeconfig)。クラスタ名を変えた場合は、
+   Harvesterの該当IPPoolの`spec.selector.scope[].guestCluster`を新クラスタ名へ変更する。
+   同名で再作成した場合は、`~/.kube/config`の古いcontext/clusterを先に消す
+   ([manual-dr-troubleshooting.md](manual-dr-troubleshooting.md)の1.)。
 4. **Fleetの自動復元を待つ**: ラベル付与だけでinfra一式(Longhorn/カタログ/
    sealed-secretsコントローラ/バックアップ設定)が自動導入される。
    新規インストールでは `defaultSettings.backupTarget` がpatch不要で有効(実証済み)。
    バックアップ先がavailableになるとNFS上の旧バックアップ一覧も自動で見える。
-5. **サイトのnamespace作成は不要(2026-07-11改修済み)**: secretsバンドルの
-   各 `<site>.yaml` がNamespaceを含むようになったため、Fleetが自動作成する
-   (既存namespaceがあってもfleet.yamlの `takeOwnership: true` で引き取る)。
-   改修前に生成した `<site>.yaml`(Namespaceを含まないもの)を使う場合のみ、
-   従来どおり `kubectl create ns wordpress-<site>` の手動作成が必要
-   (しないと `namespaces not found` で止まる)。
+5. **サイトのnamespace作成は不要**: secretsバンドルの各`<site>.yaml`がNamespaceを含むため、
+   Fleetが自動作成する(2026-07-11改修)。
 6. **封印鍵をリストア**(6.参照)。SealedSecretがSynced=Trueになり、Secretが復元されて
    sitesバンドルのデプロイが進む(エラーバックオフで止まったままの場合は
    GitRepoの `spec.forceSyncGeneration` を+1して再同期)。
    この時点でサイトは**空のWordPress**として起動する(新しい空ボリューム)。
 7. **データ復元**(サイトごと):
+
+   > **この7.はゲストLonghorn上のボリュームを前提にした手順(2026-07時点の構成)。**
+   > 現在のWordPressは、wp-contentが`nfs-external`、DBが`harvester`なので、この手順はそのまま使えない
+   > (この手順が今も使えるのは、Prometheus・sparqlist等、ゲストLonghorn上のボリューム)。
+   > - wp-content: NFS上の`/data/nfs/wordpress/<env>/<namespace>/<pvc>`は、クラスタを消しても残る
+   >   (productionは`reclaimPolicy: Retain`)。新しいPVCは別のディレクトリになるので、中身を移す必要がある
+   > - DB: `harvester`のボリュームはHarvester側にあり、ゲスト側のバックアップは無い
+   >
+   > 現構成での全損からの復元手順は、まだ確立・検証していない([roadmap.md](roadmap.md)項目5)。
+   > 当面は、サイトごとのmysqldump + wp-contentのtarから`scripts/restore-wordpress.sh`で戻す
+   > ([manual-wordpress-restore.md](manual-wordpress-restore.md))。
+
+   以下は旧構成(ゲストLonghorn)での手順:
    ```bash
    # スケールダウン(plugin-sync Jobが実行中ならJobごと削除してよい。Fleetが後で再適用する)
    kubectl -n wordpress-<site> scale deploy wordpress-<site> --replicas=0
@@ -438,8 +502,8 @@ Git側(`envs/staging/`、`fleet-bootstrap/gitrepo-staging.yaml`、promoteワー�
   ```bash
   kubectl --context rancher -n fleet-default delete gitrepo ibid-staging
   ```
-- [ ] Harvester管理クラスタのIPPool `pool2`(staging用、`192.168.1.61-70`)を削除し、
-  レンジを解放する([manual-harvester-loadbalancer.md](manual-harvester-loadbalancer.md))
+- [x] Harvester管理クラスタのIPPool `pool2`(staging用、`192.168.1.61-70`)を削除し、
+  レンジを解放する(2026-10-09に削除済みであることを確認。残っているのはpool1(dev1)とpool3(prod1))
 - [ ] FreeIPAのDNSから `*.staging.ibid.lan` のAレコードを削除する
 - [ ] NFSのLonghornバックアップ先 `192.168.1.1:/data/nfs/longhorn/staging` を削除する
   (DRで戻す予定が無いことを確認してから)

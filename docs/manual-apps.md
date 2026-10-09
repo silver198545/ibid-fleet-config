@@ -284,7 +284,7 @@ devへコピーして本番相当データで確認できる**(`update-app-image
   イメージを作り直すこと)。Ingress側も`ingress.yaml`の`path: /sparqlist`と揃えてある。
 - **`repository/`配下(保存したSPARQLetのMarkdown設定)の永続化が必要**な点が
   brc-advanced-search/riken-diipsと異なる唯一の点。`envs/<env>/apps/sparqlist/pvc.yaml`で
-  WordPressのwp-contentと同じLonghorn RWX(`longhorn-r1`)のPVCを持ち、
+  Longhorn RWX(`longhorn-r1`。WordPressのwp-contentが以前使っていたもの)のPVCを持ち、
   `deployment.yaml`で`/app/repository`(`REPOSITORY_PATH`のデフォルト値`./repository`が
   WORKDIR `/app`からの相対パスで解決される)にマウントしている。非rootコンテナからの
   書き込みを許可するため、Pod `securityContext.fsGroup`を設定している(bitnamiチャートの

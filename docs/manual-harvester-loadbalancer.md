@@ -46,7 +46,7 @@ IPPoolの`selector.scope[].guestCluster`を実際のクラスタ名(例: `dev1`)
 kubectl -n kube-system get helmchartconfig harvester-cloud-provider -o jsonpath='{.spec.valuesContent}'
 ```
 
-正常なクラスタ(移行後に新規作成したstaging/production等)では
+正常なクラスタでは
 `{"global":{"cattle":{"clusterId":"c-m-xxxxxxxx","clusterName":"<クラスタ名>"}}}`
 のように`clusterName`が入っているが、`clusterId`しか入っていない(`clusterName`が
 欠落している)場合、CCMはクラスタ名をKubernetesの伝統的なデフォルト値
@@ -114,53 +114,54 @@ Rancher + Harvester 構成では、Rancher のクラスタ一覧に紛らわし�
 **この手順は本リポジトリ（Fleet で管理するゲストクラスタ）ではなく、Harvester の
 管理クラスタ側で実施します。**
 
-複数のゲストクラスタ・複数の Namespace の Service から共通で使えるように、
-`selector.scope` をワイルドカード（`*`）にした「グローバルプール」として作成するのが
-シンプルで確実です（`namespace` や `guestCluster` を個別に指定する方式は、
-クラスタを再作成すると値がズレて再度マッチしなくなるため非推奨）。
+**ゲストクラスタごとに1つ**、`selector.scope[].guestCluster`でクラスタ名を指定したIPPoolを作る
+(環境ごとにIPレンジを分けるため)。現在の構成(2026-10-09):
+
+| IPPool | guestCluster | レンジ | priority |
+|---|---|---|---|
+| `pool1` | `dev1` | `192.168.1.30`〜`.49` | 1 |
+| `pool3` | `prod1` | `192.168.1.90`〜`.100` | 3 |
+
+(`pool2`はstaging1用の`.61`〜`.70`だった。2026-10-08のstaging廃止で削除済み)
+
+例(prod1の`pool3`と同じ内容):
 
 ```bash
-cat <<'EOF' | kubectl apply -f -
+cat <<'YAML' | kubectl --context harvester1 apply -f -
 apiVersion: loadbalancer.harvesterhci.io/v1beta1
 kind: IPPool
 metadata:
-  name: pool1
-  labels:
-    loadbalancer.harvesterhci.io/global-ip-pool: 'true'
+  name: pool3
 spec:
   ranges:
-    - rangeStart: 192.168.1.150
-      rangeEnd: 192.168.1.200
+    - rangeStart: 192.168.1.90
+      rangeEnd: 192.168.1.100
       subnet: 192.168.1.0/24
-      gateway: 192.168.1.1
+      gateway: 192.168.1.240
   selector:
     network: default/public
-    priority: 1
+    priority: 3
     scope:
       - project: '*'
         namespace: '*'
-        guestCluster: '*'
-EOF
+        guestCluster: prod1
+YAML
 ```
 
-> このコマンドは Harvester 管理クラスタの Kubectl Shell で実行してください（ゲストクラスタや
-> Rancher の `local` クラスタではありません）。`ranges` のIP範囲・サブネット・ゲートウェイは
-> 実際のネットワーク構成に合わせて調整してください（従来 MetalLB の IPAddressPool に
-> 設定していた `192.168.1.150-192.168.1.200` をそのまま踏襲しています）。
+> Harvester 管理クラスタに対して実行する(ゲストクラスタや Rancher の `local` クラスタではない)。
+> レンジはHarvester UIのVIPや他のIPPoolと重ねないこと(上記「IPPoolの範囲にHarvester管理VIPを含めない」)。
+> `guestCluster`はRancher上のクラスタ名。同名で再作成すれば変更は不要、名前を変えたら書き換える。
 >
-> Harvester の UI には「Global Pool」という明示的なチェックボックスはありません。
-> `spec.selector.scope` の各項目をすべて `*`（または未指定）にすると、
-> `loadbalancer.harvesterhci.io/global-ip-pool: 'true'` ラベルが付き、
-> 全クラスタ・全 Namespace から利用可能なグローバルプールとして扱われます。
+> `scope`を全て`*`にするとグローバルプールになるが、環境ごとにレンジを分けられないため使っていない。
 
 作成後、IPPool の状態を確認します。
 
 ```bash
-kubectl get ippools.loadbalancer.harvesterhci.io pool1 -o yaml
+kubectl --context harvester1 get ippools.loadbalancer.harvesterhci.io -o wide
 ```
 
-IPPool を作成すれば、`service.type: LoadBalancer` を指定している Service（例えば
-[wordpress/fleet.yaml](../wordpress/fleet.yaml)）は追加の変更なしに外部IPが割り当てられます。
+IPPool を作成すれば、`type: LoadBalancer`のService(現在はTraefikの`rke2-traefik`)に
+追加の変更なしで外部IPが割り当てられます。
 
 ## 2. 外部IPが割り当てられたことを確認する
 
@@ -213,16 +214,15 @@ kubectl --context <クラスタ名> get svc rke2-traefik -n kube-system
 `kubectl --context rancher -n fleet-default get clusters.provisioning.cattle.io <クラスタ名> -o jsonpath='{.spec.rkeConfig.chartValues.rke2-traefik}'`
 で残存を確認すること。
 
-払い出されたIP(dev1: `192.168.1.39`、pool1 `192.168.1.30-49`の範囲内)は、各サイトの
+払い出されたIP(現在の値は`kubectl --context <クラスタ> -n kube-system get svc rke2-traefik`で確認する)は、各サイトの
 ホスト名(`<site>.<env>.ibid.lan`)のDNS Aレコードとして登録する
 ([manual-cert-manager-freeipa-acme.md](manual-cert-manager-freeipa-acme.md) 参照)。
-productionへ展開する際も同じ手順をクラスタに対して行い、環境ごとに異なる
-LB IPを払い出させる(pool2/pool3からそれぞれ1つずつ消費するだけで済み、
-サイトごとのIP消費は発生しなくなる)。
+クラスタごとに同じ手順を行い、環境ごとに異なるLB IPを払い出させる
+(各IPPoolから1つずつ消費するだけで済み、サイトごとのIP消費は発生しない)。
 
 ## 補足
 
-- MetalLB は廃止したため、[catalog-repos/chart-repos.yaml](../catalog-repos/chart-repos.yaml) から
-  MetalLB の ClusterRepo、`metallb/` の Fleet バンドルは削除済みです。
+- MetalLB は廃止したため、MetalLB の ClusterRepo(現在の`envs/<env>/infra/catalog-repos/`)と
+  `metallb/` の Fleet バンドルは削除済みです。
 - Fleet でも Traefik の Service や HelmChartConfig を管理すると、所有権競合が発生することがあります。
   Traefik 設定の管理者は 1 つに揃えてください。

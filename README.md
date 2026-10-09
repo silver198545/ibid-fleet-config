@@ -1,135 +1,120 @@
 # ibid-fleet-config
 
 dev → production の2つのRKE2クラスタ(Harvester上、Rancher管理)で
-数十のWordPressサイトを運用するためのFleet(GitOps)構成リポジトリ。
+数十のWordPressサイトと自作アプリを運用するためのFleet(GitOps)構成リポジトリ。
 
 ## 全体像
 
 - **単一mainブランチ + 環境別ディレクトリ**(`envs/dev|production`)。
   環境ごとのGitRepo([fleet-bootstrap/](fleet-bootstrap/))が自分の環境のディレクトリ
   だけを監視し、`env=<環境名>` ラベルのクラスタへ適用する。
-- **昇格(プロモーション)はPRで制御**する。Actionsの `promote` ワークフローが
-  dev→production の昇格PRを生成し、`envs/production/` 配下は
+- **昇格(プロモーション)はPRで制御**する。`envs/production/` 配下は
   [CODEOWNERS](.github/CODEOWNERS) により承認必須(mainブランチ保護)。
   承認済みマージのみが本番クラスタに届く。
+- サイト・アプリのバンドルは**全環境で同一内容**にし、環境差分はクラスタラベルで選ぶ。
+  昇格はディレクトリの丸ごとコピーで完結する。
 - Gitで昇格するのは**構成のみ**(チャートバージョン、values、イメージ)。
-  DBデータ・wp-contentは昇格しない([docs/manual-wordpress-restore.md](docs/manual-wordpress-restore.md))。
+  DBデータ・wp-contentは昇格しない。
+- 本番データでの確認は、dev1上の一時的なリハーサルサイト`<site>-rh`で行う
+  (staging環境は2026-10-08に廃止)。
 
-## 構成
+## 現在の構成(2026-10-09時点)
 
-- `envs/<env>/`: 環境別のFleetバンドル([envs/README.md](envs/README.md)参照)
-  - `infra/`: カタログ登録(Bitnami)・Longhorn CRD・Longhorn 本体・
-    低レプリカ用StorageClass(`longhorn-r1`、二重レプリケーション対策。
-    [docs/roadmap.md](docs/roadmap.md) 項目3参照)・
-    監視スタック(rancher-monitoring + blackbox-exporter + アラートルール、
-    [docs/manual-monitoring.md](docs/manual-monitoring.md)参照)・
-    `csi-driver-nfs`/`csi-driver-nfs-storageclass`(Longhorn RWX
-    (share-manager/NFS-Ganesha)のRemote I/O error対策として、既存の外部NFS
-    (Longhornバックアップ先と同一ホスト)へ直接マウントするStorageClass
-    `nfs-external`。devは2026-09-04、productionは2026-10-09に導入。
-    NFS上のパスは`wordpress/<env>/`・`apps/<env>/`で分け、productionは`reclaimPolicy: Retain`)
-  - `sites/<site>/`: WordPressサイト(1サイト=1ディレクトリ、`fleet.yaml`)
-  - `apps/<app>/`: WordPress以外の自作アプリ(1アプリ=1ディレクトリ、`fleet.yaml`+素の
-    Kubernetesマニフェスト)。`sites/`とは性質が異なる(DBなし・ラッパーチャート未使用)ため
-    分離している。追加手順・昇格の注意点は [docs/manual-apps.md](docs/manual-apps.md) 参照
+| | dev1(`env=dev`) | prod1(`env=production`) |
+|---|---|---|
+| ノード | control-plane 3台(SSD) + worker 5台 | 同じ |
+| WordPressサイト | 15 | 2(web、dna) |
+| 自作アプリ | 4(brc-advanced-search、riken-diips、sparqlist、metadatabase-v2) | 3(metadatabase-v2以外) |
+| TraefikのLB IP(IPPool) | `192.168.1.33`(pool1 `.30-.49`) | `192.168.1.99`(pool3 `.90-.100`) |
+| ホスト名 | `<site>.dev.ibid.lan` | `<site>.production.ibid.lan` |
+
+WordPressのデータの置き場所:
+
+| データ | StorageClass | 実体 | 定期バックアップ |
+|---|---|---|---|
+| wp-content | `nfs-external` | NFS `192.168.1.1:/data/nfs/wordpress/<env>/` | **無し** |
+| MariaDB | `harvester` | Harvester側のボリューム | **無し** |
+| (参考)Prometheus、sparqlist等 | `longhorn`/`longhorn-r1` | ゲストLonghorn | 日次(NFS `/data/nfs/longhorn/<env>`) |
+
+WordPressのデータに定期バックアップが無いのは2026-10-09に分かった課題
+([docs/roadmap.md](docs/roadmap.md)の項目5)。それまでは本番反映前に手動で取る。
+
+## ドキュメント
+
+まず読むもの:
+
+| 文書 | 内容 |
+|---|---|
+| [docs/operations-flow.md](docs/operations-flow.md) | 日常の変更の流れ(dev → リハーサル → production)、環境差分の書き方、本番反映前のバックアップ |
+| [docs/manual-multi-env.md](docs/manual-multi-env.md) | GitHub設定、**クラスタの新規作成チェックリスト**(2.)、日常運用・定期メンテナンス、バックアップ、封印鍵、break-glass、DR |
+| [docs/roadmap.md](docs/roadmap.md) | 決定事項の記録と、残っている課題(優先度つき) |
+| [docs/manual-tooling-setup.md](docs/manual-tooling-setup.md) | 作業端末のツール(kubectl/helm/kubeseal/gh等)とkubeconfig |
+
+作業別の手順:
+
+| 作業 | 文書 |
+|---|---|
+| WordPressサイトの追加・削除、プラグイン管理 | [docs/manual-wordpress.md](docs/manual-wordpress.md) |
+| WordPressのデータ移行・リストア、外部リバースプロキシ経由の公開 | [docs/manual-wordpress-restore.md](docs/manual-wordpress-restore.md) |
+| 自作アプリ(`apps/`)の追加・昇格、アプリ別のメモ | [docs/manual-apps.md](docs/manual-apps.md) |
+| アプリのイメージ更新をRundeckから実行 | [docs/manual-rundeck-app-image.md](docs/manual-rundeck-app-image.md) |
+| 監視・アラート(rancher-monitoring + Slack) | [docs/manual-monitoring.md](docs/manual-monitoring.md) |
+| TLS証明書(cert-manager + FreeIPA ACME)、DNS登録 | [docs/manual-cert-manager-freeipa-acme.md](docs/manual-cert-manager-freeipa-acme.md) |
+| IPPool、TraefikのLoadBalancer化、Rancher chartValuesの注意 | [docs/manual-harvester-loadbalancer.md](docs/manual-harvester-loadbalancer.md) |
+| control-plane VMのディスクをSSDに限定(etcd遅延対策) | [docs/manual-harvester-etcd-ssd.md](docs/manual-harvester-etcd-ssd.md) |
+| ノードの時刻同期(chrony)とノードのUser Data | [docs/manual-node-ntp.md](docs/manual-node-ntp.md) |
+
+障害対応・記録:
+
+| 文書 | 内容 |
+|---|---|
+| [docs/manual-dr-troubleshooting.md](docs/manual-dr-troubleshooting.md) | DR・ボリューム復元・ノード入れ替えで詰まった点と対処(Machine削除の停止など) |
+| [docs/manual-storage-migration.md](docs/manual-storage-migration.md) | 【完了済み】既存サイトのPVCを`harvester`/`longhorn-r1`/`nfs-external`へ移した記録 |
+| [docs/wordpress-site-delegation.md](docs/wordpress-site-delegation.md) | サイト管理を他チームへ委譲する際の運用設計(検討記録) |
+| [envs/README.md](envs/README.md)、[fleet-bootstrap/README.md](fleet-bootstrap/README.md) | 環境別ディレクトリとGitRepo定義の説明 |
+
+## ディレクトリ構成
+
+- `envs/<env>/`: 環境別のFleetバンドル(`infra/`・`sites/`・`apps/`・`secrets/`)。
+  [envs/README.md](envs/README.md)
 - `charts/ibid-wordpress/`: 全サイト共通デフォルトを内包したラッパーチャート
-  (Bitnami `wordpress` を依存に持つ)。mainマージで `release-chart.yaml` がGHCRへ公開し、
-  各サイトの `helm.version` を上げることで環境ごとに取り込む
+  (Bitnami `wordpress` を依存に持つ)。値を変えたら`Chart.yaml`のversionを上げる。
+  mainマージで `release-chart.yaml` がGHCRへ公開し、各サイトの `helm.version` を上げて取り込む
 - `images/wordpress/`: カスタムWordPressイメージ(digest固定。Bitnami無償イメージが
-  `latest` のみになったことへの対策)。mainマージで `build-image.yaml` がGHCRへ公開
-- `images/<app>/`: WordPress以外の自作アプリのビルド定義(例: `images/brc-advanced-search/`)。
-  アプリ本体は別リポジトリのため `SRC_REF`(取り込むコミットSHA)で固定する。
-  詳細は [docs/manual-apps.md](docs/manual-apps.md) 参照
+  `latest` のみになったことへの対策)
+- `images/<app>/`: 自作アプリのビルド定義(アプリ本体は別リポジトリ。`SRC_REF`で固定)
 - `fleet-bootstrap/`: 環境別GitRepo定義(Rancher localクラスタへ手動適用する控え)
-- `scripts/new-wordpress-site.sh <env> <site>`: サイトのFleetバンドルをひな形から生成
-- `scripts/seal-site-secrets.sh <env> <site>`: サイトの認証情報Secret(3種)を
-  SealedSecretとして `envs/<env>/secrets/` に生成(パスワードはサイトごと・
-  環境ごとにランダム生成。平文はGitに入らない)。
-  `scripts/bootstrap-site-secrets.sh <site>` は緊急時用(クラスタへ直接作成)
-- `scripts/seal-monitoring-secret.sh <env>`: アラート通知用Slack Webhook URLを
-  SealedSecretとして `envs/<env>/infra/monitoring-secrets/` に生成
-- `scripts/seal-sparqlist-secret.sh <env>`: sparqlistの管理API用ADMIN_PASSWORDを
-  SealedSecretとして `envs/<env>/secrets/sparqlist.yaml` に生成(環境ごとに新規生成)
-- `scripts/deploy-wordpress.sh <env> <site>`: **緊急用(break-glass)**の手動デプロイ。
-  通常の変更はPRマージ→Fleet適用で行う
-- `scripts/restore-wordpress.sh <site> <バックアップディレクトリ>`: 既存サイトの
-  バックアップ(`yyyymmdd_hhmm.tar.lzo`/`.dump.lzo`)を指定サイトへリストア
-  ([docs/manual-wordpress-restore.md](docs/manual-wordpress-restore.md)参照)
-- `.github/workflows/`: `validate`(PR検証)、`release-chart`(チャート公開)、
-  `build-wordpress-image`(イメージ公開)、`build-brc-advanced-search-image`
-  (自作アプリのイメージ公開)、`promote`(昇格PR生成。`sites/`のみが対象)
-- `docs/manual-tooling-setup.md`: 作業端末に必要なCLIツール(kubectl/helm/kubeseal等)の
-  インストール手順とkubeconfigの準備
-- `docs/manual-multi-env.md`: マルチ環境のセットアップ・既存クラスタの移行・昇格運用・
-  break-glass手順
-- `docs/operations-flow.md`: 日常運用フロー(devで互換性テスト→dev1上の一時リハーサル
-  サイトで本番データに対する確認→productionへ昇格。環境差分の書き方、本番反映前バックアップ)
-- `docs/manual-dr-troubleshooting.md`: DR復元(クラスタ全損からの復元)を実際に
-  やってみた際に詰まりやすいポイントの補足(kubeconfig再取得、Longhornの
-  fromBackup復元など)
-- `docs/manual-harvester-loadbalancer.md`: Harvester Cloud Provider の IPPool 作成手順
-  (MetalLB は廃止し、Harvester Cloud Provider に一本化。クラスタごとに作成)
-- `docs/manual-harvester-etcd-ssd.md`: control-plane(etcd)VMディスクのLonghornレプリカを
-  HDDからSSD(`defaultdisk`)へ移す手順(etcd遅延によるapiserver再起動・ノードフラップ対策)
-- `docs/manual-node-ntp.md`: ゲストクラスタノードのchrony設定手順(Ubuntu 26.04の既定である
-  NTSのpoolが社内から届かず、時刻同期できていない問題への対処)
-- `docs/manual-wordpress.md`: WordPressサイトを追加する手順
-- `docs/manual-apps.md`: WordPress以外の自作アプリ(`envs/<env>/apps/`)を追加する手順・
-  昇格時の注意点
-- `docs/manual-rundeck-app-image.md`: `scripts/update-app-image.sh`をRundeckから実行する
-  ためのジョブ定義([rundeck/jobs/update-app-image.yaml](rundeck/jobs/update-app-image.yaml))
-  の取り込み手順・実行順序
-- `docs/manual-monitoring.md`: 監視・アラート(rancher-monitoring + Slack通知)の
-  導入・運用手順
-- `docs/manual-wordpress-restore.md`: 既存の別環境WordPressサイトからデータを移行
-  (リストア)する手順
-- `docs/manual-storage-migration.md`: 既存サイトのPVCをLonghornの二重増幅対策
-  (`longhorn-r1`/`harvester` StorageClass)へ移行する手順
-- `docs/wordpress-site-delegation.md`: サイト管理権限を他チームへ委譲する際の
-  運用設計(記事は本番直接編集、プラグインは申請→dev検査→本番反映、権限設計)
-- `docs/manual-cert-manager-freeipa-acme.md`: cert-manager + FreeIPA ACME(DNS-01/RFC2136)
-  によるTLS証明書自動発行の導入手順
-- `docs/roadmap.md`: 今後の開発方針(スケール前に決める設計判断、運用の穴、
-  優先度とトリガー)
+- `rundeck/jobs/`: `update-app-image.sh`用のRundeckジョブ定義
+- `.github/workflows/`:
+  - `validate`: PR検証(YAML構文、fleet.yamlの必須キー、helm lint/template)
+  - `promote`: `sites/`の昇格PR生成(手動起動。`site`にサイト名か`all`)
+  - `release-chart`: チャート公開
+  - `build-image`: WordPressイメージ公開
+  - `build-<app>-image`: 自作アプリのイメージ公開(brc-advanced-search、riken-diips、sparqlist、metadatabase-v2)
 
-## 想定フロー
+## スクリプト
 
-### 環境の新規構築(クラスタごと)
+| スクリプト | 用途 |
+|---|---|
+| `scripts/new-wordpress-site.sh <env> <site>` | サイトのfleet.yamlをひな形から生成 |
+| `scripts/seal-site-secrets.sh <env> <site>` | サイトの認証情報Secret(3種)をSealedSecretとして生成(環境ごと・サイトごとにランダム) |
+| `scripts/rehearsal-site.sh <site> <production\|dev>` | 本番データリハーサル用の`<site>-rh`バンドルを生成 |
+| `scripts/restore-wordpress.sh <site> <dir> [ts]` | `yyyymmdd_hhmm.tar.lzo`/`.dump.lzo`のバックアップをサイトへリストア |
+| `scripts/update-app-image.sh <subcommand>` | 自作アプリのイメージ更新〜dev→production昇格PR |
+| `scripts/seal-monitoring-secret.sh <env>` | アラート通知用Slack Webhook URLのSealedSecret |
+| `scripts/seal-sparqlist-secret.sh <env>` | sparqlistのADMIN_PASSWORDのSealedSecret |
+| `scripts/deploy-wordpress.sh <env> <site>` | **緊急用(break-glass)**の手動デプロイ。通常はPRマージ→Fleet適用 |
+| `scripts/bootstrap-site-secrets.sh <site>` | **緊急用**。Secretをクラスタへ直接作成 |
 
-1. Rancher UIでRKE2クラスタを作成し、`env=<環境名>` ラベルを付与する
-   (cloud-initに `nfs-common` を含める)。
-2. [docs/manual-harvester-loadbalancer.md](docs/manual-harvester-loadbalancer.md) の手順で
-   Harvester 管理クラスタにそのクラスタ用の IPPool を作成する。
-3. `fleet-bootstrap/gitrepo-<env>.yaml` を Rancher local クラスタへ適用する。
-4. Fleetが `envs/<env>/infra/`(カタログ登録 → Longhorn CRD → Longhorn 本体 →
-   監視スタック)を適用する。監視のSlack通知には環境ごとのSealedSecret生成が必要
-   ([docs/manual-monitoring.md](docs/manual-monitoring.md))。
+## 主なフロー
 
-詳細: [docs/manual-multi-env.md](docs/manual-multi-env.md)
-
-### サイトの追加と昇格
-
-1. `scripts/seal-site-secrets.sh dev <site>` で認証情報のSealedSecretを生成する
-   (パスワードはサイトごと・環境ごとに自動生成。生成物はGitにコミット)。
-2. `scripts/new-wordpress-site.sh dev <site>` でバンドルを生成し、1と合わせてPR→マージ。
-   devのFleetが自動適用する。WordPress は自分専用の LoadBalancer Service を持つため、
-   Traefik を LoadBalancer 化する必要はない。
-3. devで動作確認後、Actionsの `promote` を手動起動して昇格PRを作成し、
-   レビュー・承認を経てマージする(本番は承認必須)。
-
-詳細: [docs/manual-wordpress.md](docs/manual-wordpress.md)
-
-## 補足: MetalLB からの移行について
-
-各クラスタは Rancher 経由で Harvester 上にプロビジョニングされており、
-**Harvester Cloud Provider** が組み込まれています。MetalLB と Harvester Cloud Provider は
-どちらも `Service type=LoadBalancer` を検知して IP を払い出そうとするため、両方を有効にすると
-競合します。そのため本リポジトリでは MetalLB を廃止し、Harvester Cloud Provider の
-IPPool 機能に一本化しています。
-
-## 補足: 旧構成(単一クラスタ)からの移行
-
-infraバンドルは旧構成(リポジトリ直下、GitRepo `base-infra`)から `envs/<env>/infra/` へ
-移設済みです。devの各fleet.yamlの `helm.releaseName` が `base-infra-*` なのは、
-旧GitRepo時代のHelmリリースをそのまま引き継いでいるためです(経緯は
-[docs/manual-multi-env.md](docs/manual-multi-env.md) 参照)。
+- **クラスタの新規作成・再作成**: [docs/manual-multi-env.md](docs/manual-multi-env.md)の
+  「2. クラスタの新規作成」のチェックリストに従う(SSDイメージ、User Data、anti-affinity、
+  2枚目のNIC、chartValues、IPPool、`env`ラベル、封印鍵)。
+- **サイトの追加**: `seal-site-secrets.sh dev <site>` と `new-wordpress-site.sh dev <site>` の
+  生成物を1つのPRにしてマージ → DNSのAレコードを登録 → devで確認 → `promote`で本番へ
+  (本番用のSealedSecretは`seal-site-secrets.sh production <site>`で別に作る)。
+  [docs/manual-wordpress.md](docs/manual-wordpress.md)
+- **設定変更・バージョンアップ**: devのfleet.yamlやチャートを変更 → devで確認 →
+  (DBを書き換え得る変更なら)リハーサルサイトで本番データに対して確認 → 本番のバックアップ →
+  `promote`で昇格。[docs/operations-flow.md](docs/operations-flow.md)

@@ -36,7 +36,7 @@ tar.lzoにはWordPress本体などwp-content以外のファイルも含まれま
 i/oタイムアウトで切断される事象への対策）。それでも転送に失敗する場合は
 `RESTORE_CHUNK_SIZE=8m`のようにチャンクを小さくして再実行してください。
 転送が完了するまで既存のwp-content/DBには手を付けないため、転送中の失敗では
-サイトは元のまま残ります。**手順1（Longhornスナップショット）は自動化
+サイトは元のまま残ります。**手順1（復元先の現状のバックアップ）は自動化
 されないため、実行前に必ず取得してください。** 手順6（URL置換）と手順7（動作確認）も
 スクリプト終了時に表示される案内に従って手動で行います。
 
@@ -63,11 +63,14 @@ grep table_prefix wp-config.php
 grep -n '^CREATE DATABASE\|^USE `' backup.dump
 ```
 
-## 1. 復元前にLonghornでスナップショットを取る
+## 1. 復元前に、復元先の現状のバックアップを取る
 
-DBとwp-contentを丸ごと上書きするため、`wordpress-<site>`名前空間の各PVC
-（wp-content用のRWXボリューム、mariadb用のRWOボリューム）についてLonghorn UIで
-スナップショットを1つ取ってから進めてください。失敗しても切り戻せます。
+DBとwp-contentを丸ごと上書きするため、復元先サイトの現状をバックアップしてから進めてください。
+wp-content（`nfs-external`）とDB（`harvester`）はゲストLonghorn上に無いため、Longhorn UIの
+スナップショットは使えません。mysqldump + wp-contentのtarで取ります（手順は
+[operations-flow.md](operations-flow.md)「本番データリハーサル」の1.。`--context`を復元先に読み替える）。
+この形式は`scripts/restore-wordpress.sh`でそのまま戻せるので、失敗しても切り戻せます。
+新規の空サイトへ復元する場合は不要です（スクリプトの確認プロンプトには`y`で答える）。
 
 ## 2. 新環境のテーブル接頭辞を確認し、必要なら合わせる
 
@@ -304,7 +307,7 @@ kubectl -n "wordpress-$SITE" exec -c wordpress "$POD" -- sed -i \
 kubectl -n "wordpress-$SITE" exec -c wordpress "$POD" -- grep -n "WP_HOME\|WP_SITEURL" /bitnami/wordpress/wp-config.php
 ```
 
-`wp-content`と同じRWX共有ボリューム上のファイルなので、1レプリカに適用すれば
+`wp-content`と同じ共有ボリューム（RWX）上のファイルなので、1レプリカに適用すれば
 他のレプリカにも即座に反映される（レプリカ分の繰り返し実行は不要）。
 
 外部公開ドメインに固定すると、`https://<site>.<env>.ibid.lan/`への直接アクセス時にも
@@ -402,6 +405,15 @@ kubectl -n "wordpress-$SITE" exec -c wordpress "$POD" -- cat /bitnami/wordpress/
 - **外部ドメインでアクセスすると404、または内部ホスト名(`*.ibid.lan`)のCSSが混ざる**
   → 6b.参照。前者は外部nginxの`proxy_set_header Host`が内部ホスト名に固定されているか、
   後者はwp-config.phpのWP_HOME/WP_SITEURLが外部ドメインに固定されているかを確認。
+- **リストア後、`wp plugin list`がfleet.yamlの`plugins:`と一致しない（一部のプラグインが無効になっている）**
+  → プラグイン同期Jobが、リストアのDB作り直しと同時に走ったため（DBが空の間に処理された分が失われる。
+  2026-09-04にwebで発生、`Table 'bitnami_wordpress.tp_options' doesn't exist`が多発）。
+  `kubectl -n wordpress-<site> delete job -l app.kubernetes.io/component=plugin-sync`で
+  Jobを消し、GitRepoの`forceSyncGeneration`を+1すると再実行される。
+- **新しく作られた`wp-config.php`の`WP_HOME`/`WP_SITEURL`が`http://<hostname>//`になっている**
+  （スキームがhttp、末尾のスラッシュが重複）→ この定数がDBの`siteurl`/`home`より優先されるため、
+  `search-replace`では直らない。`wp-config.php`をsedで`https://<hostname>`に書き換える
+  （6b.の「wp-config.phpのWP_HOME/WP_SITEURLを固定する」と同じ方法）。
 - **WP_HOME/WP_SITEURL固定後、外部ドメインで`ERR_TOO_MANY_REDIRECTS`になる**
   → 6b.「WP_HOME/WP_SITEURL固定後に無限リダイレクトになる場合」参照。
   `redirect_canonical`無効化のmu-pluginを配置する。

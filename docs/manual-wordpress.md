@@ -20,13 +20,17 @@ namespace・Helmリリース・Secretを持つため、他のサイトの稼働�
 [../charts/ibid-wordpress/](../charts/ibid-wordpress/)(Bitnami `wordpress` チャートを内包)
 がデフォルト値を持ちます:
 
-- Web層: `replicaCount: 2` で2レプリカ構成。`wp-content` は Longhorn の
-  ReadWriteMany ボリュームで全レプリカ間で共有します。
+- Web層: devは1レプリカ、productionは2レプリカ(別ノードへ分散。fleet.yamlの
+  `targetCustomizations`)。`wp-content` は外部NFS(StorageClass `nfs-external`、
+  NFSサーバー`192.168.1.1`)のReadWriteManyボリュームで全レプリカ間で共有します。
 - DB層: WordPress Chart にバンドルされた MariaDB を単体構成で使用します
-  (冗長化はしていません)。
-- 公開: `service.type: LoadBalancer` を指定し、Harvester Cloud Provider の
-  IPPool から自動でIPを割り当てます。
+  (冗長化はしていません)。ボリュームは `harvester` StorageClass です。
+- 公開: Traefik Ingress(`<site>.<env>.ibid.lan`、TLSはcert-manager + FreeIPA ACME)。
+  Traefikの共有LoadBalancer IPを全サイトで使います(サイトごとのIPは使いません)。
 - イメージ: 再現性のためdigestで固定しています(チャートの `values.yaml` 参照)。
+
+上記のwp-content・公開方式は、`scripts/new-wordpress-site.sh`が生成するfleet.yamlで
+設定されます(チャートの既定値はLoadBalancer・`longhorn-r1`のまま残っています)。
 
 全サイト共通の設定を変える場合は `charts/ibid-wordpress/values.yaml` を編集し、
 `Chart.yaml` のversionを上げてください(マージでGHCRへ公開され、各環境の
@@ -38,43 +42,16 @@ namespace・Helmリリース・Secretを持つため、他のサイトの稼働�
 
 以下が対象クラスタに導入済みであることが必要です。
 
-- `envs/<env>/infra/` の各バンドル(Bitnamiリポジトリ登録、Longhorn。
-  `longhorn` StorageClass、RWX 対応)
-- Harvester 管理クラスタ側に、このゲストクラスタ向けの `IPPool` が作成済みであること
-  ([manual-harvester-loadbalancer.md](manual-harvester-loadbalancer.md) 参照)
+- `envs/<env>/infra/` の各バンドル(Bitnamiリポジトリ登録、Longhorn、csi-driver-nfs、
+  cert-manager、sealed-secrets等)
+- TraefikがLoadBalancer化され、IPが付いていること
+  ([manual-harvester-loadbalancer.md](manual-harvester-loadbalancer.md)の「Traefik を LoadBalancer 化する」)
 
-また、Longhorn の ReadWriteMany(RWX)ボリュームは各ワーカーノードが NFSv4 クライアントとして
-マウントする方式のため、**全ノードに `nfs-common` パッケージのインストールが必要**です
-(クラスタごとに一度だけ対応すればよく、サイトごとに繰り返す必要はありません)。
-Ubuntu の Cloud Image(`noble-server-cloudimg` 等)には標準で含まれていないため、
-未導入だと以下のような `MountVolume.MountDevice failed` / `bad option` エラーで
-Pod が起動しません。
-
-```bash
-for ip in $(kubectl get nodes -o jsonpath='{.items[*].status.addresses[?(@.type=="InternalIP")].address}'); do
-  echo "=== $ip ==="
-  ssh ubuntu@"$ip" "sudo apt-get update -qq && sudo apt-get install -y nfs-common"
-done
-```
-
-Harvester のマシンプール経由でプロビジョニングされたノードは、スケールやノード入れ替えで
-再作成されると手動インストールが失われます。恒久対応として、Harvester のデフォルト
-cloud-init(`packages:` リスト)に `nfs-common` を追加し、新規ノードにも自動的に
-インストールされるようにしてください(この変更は本リポジトリの管理範囲外で、
-Harvester/Rancher 側の設定になります)。
-
-```yaml
-#cloud-config
-package_update: true
-packages:
-  - qemu-guest-agent
-  - nfs-common
-runcmd:
-  - - systemctl
-    - enable
-    - '--now'
-    - qemu-guest-agent.service
-```
+また、全ノードに `nfs-common` パッケージが必要です(`nfs-external`とLonghorn RWXのマウントに
+使うため)。未導入だと`MountVolume.MountDevice failed` / `bad option`でPodが起動しません。
+ノードのUser Data(cloud-init)に入れてあるので、通常は意識する必要はありません
+([manual-multi-env.md](manual-multi-env.md)の「2. クラスタの新規作成」、
+User Dataの全文は[manual-node-ntp.md](manual-node-ntp.md)の「恒久対策」)。
 
 ## 1. 認証情報のSealedSecretを生成する
 
@@ -123,16 +100,18 @@ PRを作成してマージしてください。マージされると対象環境
 昇格先の環境でも手順1と同様に、その環境用のSealedSecretを生成・コミットしておく
 必要があります(封印は環境ごとの鍵のため、devのファイルは流用できません)。
 
-## 3. 割り当てられた外部IPを確認する
+## 3. DNSを登録し、HTTPSで開けることを確認する
+
+`<site>.<env>.ibid.lan` のAレコードを、その環境のTraefikのLB IPへ向けて登録します
+([manual-cert-manager-freeipa-acme.md](manual-cert-manager-freeipa-acme.md)の
+「サイトホスト名のDNS Aレコード登録」)。証明書はDNS-01で発行されるので、Aレコードより先に
+発行されていても問題ありません。
 
 ```bash
-kubectl -n wordpress-<site> get svc
+kubectl --context <dev1|prod1> -n kube-system get svc rke2-traefik   # TraefikのLB IP
+kubectl -n wordpress-<site> get ingress,certificate                   # CertificateがReady=True
+curl -sI https://<site>.<env>.ibid.lan/                               # HTTP 200(または302)
 ```
-
-`TYPE=LoadBalancer` かつ `EXTERNAL-IP` に Harvester の IPPool 範囲内のアドレスが
-割り当てられていることを確認します。IP が割り当てられない場合は
-`kubectl -n wordpress-<site> describe svc <service名>` のイベントを確認し、
-[manual-harvester-loadbalancer.md](manual-harvester-loadbalancer.md) の IPPool 設定を見直してください。
 
 ## 4. Pod とストレージの状態を確認する
 
@@ -141,17 +120,13 @@ kubectl -n wordpress-<site> get pods
 kubectl -n wordpress-<site> get pvc
 ```
 
-- `wordpress-<site>` の PVC が `ReadWriteMany` で `Bound` になっていること
-- 2つの `wordpress-<site>` Pod がいずれも `Running` になっていること
-- Longhorn の Share Manager Pod が `longhorn-system` Namespace に起動していること
-  (RWX ボリュームのため)
-
-```bash
-kubectl -n longhorn-system get pods -l app=longhorn-share-manager
-```
+- `wordpress-<site>`(wp-content)のPVCが`nfs-external`・`ReadWriteMany`で`Bound`
+- `data-wordpress-<site>-mariadb-0`(DB)のPVCが`harvester`で`Bound`
+- `wordpress-<site>` Pod(productionは2つ)と`wordpress-<site>-mariadb-0`が`Running`
+- プラグイン同期Job(`wordpress-<site>-plugin-sync-*`)が`Complete`
 
 Fleet側の適用状況はRancher UI(Continuous Delivery → Bundles)または
-`kubectl --context <rancher-local> -n fleet-default get bundles` で確認できます。
+`kubectl --context rancher -n fleet-default get bundles` で確認できます。
 
 ## プラグインの管理(Git駆動)
 
@@ -195,12 +170,17 @@ kubectl delete namespace wordpress-<site>
 データを残したい場合は、PVCに `helm.sh/resource-policy: keep` を付けてから
 uninstallしてください。全環境から消す場合は環境ごとに繰り返します。
 
+- productionの`nfs-external`は`reclaimPolicy: Retain`のため、PVCを消してもNFS上の
+  `/data/nfs/wordpress/production/wordpress-<site>/`は残ります。不要なら手動で消します。
+- DBの`harvester`のPVは、Harvester CSIの既知の問題で`Released`のまま残ることがあります
+  ([roadmap.md](roadmap.md)項目8の手順で片付けます)。
+- `envs/<env>/secrets/<site>.yaml`も削除し、DNSのAレコードも消します。
+
 ## 補足
 
 - MariaDB は単体構成のため、DB Pod自体は冗長化されていません。DB層まで冗長化したい
   場合は `bitnami/mariadb-galera` 等への切り替えを別途検討してください。
-- Longhorn の ReadWriteMany ボリュームは内部的に NFS (Share Manager) を経由するため、
-  通常の ReadWriteOnce ボリュームよりレイテンシが増える点に留意してください。
+- wp-contentはNFS上にあるため、ファイル数の多い操作はローカルディスクより遅くなります。
 - チャートのバージョンは各サイトの `fleet.yaml` の `helm.version` で固定されています。
   上げるときはdevから順に昇格させてください。
 - `wp-config.php`は一度生成されると永続ボリューム上に残り続け、Bitnamiの初期化スクリプトは
@@ -214,10 +194,6 @@ uninstallしてください。全環境から消す場合は環境ごとに繰�
   なります。`wordpressTablePrefix`のみを使用してください。
 - 現状は次の項目を明示的に設定せず、Chart のデフォルト値のまま導入しています。
   必要になった際は各サイトの`fleet.yaml`の`helm.values.wordpress`に追記してください。
-  - `wordpressScheme` / `ingress.*`: 現在は LB の IP に `http` で直接アクセスする構成。
-    ドメイン名でのアクセスや TLS 化をする場合は `ingress.enabled: true` と
-    `ingress.hostname`、`wordpressScheme: https` を設定し、DNS でそのホスト名を
-    LB の IP(または Traefik 経由)に向ける必要があります。
   - `wordpressBlogName` / `wordpressFirstName` / `wordpressLastName`:
     サイトタイトルや管理者氏名。未設定の場合は導入後に `wp-admin` の管理画面から
     変更できます。

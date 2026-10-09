@@ -54,7 +54,8 @@ Gitの昇格フローには乗らない。環境間でデータを移すには
 2. **検査(dev)**: 基盤チームがdevの同サイトにインストールして確認:
    - 供給元・最終更新日・既知脆弱性(WPScan等)の確認。
    - **この構成特有の互換性**の確認(下記「検査観点」)。
-3. **本番適用**: 検査で問題なければ、本番PVCのLonghornスナップショットを取った上で、
+3. **本番適用**: 検査で問題なければ、本番のバックアップ(DBダンプ + wp-contentのtar。
+   [operations-flow.md](operations-flow.md)「本番反映前のバックアップ」)を取った上で、
    基盤チーム(またはその場で権限を持つ者)が本番のwp-adminかwp-cliで
    **devと同一バージョン**をインストール/更新する。
 4. **記録**: どのサイトに何のプラグインをどのバージョンで入れたかを台帳に記録する
@@ -73,7 +74,7 @@ dev検証→本番適用する。セキュリティ緊急パッチのみ、ス�
 - **.htaccessは永続化されない**(`WORDPRESS_ENABLE_HTACCESS_PERSISTENCE: no`)。
   .htaccessに書き込むタイプのキャッシュ系・セキュリティ系・リダイレクト系プラグインは
   設定がApache再起動のたびに消える。
-- **ファイルベースのキャッシュはNFS(Longhorn RWX)上で低速**。キャッシュ系は
+- **ファイルベースのキャッシュはNFS(wp-contentは外部NFS `nfs-external`)上で低速**。キャッシュ系は
   DB/オブジェクトキャッシュ方式を選ぶ。
 - **コンテナは非rootかつコアディレクトリは書き込み不可**。wp-content外に
   ファイルを書こうとするプラグインは動かない。
@@ -112,12 +113,13 @@ dev→production昇格で行う**([manual-multi-env.md](manual-multi-env.md) 4�
 1. **SMTP設定**: 現状未設定のため、パスワードリセットも新規ユーザーへの招待メールも
    送信されない。**複数人にアカウントを配る運用の実質的な前提**。
    `helm.values.wordpress` の `smtpHost` 等で設定(認証情報はSecret化)。
-2. **TLS/ドメイン**: 現状はLBのIPへhttp直アクセスのため、他チームのログイン認証情報が
-   平文で流れる。委譲前に `ingress` + TLS(+DNS)への切り替えを強く推奨
-   ([manual-wordpress.md](manual-wordpress.md) 補足参照)。
+2. **TLS/ドメイン**: 【済(2026-07-10)】全サイトがTraefik Ingress + TLS
+   (`<site>.<env>.ibid.lan`、FreeIPA ACME)になった。外部公開するサイトは
+   [manual-wordpress-restore.md](manual-wordpress-restore.md)の6b.。
 3. **バックアップ**: コンテンツは本番にしか存在しないため、バックアップが唯一の保険。
-   Longhornの定期スナップショット/バックアップ(外部ターゲット)を本番の
-   全サイトPVC(wp-content RWX + mariadb RWO)に設定し、RPO(何時間分の
+   **2026-10-09時点で、本番サイトのwp-content(`nfs-external`)とDB(`harvester`)には
+   定期バックアップが無い**(ゲストLonghornの定期バックアップの対象外。
+   [roadmap.md](roadmap.md)項目5)。定期バックアップを整え、RPO(何時間分の
    記事消失まで許容するか)をサイトチームと合意しておく。復旧は
    [manual-wordpress-restore.md](manual-wordpress-restore.md)。
 4. **申請・連絡フロー**: プラグイン申請、アカウント発行依頼、障害連絡の窓口を決める

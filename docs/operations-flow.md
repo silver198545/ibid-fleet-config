@@ -179,10 +179,13 @@ Harvester物理層の空き容量の既知の制約([roadmap.md](roadmap.md)項�
 (ロールバックはGit revertだけでは完結しない)。
 production昇格PRをマージする直前に、対象サイトの
 
-- Longhornバックアップ(wp-content)
 - DBダンプ(mysqldump)
+- wp-contentのtar
 
-を必ず取得する。障害時はこのバックアップからの復元
+を必ず取得する。取得方法は上記「本番データリハーサル」の1.と同じ
+(`scripts/restore-wordpress.sh`がそのまま読める形式になる)。wp-content(`nfs-external`)と
+DB(`harvester`)はゲストLonghornの定期バックアップの対象外なので、Longhorn側には頼れない
+([manual-multi-env.md](manual-multi-env.md)の5.)。障害時はこのバックアップからの復元
 ([manual-wordpress-restore.md](manual-wordpress-restore.md))がロールバック手段になる。
 
 ## プラグインの「削除」はGitOpsから漏れる(要手動作業)
