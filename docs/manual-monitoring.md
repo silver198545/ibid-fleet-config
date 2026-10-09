@@ -119,21 +119,34 @@ promoteワークフローは `sites/` しかコピーしないため、monitorin
   base64デコードしてGitのvaluesと比較する。
 - **Longhornメトリクスが無い**: ServiceMonitor `longhorn` と
   `longhorn-backend` Service(port `manager`)のラベル `app: longhorn-manager` を確認。
-- **PrometheusのPVCが乗るノードでLonghornディスクがunschedulableになる**:
-  Prometheus TSDBは書き込み量が多く、Longhornの`default`スナップショットグループ
-  (`envs/<env>/infra/longhorn-jobs/recurringjobs.yaml`、6時間毎retain 4)だと
-  スナップショット差分だけで実データサイズを超え、ノードディスクの空き容量が
-  Longhornの`storage-minimal-available-percentage`(既定25%)を割り込むことがある
-  (`kubectl -n longhorn-system get volumes.longhorn.io <pvc名> -o jsonpath='{.status.actualSize}'`
-  と実データ使用量を比較して確認)。
-  対策として`db-light`グループ(同ファイル、retain 1)を用意し、Prometheus用PVCの
-  `volumeClaimTemplate`にアノテーション`recurring-job-group.longhorn.io/db-light: enabled`
-  を設定済み(このfleet.yaml)。ただし**既存のPVC/Volumeには反映されない**ため、
-  初回適用時は該当VolumeのラベルをGit変更とは別に手動で付け替えること:
-  ```
-  kubectl --context=<env> -n longhorn-system label volumes.longhorn.io <prometheusのPVC名> \
-    recurring-job-group.longhorn.io/default- \
-    recurring-job-group.longhorn.io/db-light=enabled
-  ```
-  付け替え後、次回のcron実行(最大6時間以内)でdefault分のスナップショットが
-  自動的にtrimされ、ディスク使用量が回復する。
+- **PrometheusのTSDBはゲストLonghornに置かない(`harvester` StorageClass)**:
+  Prometheus TSDBは書き込み量が多い。ゲストLonghorn(3レプリカ、実体はワーカーの
+  HDD上のルートディスク)に置いていた頃は、以下の問題が起きた。
+  - スナップショット差分がノードディスクを圧迫した(`db-light`グループで緩和していた)
+  - 2026-10-09: dev1でI/O遅延のためレプリカがタイムアウトし、約8GBのスナップショット
+    チェーンを丸ごと再構築した。その再構築がさらにI/O遅延を招く悪循環になり、
+    WordPress・Longhorn・csi-nfs等、全Podのprobeがタイムアウトして`Unhealthy`
+    イベントが多発した
+  そのため`storageSpec.volumeClaimTemplate`の`storageClassName`を`harvester`にしている
+  (`envs/<env>/infra/monitoring/fleet.yaml`)。ゲストLonghornのrecurring job
+  (snapshot/backup)の対象外になる。メトリクスはバックアップしない方針。
+  現状はdevのみ移行済みで、productionは`longhorn`+`db-light`のままである(移行予定)。
+
+  **storageClassを変えた後のPVC作り直し手順**(volumeClaimTemplateは既存PVCに反映されない。
+  メトリクス履歴は消える):
+  1. 変更をmainにマージする。Fleetの適用後、Prometheus CRの`storageSpec`が新しい値に
+     なったことを確認する:
+     ```
+     kubectl --context=<env> -n cattle-monitoring-system get prometheus rancher-monitoring-prometheus \
+       -o jsonpath='{.spec.storage.volumeClaimTemplate.spec.storageClassName}'
+     ```
+  2. 旧PVCとPodを削除する。PVCはPodが消えるまで`Terminating`のまま残る。その後、
+     StatefulSetがPodを再作成し、新しいstorageClassでPVCを作り直す:
+     ```
+     kubectl --context=<env> -n cattle-monitoring-system delete pvc \
+       prometheus-rancher-monitoring-prometheus-db-prometheus-rancher-monitoring-prometheus-0 --wait=false
+     kubectl --context=<env> -n cattle-monitoring-system delete pod prometheus-rancher-monitoring-prometheus-0
+     ```
+  3. 新PVCが`harvester`でBoundになり、Podが`3/3 Running`になることを確認する。
+     旧Longhorn Volumeが消えたことも確認する
+     (`kubectl --context=<env> -n longhorn-system get volumes.longhorn.io`)。

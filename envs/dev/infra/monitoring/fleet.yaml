@@ -174,10 +174,18 @@ helm:
           limits:
             cpu: "1"
             memory: 8000Mi
+        # TSDBはゲストLonghorn(3レプリカ)ではなくharvester StorageClassに置く。
+        # ワーカーのルートディスク(HDD)上のゲストLonghornだと、I/O遅延で
+        # レプリカがタイムアウト→数GBのスナップショットチェーンを丸ごと再構築
+        # →さらにI/O遅延、の悪循環になり、全Podのprobeがタイムアウトして
+        # Unhealthyイベントが多発した(2026-10-09)。harvesterならゲストLonghornの
+        # 再構築・スナップショットが発生しない(Longhornのrecurring jobの対象外)。
+        # volumeClaimTemplateは既存PVCに反映されないため、変更時はPVCの作り直しが
+        # 必要(docs/manual-monitoring.md参照、メトリクス履歴は消える)。
         storageSpec:
           volumeClaimTemplate:
             spec:
-              storageClassName: longhorn
+              storageClassName: harvester
               accessModes:
                 - ReadWriteOnce
               resources:
