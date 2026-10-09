@@ -104,6 +104,13 @@ productionで変える値(ホスト名、レプリカ数、アフィニティ等
      ```
      生成したSecret名をDeploymentの`imagePullSecrets`に追加する
      (`envs/dev/apps/brc-advanced-search/deployment.yaml`参照)。
+   - **PATの有効期限に注意する。** 期限が切れても、すでに動いているPodはイメージのキャッシュで動き続けるので
+     気づきにくい。Podが別のノードへ移ったとき(ノードの入れ替えなど)に初めて`ImagePullBackOff`
+     (`failed to fetch oauth token`)になる。2026-10-09に、brc-advanced-searchとriken-diipsで共有していた
+     PATの期限切れがこの形で見つかった。発行時に期限の日を控えておき、期限が来る前に新しいPATを発行して、
+     **全環境分**(dev1とprod1それぞれの鍵)を封印し直す。PATが使えるかは、値を表示せずに
+     `curl -s -o /dev/null -w '%{http_code}' -u <ユーザー名>:<PAT> 'https://ghcr.io/token?scope=repository:<owner>/<app>:pull'`
+     が200を返すかで確かめられる。
 5. productionへ出す前に、devのディレクトリに production 用の差分を用意してdevへマージする
    (dev1では使われないので、devの動作には影響しない)。既存の
    `envs/dev/apps/brc-advanced-search/` をひな形にする:
