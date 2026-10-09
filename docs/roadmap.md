@@ -221,7 +221,7 @@
 - 制約: probeはクラスタ内経由のため**LB IP経路の障害・IPPool枯渇は検知不可**。
   1.のIngress化・2.のDNS導入時に外形監視を再検討する。
 
-### 5. WordPressデータのバックアップ(定期バックアップの欠落と3-2-1化) 【🔴 未対応、2026-10-09発覚】
+### 5. WordPressデータのバックアップ(定期バックアップの欠落と3-2-1化) 【一部対応中(2026-10-09〜)】
 
 - **現状(2026-10-09にクラスタで確認)**: WordPressサイトのデータは、**どの定期バックアップの対象にも
   入っていない**。
@@ -237,11 +237,14 @@
   1台に集中している。**そこが壊れると全環境のデータとバックアップが同時に消える**。
 - **当面の運用**: 本番反映前・リストア前に、mysqldump + wp-contentのtarを手動で取る
   ([operations-flow.md](operations-flow.md)「本番反映前のバックアップ」)。
-- **方針(要検討)**: サイトごとの定期バックアップ(例: CronJobでmysqldump + wp-contentのtarを
-  NFSの別パスへ。`restore-wordpress.sh`の入力形式に合わせる)を入れる。そのうえで、
-  NFSの先のオフサイト/別メディアへの二次コピー(S3互換への複製、別NASへのrsync等)を検討する。
-  封印鍵バックアップの保管場所も冗長化する。現構成でのDR手順も作り直して検証する
-  ([manual-multi-env.md](manual-multi-env.md) 8.の7.)。
+- **対応1(チャート0.6.0)**: サイトごとの日次バックアップCronJob `wordpress-<site>-backup`
+  (JST 3:00、DBダンプ + wp-contentのtar、gzip、14日分)。保存先はStorageClass `nfs-backup`
+  (NFS `/data/nfs/backup/<env>/<namespace>/`、両環境とも`Retain`)。`restore-wordpress.sh`を
+  `.gz`形式に対応させた。監視: `WordPressBackupStale` / `WordPressBackupNeverSucceeded`。
+  devから導入し、確認後にproductionのinfra(StorageClass・アラート)を入れてサイトを昇格する。
+- **残り**: (1)NFSサーバー1台への集中の解消(オフサイト/別メディアへの二次コピー。S3互換への複製、
+  別NASへのrsync等)、(2)封印鍵バックアップの保管場所の冗長化、(3)現構成でのクラスタ全損からの
+  復元演習([manual-multi-env.md](manual-multi-env.md) 8.の7.)。
 - **トリガー**: 本番にコンテンツが入る前(本番のweb/dnaは2026-10-08に作り直したばかり)。
 
 ### 6. WordPressコア/プラグインの定期更新サイクル 【済(運用ルール化: 2026-07-08)】

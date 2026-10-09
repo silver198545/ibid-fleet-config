@@ -32,12 +32,14 @@ WordPressのデータの置き場所:
 
 | データ | StorageClass | 実体 | 定期バックアップ |
 |---|---|---|---|
-| wp-content | `nfs-external` | NFS `192.168.1.1:/data/nfs/wordpress/<env>/` | **無し** |
-| MariaDB | `harvester` | Harvester側のボリューム | **無し** |
-| (参考)Prometheus、sparqlist等 | `longhorn`/`longhorn-r1` | ゲストLonghorn | 日次(NFS `/data/nfs/longhorn/<env>`) |
+| wp-content | `nfs-external` | NFS `192.168.1.1:/data/nfs/wordpress/<env>/` | サイトのCronJob(日次、14日分、NFS `/data/nfs/backup/<env>/`) |
+| MariaDB | `harvester` | Harvester側のボリューム | 同上(DBダンプ) |
+| (参考)Prometheus、sparqlist等 | `longhorn`/`longhorn-r1` | ゲストLonghorn | Longhornの日次バックアップ(NFS `/data/nfs/longhorn/<env>`) |
 
-WordPressのデータに定期バックアップが無いのは2026-10-09に分かった課題
-([docs/roadmap.md](docs/roadmap.md)の項目5)。それまでは本番反映前に手動で取る。
+WordPressのバックアップCronJobはチャート0.6.0から(2026-10-09にdevへ導入開始。productionは
+devで確認後)。バックアップがNFSサーバー1台に集中している問題は残っている
+([docs/roadmap.md](docs/roadmap.md)の項目5)。戻し方は
+[docs/manual-wordpress-restore.md](docs/manual-wordpress-restore.md)「日次バックアップ」。
 
 ## ドキュメント
 

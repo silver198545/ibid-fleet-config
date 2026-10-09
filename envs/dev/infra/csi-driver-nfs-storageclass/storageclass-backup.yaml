@@ -1,0 +1,22 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-backup
+provisioner: nfs.csi.k8s.io
+parameters:
+  server: "192.168.1.1"
+  share: "/data/nfs"
+  # WordPressサイトの日次バックアップ(charts/ibid-wordpress の backup-cronjob.yaml)の置き場所。
+  # nfs-externalと違い、PVC名を含めずnamespaceだけでディレクトリを決める。PVCやクラスタを
+  # 作り直しても同じディレクトリになり、過去のバックアップがそのまま見える(DR時に使う)。
+  # 1つのnamespaceにこのStorageClassのPVCは1つだけにすること。
+  subDir: "backup/dev/${pvc.metadata.namespace}"
+  mountPermissions: "0777"
+# バックアップなので、devでもPVCを消したらNFS上のファイルを残す(不要になったら手動で消す)。
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+allowVolumeExpansion: true
+mountOptions:
+  # noresvportは付けない: このNFSサーバーのエクスポートは非特権ポートからの
+  # マウント要求を"Operation not permitted"で拒否する(insecureオプション無し)。
+  - nfsvers=4.1

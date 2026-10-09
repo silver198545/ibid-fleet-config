@@ -43,6 +43,38 @@ i/oタイムアウトで切断される事象への対策）。それでも転�
 以降の各手順は、スクリプトが内部で行っている処理の説明を兼ねた手動手順です。
 上記以外の形式のバックアップや、途中で失敗した場合の個別リカバリに使ってください。
 
+## 日次バックアップ（サイト自身のCronJob）
+
+チャート0.6.0以降、各サイトにはDBダンプとwp-contentのtarを毎日取るCronJob
+`wordpress-<site>-backup`（JST 3:00、14日分保持）があります。出力はNFS上の
+
+```
+192.168.1.1:/data/nfs/backup/<env>/wordpress-<site>/yyyymmdd_hhmm.dump.gz
+192.168.1.1:/data/nfs/backup/<env>/wordpress-<site>/yyyymmdd_hhmm.tar.gz   # wp-contentのみ
+```
+
+で、上記の`scripts/restore-wordpress.sh`でそのまま戻せます。ディレクトリはnamespace名だけで
+決まるので、PVCやクラスタを作り直しても同じ場所のバックアップが見えます。
+
+**今すぐ1つ取る**（本番反映前、リストア前など）:
+
+```bash
+kubectl --context <dev1|prod1> -n wordpress-<site> create job --from=cronjob/wordpress-<site>-backup \
+  wordpress-<site>-backup-manual-$(date +%Y%m%d%H%M)
+kubectl --context <dev1|prod1> -n wordpress-<site> logs -f job/wordpress-<site>-backup-manual-<上の時刻>
+```
+
+**作業端末から読む**: NFSを読み取り専用でマウントし、ディレクトリをそのままスクリプトに渡します
+（作業端末に`nfs-common`が必要）。
+
+```bash
+sudo mkdir -p /mnt/ibid-nfs
+sudo mount -t nfs -o ro,nfsvers=4.1 192.168.1.1:/data/nfs /mnt/ibid-nfs
+ls -l /mnt/ibid-nfs/backup/production/wordpress-<site>/
+scripts/restore-wordpress.sh <site> /mnt/ibid-nfs/backup/production/wordpress-<site> [yyyymmdd_hhmm]
+sudo umount /mnt/ibid-nfs
+```
+
 ## 0. 事前確認（バックアップ側）
 
 復元先の環境と食い違うと詰まるポイントが2つあるので、作業前に確認しておきます。
@@ -67,9 +99,10 @@ grep -n '^CREATE DATABASE\|^USE `' backup.dump
 
 DBとwp-contentを丸ごと上書きするため、復元先サイトの現状をバックアップしてから進めてください。
 wp-content（`nfs-external`）とDB（`harvester`）はゲストLonghorn上に無いため、Longhorn UIの
-スナップショットは使えません。mysqldump + wp-contentのtarで取ります（手順は
-[operations-flow.md](operations-flow.md)「本番データリハーサル」の1.。`--context`を復元先に読み替える）。
-この形式は`scripts/restore-wordpress.sh`でそのまま戻せるので、失敗しても切り戻せます。
+スナップショットは使えません。上記「日次バックアップ」の「今すぐ1つ取る」で取ります
+（CronJobの無い古いチャートのサイトでは、[operations-flow.md](operations-flow.md)
+「本番データリハーサル」1.の手動の方法）。`scripts/restore-wordpress.sh`でそのまま戻せるので、
+失敗しても切り戻せます。
 新規の空サイトへ復元する場合は不要です（スクリプトの確認プロンプトには`y`で答える）。
 
 ## 2. 新環境のテーブル接頭辞を確認し、必要なら合わせる

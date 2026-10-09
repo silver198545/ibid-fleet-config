@@ -174,6 +174,8 @@ uninstallしてください。全環境から消す場合は環境ごとに繰�
   `/data/nfs/wordpress/production/wordpress-<site>/`は残ります。不要なら手動で消します。
 - DBの`harvester`のPVは、Harvester CSIの既知の問題で`Released`のまま残ることがあります
   ([roadmap.md](roadmap.md)項目8の手順で片付けます)。
+- 日次バックアップの`/data/nfs/backup/<env>/wordpress-<site>/`は両環境とも残ります(`nfs-backup`は`Retain`)。
+  最後の数日分は念のため残し、不要になったら手動で消します。
 - `envs/<env>/secrets/<site>.yaml`も削除し、DNSのAレコードも消します。
 
 ## 補足

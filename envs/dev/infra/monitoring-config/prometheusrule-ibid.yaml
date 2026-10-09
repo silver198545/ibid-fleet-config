@@ -25,6 +25,28 @@ spec:
           annotations:
             summary: 'WordPressサイト {{ $labels.namespace }} の応答が5秒を超えています({{ $value | humanizeDuration }})'
 
+    - name: wordpress.backup
+      rules:
+        # サイトの日次バックアップCronJob(charts/ibid-wordpress の <release>-backup、JST 03:00)が
+        # 26時間以上成功していない。WordPressのDB・wp-contentはLonghornの定期バックアップの
+        # 対象外なので、これが唯一の定期バックアップになる(docs/roadmap.md 項目5)。
+        - alert: WordPressBackupStale
+          expr: time() - kube_cronjob_status_last_successful_time{namespace=~"wordpress-.*", cronjob=~"wordpress-.*-backup"} > 26 * 60 * 60
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: 'WordPressサイト {{ $labels.namespace }} の日次バックアップが26時間以上成功していません'
+        # 一度も成功していない(作成から26時間以上経っても成功記録が無い)場合は、
+        # 上のルールでは検知できない(last_successful_timeが存在しない)ため別に見る。
+        - alert: WordPressBackupNeverSucceeded
+          expr: (time() - kube_cronjob_created{namespace=~"wordpress-.*", cronjob=~"wordpress-.*-backup"} > 26 * 60 * 60) unless on(namespace, cronjob) kube_cronjob_status_last_successful_time
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: 'WordPressサイト {{ $labels.namespace }} の日次バックアップが一度も成功していません'
+
     - name: longhorn.capacity
       rules:
         - alert: LonghornNodeStorageUsageWarning

@@ -107,6 +107,13 @@ jobs:
                   script = doc["spec"]["template"]["spec"]["containers"][0]["command"][2]
           assert script, "plugin-sync Jobがレンダリングされていない"
           open("/tmp/plugin-sync.sh", "w").write(script)
+          backup = None
+          for doc in yaml.safe_load_all(open("/tmp/rendered.yaml")):
+              if doc and doc.get("kind") == "CronJob" and doc["metadata"]["name"].endswith("-backup"):
+                  backup = doc["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]["command"][2]
+          assert backup, "バックアップCronJobがレンダリングされていない"
+          open("/tmp/backup.sh", "w").write(backup)
           EOF
           bash -n /tmp/plugin-sync.sh
-          echo "render OK (plugin-sync Jobのbash構文チェック含む)"
+          bash -n /tmp/backup.sh
+          echo "render OK (plugin-sync Job・バックアップCronJobのbash構文チェック含む)"
