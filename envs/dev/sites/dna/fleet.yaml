@@ -33,13 +33,13 @@ helm:
       - name: add-to-any
         version: "1.8.18"
       - name: tinymce-advanced
-        version: "5.9.2"
+        version: "5.10.1"
       - name: authorizer
-        version: "3.14.4"
+        version: "3.16.0"
       - name: breadcrumb-navxt
-        version: "7.5.1"
+        version: "7.5.2"
       - name: broken-link-checker
-        version: "2.4.8"
+        version: "2.4.14.1"
       - name: classic-editor
         version: "1.7.0"
       - name: classic-visual-editor-options
@@ -47,15 +47,15 @@ helm:
       - name: classic-widgets
         version: "0.3"
       - name: mobile-menu
-        version: "2.8.8"
+        version: "2.9"
       - name: wp-seopress
-        version: "10.0"
+        version: "10.3"
       - name: tablepress
-        version: "3.3.2"
+        version: "3.4"
       - name: widgets-control
         version: "3.0.0"
       - name: wp-external-links
-        version: "2.65"
+        version: "2.66"
       - name: wp-file-manager
         version: "8.0.6"
       - name: wp-multibyte-patch
