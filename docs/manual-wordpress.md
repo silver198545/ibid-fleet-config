@@ -112,11 +112,19 @@ kubectl -n wordpress-<site> get ingress,certificate                   # Certific
 curl -sI https://<site>.<env>.ibid.lan/                               # HTTP 200(または302)
 ```
 
-新規インストールで生成された`wp-config.php`は、`WP_HOME`/`WP_SITEURL`が
-`http://<site>.<env>.ibid.lan//`(スキームがhttp、末尾スラッシュ重複)になります
-(2026-10-09にproductionのweb/dnaで確認)。確認して`https://<site>.<env>.ibid.lan`に直し、
-OPcacheに古い値が残らないようPodを入れ替えます。ファイルはRWXのwp-content側ボリューム上に
-あるため、1つのPodで書き換えれば全レプリカに反映されます。
+新規インストールで生成された`wp-config.php`の`WP_HOME`/`WP_SITEURL`は、Bitnamiイメージの作りにより
+`http://<site>.<env>.ibid.lan//`(スキームがhttp、末尾スラッシュ重複)になります。
+**チャート0.6.5以降は、初回起動時のpost-initスクリプトが自動で`https://<site>.<env>.ibid.lan`に
+直す**ため手作業は不要です(`charts/ibid-wordpress/values.yaml` の `customPostInitScripts`)。
+確認だけ行います(WordPress Podのログに `ibid-fix-wp-home:` の行が出ます)。
+
+```bash
+kubectl -n wordpress-<site> exec deploy/wordpress-<site> -c wordpress -- grep -n "WP_HOME\|WP_SITEURL" /bitnami/wordpress/wp-config.php
+```
+
+自動の修正が失敗した場合(ログに「元に戻しました」と出る)や、0.6.5より前のチャートのサイトでは、
+次の手順で手で直し、OPcacheに古い値が残らないようPodを入れ替えます。ファイルはRWXのwp-content側
+ボリューム上にあるため、1つのPodで書き換えれば全レプリカに反映されます。
 
 ```bash
 H=<site>.<env>.ibid.lan
