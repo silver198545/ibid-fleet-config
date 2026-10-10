@@ -243,6 +243,14 @@ Rancher UI(Continuous Delivery → Git Repos → base-infra)で `paths` を確�
 - **イメージ更新**(WordPressコア・MariaDB): `scripts/bump-chart.sh --update-images "feat: WordPress/MariaDBイメージを最新のdigestへ更新"`。
   Bitnami公式イメージ(`docker.io/bitnami/{wordpress,mariadb}:latest`)の現在のdigestを
   [values.yaml](../charts/ibid-wordpress/values.yaml) に書き込み、上記「チャート更新」と同じ流れでdevまで反映する。
+  PRの本文にはイメージ内のバージョン変化(例: WordPress 7.0 → 7.1.3)が書かれ、
+  メジャー更新なら「本番データリハーサル必須」と明記される。
+- **プラグイン更新**: `scripts/bump-plugins.sh`(`--dry-run` で書き換えだけ)。devの全サイトの
+  `plugins:` をWordPress.orgの最新版(今のWordPressで動くもの)へ上げるPRを作りauto-mergeする。
+- **自動実行**: 上の2つは [auto-update.yaml](../.github/workflows/auto-update.yaml) が**毎週月曜9:00(JST)**に
+  実行する(Actionsから手動起動も可)。更新が無い週は何もしない。devへの反映までが自動で、
+  productionへの昇格は人がpromoteで行う。失敗するとGitHubから通知メールが届く
+  (PROMOTE_TOKENの期限切れ等)。
 
 ### 定期メンテナンス日(月次、毎月1日を目安)
 
@@ -250,10 +258,11 @@ WordPressコア/プラグインのイメージはdigest固定(= セキュリテ�
 止まる設計、[roadmap.md](roadmap.md) #6)なので、以下を**毎月1日を目安に**まとめて実施する
 (前後にずれても良いが月を跨がないこと)。初回は2026-08-01。
 
-1. **WordPressコアの確認**: `scripts/bump-chart.sh --update-images "feat: WordPress/MariaDBイメージを最新のdigestへ更新"`
-   を実行(上記「イメージ更新」。既に最新なら何もせず終了する)。
-2. **プラグインの確認**: 各サイトの `fleet.yaml` の `plugins:` 一覧を見直し、
-   セキュリティリリースが出ているものを更新([manual-wordpress.md](manual-wordpress.md)参照)。
+1. **WordPressコア・プラグインの確認**: devへの更新は毎週の `auto-update` が済ませているので、
+   その間のPR(Actionsの実行履歴)とdevの状態を確認し、問題なければproductionへ昇格する
+   (メジャー更新を含むなら本番データリハーサル)。`auto-update` が失敗していないかも見る。
+   自動更新から外れたプラグイン(WordPress.orgで公開停止、新しいWordPressが必要等。
+   実行ログに警告が出る)は個別に判断する。
    `wp-file-manager`(過去に重大脆弱性の履歴あり)は特に、その時点で必要かどうかを
    毎回再検討する。
 3. **Sealed Secrets鍵の再バックアップ**: ローテーションの有無に関わらず、

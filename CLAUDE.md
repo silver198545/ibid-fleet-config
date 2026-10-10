@@ -67,7 +67,8 @@ resource state with `kubectl`.
   `rehearsal-site.sh <site> <production|dev>` (temporary `<site>-rh` bundle on dev for production-data
   rehearsals), `update-app-image.sh` (apps: `set-image` does image bump → build → dev in one run; production via
   `deploy-production`), `bump-chart.sh [--update-images] "<title>"` (chart change/Bitnami digest bump →
-  publish → all dev sites' `helm.version`, one run). Both auto-merge dev-only PRs; see branch protection below.
+  publish → all dev sites' `helm.version`, one run), `bump-plugins.sh` (dev plugins → latest
+  WordPress.org versions). `auto-update.yaml` runs both weekly (dev only; production still via promote). These scripts auto-merge dev-only PRs; see branch protection below.
 - `docs/` — manual runbooks for steps Fleet cannot automate. Always check these before changing
   behavior they document, and update them when the corresponding config changes. Key one:
   `docs/manual-multi-env.md` (environment setup, dev1 migration, promotion operation, break-glass).

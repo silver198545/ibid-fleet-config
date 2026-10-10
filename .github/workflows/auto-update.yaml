@@ -1,0 +1,63 @@
+# devの自動更新(毎週の定期実行 + 手動起動)。
+#   1. scripts/bump-chart.sh --update-images: Bitnami公式のWordPress/MariaDBイメージに新しいdigestが
+#      あればチャートを上げて公開し、devの全サイトへ反映する
+#   2. scripts/bump-plugins.sh: devのサイトのプラグインをWordPress.orgの最新版へ上げる
+# どちらもdevだけに触れるPRを作り、validate通過後にauto-mergeする(mainのブランチ保護は
+# production以外のPRを承認なしでマージできる設定。docs/manual-multi-env.md「1.」)。
+# productionへは触らない。devで確認後、人がpromoteワークフローで昇格させる
+# (docs/operations-flow.md「基本サイクル」)。更新が無い週は何もしない。
+#
+# github.token で作ったPRでは validate が起動しないため(GitHub Actionsの再帰防止仕様)、
+# PROMOTE_TOKEN(repo権限のPAT。promote.yamlと共用)でpush・PR作成・マージする。
+# これにより mainへのマージで release-chart.yaml も起動する。
+name: auto-update
+
+on:
+  schedule:
+    # 毎週月曜 9:00 JST。月次メンテナンス日(毎月1日)の前に、devで1週間以上動かせるようにする
+    - cron: "0 0 * * 1"
+  workflow_dispatch:
+    inputs:
+      images:
+        description: "WordPress/MariaDBイメージを更新する"
+        type: boolean
+        default: true
+      plugins:
+        description: "プラグインを更新する"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auto-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.PROMOTE_TOKEN }}
+
+      - name: gitの設定
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: WordPress/MariaDBイメージ(チャート)の更新
+        if: github.event_name == 'schedule' || inputs.images
+        env:
+          GH_TOKEN: ${{ secrets.PROMOTE_TOKEN }}
+        run: scripts/bump-chart.sh --update-images "feat: WordPress/MariaDBイメージを最新のdigestへ更新"
+
+      - name: プラグインの更新
+        if: github.event_name == 'schedule' || inputs.plugins
+        env:
+          GH_TOKEN: ${{ secrets.PROMOTE_TOKEN }}
+        run: scripts/bump-plugins.sh

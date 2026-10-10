@@ -88,6 +88,7 @@ WordPressのバックアップCronJobはチャート0.6.0から(2026-10-09に両
   - `validate`: PR検証(YAML構文、fleet.yamlの必須キー、helm lint/template)
   - `promote`: `sites/`の昇格PR生成(手動起動。`site`にサイト名か`all`)
   - `release-chart`: チャート公開
+  - `auto-update`: 毎週月曜、WordPress/MariaDBイメージとプラグインの更新をdevへ自動反映(`bump-chart.sh`・`bump-plugins.sh`)
   - `build-<app>-image`: 自作アプリのイメージ公開(brc-advanced-search、riken-diips、sparqlist、metadatabase-v2)
 
 ## スクリプト
@@ -99,6 +100,7 @@ WordPressのバックアップCronJobはチャート0.6.0から(2026-10-09に両
 | `scripts/rehearsal-site.sh <site> <production\|dev>` | 本番データリハーサル用の`<site>-rh`バンドルを生成 |
 | `scripts/restore-wordpress.sh <site> <dir> [ts]` | `yyyymmdd_hhmm.tar.lzo`/`.dump.lzo`のバックアップをサイトへリストア |
 | `scripts/bump-chart.sh [--update-images] "<種類>: <説明>"` | ラッパーチャートの変更(WordPress/MariaDBのdigest更新を含む)を公開し、devの全サイトへ反映するまでを一括実行 |
+| `scripts/bump-plugins.sh [--dry-run]` | devの全サイトのプラグインをWordPress.orgの最新版へ上げるPRを作成・マージ |
 | `scripts/update-app-image.sh <subcommand>` | 自作アプリのイメージ更新(`set-image`でdev反映まで一括)〜dev→production昇格PR |
 | `scripts/seal-monitoring-secret.sh <env>` | アラート通知用Slack Webhook URLのSealedSecret |
 | `scripts/seal-sparqlist-secret.sh <env>` | sparqlistのADMIN_PASSWORDのSealedSecret |
