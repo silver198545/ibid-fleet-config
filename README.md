@@ -18,13 +18,13 @@ dev → production の2つのRKE2クラスタ(Harvester上、Rancher管理)で
 - 本番データでの確認は、dev1上の一時的なリハーサルサイト`<site>-rh`で行う
   (staging環境は2026-10-08に廃止)。
 
-## 現在の構成(2026-10-09時点)
+## 現在の構成(2026-10-11時点)
 
 | | dev1(`env=dev`) | prod1(`env=production`) |
 |---|---|---|
 | ノード | control-plane 3台(SSD) + worker 5台 | 同じ |
-| WordPressサイト | 15 | 2(web、dna) |
-| 自作アプリ | 4(brc-advanced-search、riken-diips、sparqlist、metadatabase-v2) | 3(metadatabase-v2以外) |
+| WordPressサイト | 15 | 15(devと同じ) |
+| 自作アプリ | 4(brc-advanced-search、riken-diips、sparqlist、metadatabase-v2) | 4(devと同じ) |
 | TraefikのLB IP(IPPool) | `192.168.1.33`(pool1 `.30-.49`) | `192.168.1.99`(pool3 `.90-.100`) |
 | ホスト名(DNS) | `<site>.dev.ibid.lan`(`*.dev`のワイルドカード) | `<site>.production.ibid.lan`(`*.production`のワイルドカード) |
 
@@ -41,6 +41,10 @@ WordPressのバックアップCronJobはチャート0.6.0から(2026-10-09に両
 [docs/manual-wordpress-restore.md](docs/manual-wordpress-restore.md)「日次バックアップ」。
 
 ## ドキュメント
+
+**日常の運用手順(手順だけを短くまとめたもの)は [docs/runbook/](docs/runbook/README.md)**:
+WordPressの新規サイト作成・更新、自作アプリの新規展開・更新、トラブルシューティング。
+以下は背景・設計を含む詳しい手順書。
 
 まず読むもの:
 
