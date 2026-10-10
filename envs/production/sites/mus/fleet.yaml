@@ -1,0 +1,95 @@
+defaultNamespace: wordpress-mus
+targetNamespace: wordpress-mus
+
+# このサイトをGitから削除してもFleetにリソース(PVC=データ含む)を削除させない。
+# サイトの完全削除は docs/manual-wordpress.md の手順に従って手動で行う。
+keepResources: true
+
+helm:
+  # リリース名を明示する(Fleetのバンドル名由来の自動命名にしない)。
+  # 既存の手動デプロイ済みリリースをFleetが引き継ぐためにも必須。
+  releaseName: wordpress-mus
+  # 全サイト共通デフォルトを内包したラッパーチャート(charts/ibid-wordpress)。
+  # バージョンを上げる=このサイトへの変更適用。環境ごとに段階的に昇格させる。
+  chart: oci://ghcr.io/silver198545/charts/ibid-wordpress
+  version: "0.6.4"
+  # BitnamiのmariadbサブチャートはHelmアップグレード時、existingSecretを
+  # 使っていてもauth.rootPassword/auth.passwordの明示指定を要求してくる
+  # (PASSWORDS ERROR)。Gitにパスワードを書かないよう、
+  # scripts/seal-site-secrets.sh で生成したSealedSecret経由で注入する。
+  valuesFrom:
+    - secretKeyRef:
+        name: wordpress-mus-mariadb-upgrade-values
+        namespace: wordpress-mus
+        key: values.yaml
+  # 共通のデフォルト値はラッパーチャート側にまとめてある。ここにはこのサイト固有の
+  # 差分のみを書く。Bitnamiサブチャートへ渡す値は wordpress: 配下に、ラッパー
+  # チャート自身の設定(plugins等)は values 直下に置く。
+  values:
+    # このサイトが必要とするプラグイン(宣言的)。適用のたびにwp-cliのJobが
+    # インストール(バージョン固定)・有効化する。再現性のためversion明示を推奨。
+    # 一覧から消しても自動削除はしない(削除は手動)。docs/manual-wordpress.md参照。
+    # plugins:
+    #   - name: advanced-custom-fields
+    #     version: "6.8.4"
+    wordpress:
+      # wp-contentは外部NFS(csi-driver-nfs の nfs-external)に置く。Longhorn RWX
+      # (share-manager/NFS-Ganesha)のRemote I/O error対策(docs/manual-storage-migration.md参照)。
+      # 既存PVCのstorageClassは変更できないため、切り替えにはPVCの作り直しが必要。
+      persistence:
+        storageClass: nfs-external
+      # 管理者パスワードはGitに含めず、事前に作成したSecretを参照する。
+      existingSecret: wordpress-mus-credentials
+      mariadb:
+        auth:
+          existingSecret: wordpress-mus-mariadb-credentials
+      # Traefik Ingress経由で公開する(docs/manual-harvester-loadbalancer.md参照)。
+      # チャートデフォルトの個別LoadBalancerではなく、共有Traefik LBの
+      # ホスト名ルーティングを使う。
+      service:
+        type: ClusterIP
+      ingress:
+        enabled: true
+        ingressClassName: traefik
+        # 環境名はクラスタの env ラベルからFleetが展開する(<site>.<env>.ibid.lan)。
+        hostname: mus.${ .ClusterLabels.env }.ibid.lan
+        tls: true
+        annotations:
+          cert-manager.io/cluster-issuer: freeipa-acme
+
+# 環境ごとの差分(docs/operations-flow.md「環境差分の書き方」参照)。
+# このファイルはdev/productionで同一内容に保ち、昇格はファイルの丸ごとコピーで行う
+# (環境間で異なってよいのは昇格待ちの helm.version・plugins 等だけ)。
+# 適用先クラスタの env ラベルに一致するエントリが1つ選ばれ、helm.values へ深くマージされる。
+# ingressのホスト名は上の values 内でクラスタラベルから展開している(${ .ClusterLabels.env })。
+targetCustomizations:
+  - name: production
+    clusterSelector:
+      matchLabels:
+        env: production
+    helm:
+      values:
+        wordpress:
+          # 冗長化: 2レプリカをrequiredなPod Anti-Affinityで別ノードへ強制分散し、
+          # 単一Pod障害・ノード障害時も他方が応答を継続できるようにする。
+          # wp-contentはRWXのためレプリカ間で共有できる。
+          replicaCount: 2
+          podAntiAffinityPreset: hard
+
+# Kubernetes APIはNetworkPolicyのportsにprotocol: TCPを自動補完するが、
+# Bitnamiチャートのマニフェストには無いため、Fleetが常時「Modified」と
+# 誤検知する。ingress部分を差分比較の対象から除外して抑止する。
+diff:
+  comparePatches:
+    - apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      name: wordpress-mus
+      namespace: wordpress-mus
+      jsonPointers:
+        - /spec/ingress
+    - apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      name: wordpress-mus-mariadb
+      namespace: wordpress-mus
+      jsonPointers:
+        - /spec/ingress
