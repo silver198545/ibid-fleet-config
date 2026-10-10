@@ -54,7 +54,9 @@ jobs:
         if: github.event_name == 'schedule' || inputs.images
         env:
           GH_TOKEN: ${{ secrets.PROMOTE_TOKEN }}
-        run: scripts/bump-chart.sh --update-images "feat: WordPress/MariaDBイメージを最新のdigestへ更新"
+        # タイトルの「: 」をYAMLのキー区切りと誤認されないよう、ブロック形式で書く
+        run: |
+          scripts/bump-chart.sh --update-images "feat: WordPress/MariaDBイメージを最新のdigestへ更新"
 
       - name: プラグインの更新
         if: github.event_name == 'schedule' || inputs.plugins
