@@ -12,7 +12,7 @@ helm:
   # 全サイト共通デフォルトを内包したラッパーチャート(charts/ibid-wordpress)。
   # バージョンを上げる=このサイトへの変更適用。環境ごとに段階的に昇格させる。
   chart: oci://ghcr.io/silver198545/charts/ibid-wordpress
-  version: "0.6.3"
+  version: "0.6.4"
   # BitnamiのmariadbサブチャートはHelmアップグレード時、existingSecretを
   # 使っていてもauth.rootPassword/auth.passwordの明示指定を要求してくる
   # (PASSWORDS ERROR)。Gitにパスワードを書かないよう、
@@ -33,35 +33,35 @@ helm:
       - name: add-to-any
         version: "1.8.18"
       - name: advanced-custom-fields
-        version: "6.8.4"
+        version: "6.8.10"
       - name: tinymce-advanced
-        version: "5.9.2"
+        version: "5.10.1"
       - name: authorizer
-        version: "3.14.4"
+        version: "3.16.0"
       - name: classic-editor
         version: "1.7.0"
       - name: classic-widgets
         version: "0.3"
       - name: custom-post-type-ui
-        version: "1.19.2"
+        version: "1.19.3"
       - name: custom-taxonomy-order-ne
         version: "4.0.2"
       - name: font-awesome
-        version: "5.1.5"
+        version: "5.2.1"
       - name: intuitive-custom-post-order
         version: "3.2.0"
       - name: permalink-manager
-        version: "2.5.3.4"
+        version: "2.6.0"
       - name: wp-seopress
-        version: "10.0.1"
+        version: "10.3"
       - name: timed-content
-        version: "2.98"
+        version: "2.99"
       - name: wp-pagenavi
-        version: "2.94.5"
+        version: "3.0.1"
       - name: wp-rest-api-v2-menus
         version: "0.12.1"
       - name: wp-external-links
-        version: "2.65"
+        version: "2.66"
       - name: wp-file-manager
         version: "8.0.6"
       - name: wpfront-scroll-top
