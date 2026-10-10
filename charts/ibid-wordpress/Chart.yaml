@@ -17,7 +17,7 @@ description: >-
   プラグイン同期Job、日次バックアップCronJob)を焼き込んだラッパーチャート。
   公開方式・wp-contentのStorageClass・productionのレプリカ数はサイトごとのfleet.yamlで上書きする。
 type: application
-version: 0.6.4
+version: 0.6.5
 appVersion: "7.0.0"
 
 dependencies:
