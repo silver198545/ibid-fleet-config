@@ -1,9 +1,17 @@
 # 環境間プロモーションPRの自動生成(手動起動)。
-# 指定したサイト(または本番に既にある全サイト)の設定を dev→production へ丸ごとコピーし、
-# PRを作成する。PRのdiffがそのまま変更レビューになり、マージが昇格の承認になる。
-# envs/production/ 配下はCODEOWNERSにより承認必須。
-# 環境ごとに変わる値は各fleet.yaml内で書き分けてあるため、コピー後の手直しは不要
+# サイト(sites/)またはアプリ(apps/)の設定を dev→production へ丸ごとコピーし、PRを作成する。
+# PRのdiffがそのまま変更レビューになり、マージが昇格の承認になる。
+# 環境ごとに変わる値は各バンドルの中で書き分けてあるため、コピー後の手直しは不要
 # (docs/operations-flow.md「環境差分の書き方」)。
+#
+# 使い方:
+#   gh workflow run promote.yaml -f name=all                  # 本番にある全サイト
+#   gh workflow run promote.yaml -f name=<site>               # 1サイト(本番への新規追加も可)
+#   gh workflow run promote.yaml -f kind=apps -f name=all     # 本番にある全アプリ
+#   gh workflow run promote.yaml -f kind=apps -f name=<app>   # 1アプリ(本番にあるもののみ)
+# アプリの本番への初回昇格は、SealedSecretをkubesealで作る必要があるため
+# scripts/update-app-image.sh promote-production で行う(docs/manual-apps.md)。
+# scripts/update-app-image.sh deploy-production もこのワークフローを起動する。
 #
 # 注意: github.token で作成されたPRでは validate ワークフローが自動起動しない
 # (GitHub Actionsの再帰防止仕様)。ブランチ保護で validate を必須チェックにする場合は、
@@ -14,8 +22,13 @@ name: promote
 on:
   workflow_dispatch:
     inputs:
-      site:
-        description: "サイト名(all で本番に既にある全サイトを更新。新規サイトは名前を指定)"
+      kind:
+        description: "昇格する種類(sites: WordPressサイト / apps: 自作アプリ)"
+        type: choice
+        options: [sites, apps]
+        default: sites
+      name:
+        description: "サイト名・アプリ名(all で本番に既にある全件を更新)"
         type: string
         required: true
         default: all
@@ -37,43 +50,61 @@ jobs:
           GH_TOKEN: ${{ secrets.PROMOTE_TOKEN || github.token }}
           FROM_ENV: dev
           TO_ENV: production
-          SITE: ${{ inputs.site }}
+          KIND: ${{ inputs.kind }}
+          NAME: ${{ inputs.name }}
         run: |
           set -euo pipefail
 
-          if [ "$SITE" = "all" ]; then
-            # 本番に既にあるサイトだけを昇格元と同期する。devにしか無いサイト(本番未展開)は
-            # 対象外で、本番への新規追加はサイト名を指定して行う(SealedSecret等の準備が要るため)。
-            # devから消えたサイトも本番からは消さない(サイト削除は docs/manual-wordpress.md の手動手順)。
+          if [[ ! "$NAME" =~ ^[a-z0-9-]+$ ]]; then
+            echo "エラー: 名前は英小文字・数字・ハイフンのみ使用できます: $NAME" >&2
+            exit 1
+          fi
+          case "$KIND" in
+            sites) LABEL="サイト" ;;
+            apps) LABEL="アプリ" ;;
+            *) echo "エラー: 不明なkind: $KIND" >&2; exit 1 ;;
+          esac
+          SRC="envs/$FROM_ENV/$KIND"
+          DST="envs/$TO_ENV/$KIND"
+
+          if [ "$NAME" = "all" ]; then
+            # 本番に既にあるものだけを昇格元と同期する。devにしか無いもの(本番未展開)は
+            # 対象外で、本番への新規追加は名前を指定して行う(SealedSecret等の準備が要るため)。
+            # devから消えたものも本番からは消さない(削除は各手順書の手動手順)。
             # --checksum: checkout直後はmtimeが揃うため、同サイズの変更(0.4.0→0.5.0等)をrsyncの
             # quick checkが取りこぼす。内容比較を強制する。
-            for dir in "envs/$TO_ENV/sites/"*/; do
-              name="$(basename "$dir")"
-              if [ -d "envs/$FROM_ENV/sites/$name" ]; then
-                rsync -a --checksum --delete "envs/$FROM_ENV/sites/$name/" "envs/$TO_ENV/sites/$name/"
+            for dir in "$DST/"*/; do
+              item="$(basename "$dir")"
+              if [ -d "$SRC/$item" ]; then
+                rsync -a --checksum --delete "$SRC/$item/" "$DST/$item/"
               else
-                echo "警告: envs/$FROM_ENV/sites/$name が無いため $name はスキップします" >&2
+                echo "警告: $SRC/$item が無いため $item はスキップします" >&2
               fi
             done
-            SUBJECT="本番の全サイトを${FROM_ENV}から${TO_ENV}へ昇格"
+            SUBJECT="本番の全${LABEL}を${FROM_ENV}から${TO_ENV}へ昇格"
           else
-            if [ ! -d "envs/$FROM_ENV/sites/$SITE" ]; then
-              echo "エラー: envs/$FROM_ENV/sites/$SITE がありません" >&2
+            if [ ! -d "$SRC/$NAME" ]; then
+              echo "エラー: $SRC/$NAME がありません" >&2
               exit 1
             fi
-            rm -rf "envs/$TO_ENV/sites/$SITE"
-            cp -r "envs/$FROM_ENV/sites/$SITE" "envs/$TO_ENV/sites/$SITE"
-            SUBJECT="サイト${SITE}を${FROM_ENV}から${TO_ENV}へ昇格"
+            if [ "$KIND" = "apps" ] && [ ! -d "$DST/$NAME" ]; then
+              echo "エラー: $DST/$NAME がありません。アプリの本番への初回昇格は" >&2
+              echo "scripts/update-app-image.sh promote-production $NAME で行ってください(SealedSecretの作成が要るため)。" >&2
+              exit 1
+            fi
+            rm -rf "$DST/$NAME"
+            cp -r "$SRC/$NAME" "$DST/$NAME"
+            SUBJECT="${LABEL}${NAME}を${FROM_ENV}から${TO_ENV}へ昇格"
           fi
 
           # コピーは新規ファイル(未追跡)になり得るため、addしてから差分判定する
-          git add "envs/$TO_ENV"
+          git add "$DST"
           if git diff --cached --quiet; then
             echo "昇格元と昇格先に差分がありません。PRは作成しません。"
             exit 0
           fi
 
-          BRANCH="promote/${FROM_ENV}-to-${TO_ENV}-${SITE}-${{ github.run_id }}"
+          BRANCH="promote/${FROM_ENV}-to-${TO_ENV}-${KIND}-${NAME}-${{ github.run_id }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
@@ -81,22 +112,37 @@ jobs:
           git push origin "$BRANCH"
 
           BODY_FILE="$(mktemp)"
-          cat > "$BODY_FILE" <<EOF
-          ## 昇格内容
-
-          \`envs/$FROM_ENV/sites\` → \`envs/$TO_ENV/sites\` (対象: $SITE)
-
-          ## マージ前チェックリスト
-
-          - [ ] diffの内容(チャートバージョン/values/イメージの変更点)を確認した
-          - [ ] チャート/イメージ更新を含む場合、changelogに破壊的変更(DBマイグレーション等)がないか確認した
-          - [ ] diffが昇格させたい変更(helm.version、plugins等)だけで、環境固有の値の直書きが混ざっていない
-          - [ ] コア/プラグイン更新でDBマイグレーションを伴う場合、dev1の本番データリハーサルで確認した(docs/operations-flow.md)
-          - [ ] 対象サイトの本番バックアップ(Longhorn/DBダンプ)を取得した
-          - [ ] devで対象サイトが正常稼働していることを確認した
-
-          🤖 Generated with promote.yaml
-          EOF
+          {
+            echo "## 昇格内容"
+            echo
+            echo "\`$SRC\` → \`$DST\` (対象: $NAME)"
+            echo
+            echo '```'
+            git diff --stat HEAD~1 HEAD
+            echo '```'
+            echo
+            echo "## マージ前チェックリスト"
+            echo
+            echo "- [ ] diffが昇格させたい変更だけで、環境固有の値の直書きが混ざっていない"
+            echo "- [ ] devで対象が正常稼働していることを確認した"
+            if [ "$KIND" = "sites" ]; then
+              echo "- [ ] チャート/イメージ更新を含む場合、changelogに破壊的変更(DBマイグレーション等)がないか確認した"
+              echo "- [ ] コア/プラグイン更新でDBマイグレーションを伴う場合、dev1の本番データリハーサルで確認した(docs/operations-flow.md)"
+              echo "- [ ] 対象サイトの本番バックアップ(日次バックアップCronJobから今すぐ1つ)を取得した"
+            else
+              echo "- [ ] PVCで永続データを持つアプリは、必要なら \`update-app-image.sh sync-dev-data\` で本番相当データを確認した"
+              echo
+              echo "## マージ後の確認"
+              echo
+              if [ "$NAME" = "all" ]; then
+                echo "- [ ] 変更のあった各アプリで \`scripts/update-app-image.sh check-production <app>\`"
+              else
+                echo "- [ ] \`scripts/update-app-image.sh check-production $NAME\`"
+              fi
+            fi
+            echo
+            echo "🤖 Generated with promote.yaml"
+          } > "$BODY_FILE"
 
           gh pr create \
             --title "chore: ${SUBJECT}" \

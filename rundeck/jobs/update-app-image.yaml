@@ -277,7 +277,7 @@
   group: app-image-update/production
   description: |
     【通常のイメージ更新】02-check-devで確認後に実行。既にproductionにある<app>を
-    envs/dev/apps/<app>と同じ内容に同期するPRを作成する(昇格=丸ごとコピー)。
+    envs/dev/apps/<app>と同じ内容に同期するPRを、promoteワークフロー(kind=apps)で作成する(昇格=丸ごとコピー)。
     イメージタグに限らずdevに入っている変更はすべて昇格対象になるため、PRのdiffを確認してから
     マージすること。envs/production/apps/<app>がまだ無い場合は01-promote-productionを使う。
   loglevel: INFO

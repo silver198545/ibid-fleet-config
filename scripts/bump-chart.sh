@@ -8,7 +8,7 @@
 #   2. envs/dev/sites/*/fleet.yaml の helm.version を新バージョンにするPR作成 → auto-merge
 #      (チャートの公開を待ってから参照を切り替えるので、Fleetが未公開のバージョンを
 #      取りに行って失敗することはない)
-# productionへは触らない。devで確認後、通常どおり promote ワークフロー(site=all)で昇格する
+# productionへは触らない。devで確認後、通常どおり promote ワークフロー(name=all)で昇格する
 # (docs/operations-flow.md「基本サイクル」)。
 #
 # 使い方(mainブランチ・origin/mainと同期した状態で実行):
@@ -170,7 +170,7 @@ pr_commit_push_create "chore: devの全サイトをibid-wordpress ${new_version}
 ${image_notes:+
 ### イメージ
 ${image_notes}}
-devで確認後、\`promote\` ワークフロー(site=all)でproductionへ昇格する。
+devで確認後、\`promote\` ワークフロー(name=all)でproductionへ昇格する。
 EOF
 )" || exit 1
 pr_automerge_and_wait "$PR_URL"
@@ -182,6 +182,6 @@ devへの反映が始まりました(Fleetが数分で適用します)。確認:
   各サイトの表示・管理画面(https://<site>.dev.ibid.lan/)
 DBを書き換え得る変更(コア・プラグインのメジャー更新、MariaDB更新)なら本番データリハーサルを行う
 (docs/operations-flow.md「本番データリハーサル」)。問題なければ本番バックアップを取り、
-  gh workflow run promote.yaml -f site=all
+  gh workflow run promote.yaml -f name=all
 で昇格PRを作成してレビュー・マージする。
 EOF

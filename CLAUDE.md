@@ -17,12 +17,14 @@ resource state with `kubectl`.
   GitRepo CRs on the Rancher local cluster (copies kept in `fleet-bootstrap/`, applied manually) each
   watch only their environment's directory and target clusters labeled `env=<name>`.
 - **Promotion is controlled through GitHub PRs**, not cluster-side tooling: the `promote` workflow
-  (manual dispatch) copies `envs/dev/sites/<site>` (or, with `all`, every site already in production)
-  to `envs/production/sites/` and opens a PR; apps promote the same way via
-  `scripts/update-app-image.sh deploy-production`;
-  `envs/production/**` requires CODEOWNERS approval via branch protection. Only approved merges reach
-  the production cluster. Branch protection requires 0 approvals + Code Owner review, so PRs that do
-  not touch `envs/production/` merge on `validate` alone (auto-merge enabled). Do not invent other promotion paths.
+  (manual dispatch; `kind=sites|apps`, `name=<site|app>|all`) copies `envs/dev/<kind>/<name>` (or, with
+  `all`, every one already in production) to `envs/production/<kind>/` and opens a PR.
+  `scripts/update-app-image.sh deploy-production` just dispatches it; an app's *first* production
+  promotion stays in `update-app-image.sh promote-production` (needs kubeseal). Branch protection and the
+  `main` ruleset require 0 approvals + Code Owner review (`/envs/production/`), but because the solo
+  maintainer is both PR author and sole Code Owner, GitHub does not actually require a review — any PR
+  merges on `validate` alone. The production gate is therefore "a human merges it": scripts must never
+  auto-merge PRs touching `envs/production/`. Do not invent other promotion paths.
 - **What promotes via Git: configuration only** (chart version, values, image digests/tags). DB data and
   wp-content never promote; they move via `docs/manual-wordpress-restore.md`. Secrets are generated
   per-site *and per-environment* and never shared or committed.
