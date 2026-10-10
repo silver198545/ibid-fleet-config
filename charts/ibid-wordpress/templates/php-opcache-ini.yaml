@@ -1,0 +1,21 @@
+{{- /*
+PHPのOPcacheの追加設定。values.yaml の wordpress.extraVolumes で
+/opt/bitnami/php/etc/conf.d/ にマウントする(Bitnamiのphp.iniがこのディレクトリを追加で読む)。
+
+revalidate_freq: Bitnamiの既定は60秒で、プラグインのファイル構成が変わる更新
+(例: wp-pagenavi 2.94.5→3.0.1)の後、最長60秒間は古いコンパイル済みコードが消えたファイルを
+読もうとして500になる(2026-10-10、devのwebで約50秒発生)。間隔を短くしてこの時間を縮める。
+サイトごとにnamespaceが分かれているため名前は固定。
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: php-opcache-ini
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: php-opcache-ini
+data:
+  zz-ibid-opcache.ini: |
+    opcache.revalidate_freq = {{ .Values.php.opcacheRevalidateFreq }}

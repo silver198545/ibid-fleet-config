@@ -11,8 +11,10 @@ wp-content と wp-config.php のみPVC上の実体へ向ける(検証済みの�
 
 helmフック(post-upgrade)には意図的にしない: Fleet経由の適用ではフックの完了待ちが
 コンテキスト期限切れを起こし、リリースがfailed→再試行ループに陥る(dev1で実測)。
-代わりにプラグイン一覧+イメージのハッシュをJob名に含めることで、構成が変わった
-ときだけ新しいJobが作られる(Jobはimmutableなため名前を変えて作り直す方式)。
+代わりにプラグイン一覧+イメージ+このJob定義の版($jobRev)のハッシュをJob名に含めることで、
+構成が変わったときだけ新しいJobが作られる(Jobはimmutableなため名前を変えて作り直す方式)。
+このテンプレートのJobの中身を変えたら $jobRev を上げること(上げないと同名Jobの更新になり、
+immutableエラーでHelmの適用が失敗する)。
 */ -}}
 {{- if .Values.plugins }}
 {{- $img := .Values.wordpress.image }}
@@ -22,7 +24,8 @@ helmフック(post-upgrade)には意図的にしない: Fleet経由の適用で�
 {{- else }}
 {{- $imgRef = printf "%s:%s" $imgRef $img.tag }}
 {{- end }}
-{{- $syncHash := printf "%s|%s" (toJson .Values.plugins) $imgRef | sha256sum | trunc 8 }}
+{{- $jobRev := "2" }}
+{{- $syncHash := printf "%s|%s|%s" (toJson .Values.plugins) $imgRef $jobRev | sha256sum | trunc 8 }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -67,6 +70,13 @@ spec:
             - bash
             - -ec
             - |
+              # Bitnamiの wp ラッパー(/opt/bitnami/wp-cli/bin/wp)はキャッシュ先を書き込めない
+              # /opt/bitnami/wp-cli/.cache に固定するため、wp-cli本体を直接呼ぶ
+              wp() {
+                WP_CLI_CONFIG_PATH=/opt/bitnami/wp-cli/conf/wp-cli.yml \
+                  /opt/bitnami/php/bin/php /opt/bitnami/wp-cli/bin/wp-cli.phar "$@"
+              }
+
               # 初回インストール時はWordPress Podによる初期化(wp-config.php生成)を待つ
               until [ -f /bitnami/wordpress/wp-config.php ]; do
                 echo "wp-config.php の生成を待機中..."
