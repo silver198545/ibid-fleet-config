@@ -35,10 +35,11 @@ promoteワークフローは環境ディレクトリを丸ごとコピーする�
    WordPressコア・プラグインのメジャー更新、チャートのMariaDB更新など、
    **DBスキーマを書き換え得る変更では必須**。プラグインの軽微なパッチ更新のみなど
    影響が小さいと判断できる場合は省略してよい(省略した判断は昇格PRに書く)
-3. **dev → production 昇格**: promoteワークフロー(手動dispatch、`site`にサイト名か`all`)
+3. **dev → production 昇格**: promoteワークフロー(手動dispatch、`name`にサイト名か`all`)
    でPRを生成。マージの**直前に必ず本番のバックアップを取得**(下記「本番反映前のバックアップ」)。
    CODEOWNERS承認のうえマージし、反映後に監視(HTTP probe)とサイト表示を確認する
-   - `site=all`は**本番に既にあるサイトだけ**を更新する。devにしか無いサイトを本番へ
+   - `name=all`は**本番に既にあるサイトだけ**を更新する(`gh workflow run promote.yaml -f name=all`。
+     アプリは `-f kind=apps` を付ける)。devにしか無いサイトを本番へ
      新規追加するときは、サイト名を指定して昇格させ、事前に
      `scripts/seal-site-secrets.sh production <site>` でSecretを用意する
    - 昇格先固有の設定(ホスト名、production冗長化設定)は各fleet.yamlの中で

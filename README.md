@@ -86,7 +86,7 @@ WordPressのバックアップCronJobはチャート0.6.0から(2026-10-09に両
 - `rundeck/jobs/`: `update-app-image.sh`用のRundeckジョブ定義
 - `.github/workflows/`:
   - `validate`: PR検証(YAML構文、fleet.yamlの必須キー、helm lint/template)
-  - `promote`: `sites/`の昇格PR生成(手動起動。`site`にサイト名か`all`)
+  - `promote`: dev→productionの昇格PR生成(手動起動。`kind`に`sites`/`apps`、`name`に名前か`all`)
   - `release-chart`: チャート公開
   - `auto-update`: 毎週月曜、WordPress/MariaDBイメージとプラグインの更新をdevへ自動反映(`bump-chart.sh`・`bump-plugins.sh`)
   - `build-<app>-image`: 自作アプリのイメージ公開(brc-advanced-search、riken-diips、sparqlist、metadatabase-v2)

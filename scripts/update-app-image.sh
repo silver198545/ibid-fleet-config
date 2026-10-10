@@ -48,8 +48,9 @@
 #   promote-production-finish <app>    promote-productionでSealedSecretを手動作成した後に実行。
 #                                       コミット・PR作成まで行う。
 #   deploy-production <app>            【2回目以降】既にproductionにある<app>を、envs/dev/apps/<app>と
-#                                       同じ内容に同期するPRを作成する(イメージタグを含むdevの変更すべてが
-#                                       昇格対象。PRのdiffで内容を確認すること)。
+#                                       同じ内容に同期するPRを、promoteワークフロー(kind=apps)で作成する
+#                                       (イメージタグを含むdevの変更すべてが昇格対象。PRのdiffで内容を
+#                                       確認すること)。Actionsから直接 promote を起動しても同じ。
 #   check-production <app>             productionのWEBアクセスを確認。
 #
 # 使い方の例(brc-advanced-searchをイメージ更新する場合):
@@ -99,7 +100,7 @@ if [[ ! "$APP" =~ ^[a-z0-9-]+$ ]]; then
   exit 1
 fi
 
-for cmd in git gh curl kubectl rsync; do
+for cmd in git gh curl kubectl; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "エラー: '$cmd' が見つかりません。" >&2
     exit 1
@@ -311,6 +312,8 @@ cmd_deploy_dev() {
 
 # productionの<app>をdevと同じ内容に同期する(昇格=丸ごとコピー)。productionで変える値は
 # dev側の overlays/production/ に入っているため、コピーだけで完結する。
+# コピーとPR作成は promote ワークフロー(kind=apps)が行う(サイトと同じ仕組みに一本化)。
+# ここでは起動してPRができるのを待ち、CIの結果を表示する。マージは人が行う。
 cmd_deploy_production() {
   local from_dir="envs/dev/apps/${APP}"
   local to_dir="envs/production/apps/${APP}"
@@ -319,40 +322,35 @@ cmd_deploy_production() {
     echo "エラー: ${to_dir} がありません。初回昇格は promote-production / promote-production-finish を使ってください。" >&2
     exit 1
   }
-
-  ensure_clean_worktree
   require_main_uptodate
-
-  # --checksum: サイズと更新時刻が同じファイル(例: タグ 1.0.0-r1→1.0.0-r2)を取りこぼさないため
-  rsync -a --checksum --delete "${from_dir}/" "${to_dir}/"
-  if [[ -z "$(git status --porcelain -- "$to_dir")" ]]; then
+  if diff -rq "$from_dir" "$to_dir" >/dev/null; then
     echo "devとproductionの${APP}に差分がありません。PRは作成しません。"
     exit 0
   fi
 
-  local tag
-  tag="$(grep -oE "ghcr\.io/${GH_OWNER}/${APP}:[^\"[:space:]]+" "${from_dir}/deployment.yaml" | head -1 | cut -d: -f2)"
-  open_branch "deploy-production/${APP}-${tag}"
-  git add -A "$to_dir"
-  echo "昇格する差分:"
-  git diff --cached --stat
-
-  commit_push_pr \
-    "feat: production環境の${APP}を${tag}に更新" \
-    "$(cat <<EOF
-## 昇格内容
-\`envs/dev/apps/${APP}\` → \`envs/production/apps/${APP}\`(丸ごと同期)。イメージ: \`${tag}\`
-
-イメージタグに限らず、devに入っている${APP}の変更はすべて昇格対象になる。
-diffに意図しない変更が含まれていないか確認してからマージすること。
-
-## マージ後の確認
-- [ ] scripts/update-app-image.sh check-production ${APP}
-EOF
-)"
+  local started run_id="" pr_url="" i
+  started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  gh workflow run promote.yaml -f kind=apps -f name="$APP"
+  echo "promoteワークフローを起動しました。実行を待っています..."
+  for ((i = 0; i < 30; i++)); do
+    run_id="$(gh run list --workflow=promote.yaml --event workflow_dispatch --limit 5 \
+      --json databaseId,createdAt -q "[.[] | select(.createdAt >= \"${started}\")] | last | .databaseId // empty")"
+    [[ -n "$run_id" ]] && break
+    sleep 5
+  done
+  [[ -n "$run_id" ]] || { echo "エラー: promoteワークフローの実行が見つかりません(gh run list --workflow=promote.yaml)。" >&2; exit 1; }
+  if ! gh run watch "$run_id" --exit-status >/dev/null; then
+    echo "エラー: promoteワークフローが失敗しました: gh run view ${run_id} --log-failed" >&2
+    exit 1
+  fi
+  pr_url="$(gh pr list --state open --search "head:promote/dev-to-production-apps-${APP}-${run_id}" --json url -q '.[0].url // empty')"
+  [[ -n "$pr_url" ]] || { echo "エラー: 昇格PRが見つかりません(run ${run_id})。" >&2; exit 1; }
+  echo "PR作成: ${pr_url}"
+  echo "CIチェックを待っています..."
+  gh pr checks "$pr_url" --watch || echo "警告: CIチェックが失敗、またはタイムアウトしました: ${pr_url}" >&2
 
   echo ""
-  echo "マージ後、次で確認してください:"
+  echo "PRのdiffを確認してマージしてください。マージ後、次で確認してください:"
   echo "  git pull && scripts/update-app-image.sh check-production ${APP}"
 }
 

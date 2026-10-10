@@ -23,7 +23,7 @@ Rundeck側はサブコマンドごとに独立したジョブとして定義し�
 - Rundeckからのジョブ実行は、普段このスクリプトを手動実行している踏み台/作業端末へ
   SSH実行する想定(`git`/`gh`/`kubectl`が使え、`gh auth status`が認証済み、
   `~/.kube/config`に`dev1`/`prod1`が登録済みであること。
-  `deploy-production`が`rsync`を使うため、踏み台端末に`rsync`があること。
+  `deploy-production`はpromoteワークフローを起動するため、`gh`がActionsを実行できる権限で認証されていること。
   `docs/manual-tooling-setup.md`参照)。
 - Rundeck自体の認証情報(SSH鍵等)は既存のRundeck運用に従う。このリポジトリでは
   Rundeck本体の設定(プロジェクト作成・ノード登録・Key Storage等)は扱わない。

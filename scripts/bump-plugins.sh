@@ -66,7 +66,7 @@ ${summary}
 
 マージ後、devのFleetが各サイトのプラグイン同期Jobで適用する。
 メジャー更新を含む場合は各プラグインの変更履歴を確認し、必要なら本番データリハーサルを行う
-(docs/operations-flow.md)。devで確認後、\`promote\` ワークフロー(site=all)でproductionへ昇格する。
+(docs/operations-flow.md)。devで確認後、\`promote\` ワークフロー(name=all)でproductionへ昇格する。
 EOF
 )" || exit 1
 pr_automerge_and_wait "$PR_URL"
