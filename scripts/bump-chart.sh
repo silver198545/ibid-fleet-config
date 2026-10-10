@@ -34,6 +34,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 # shellcheck source=lib/pr.sh
 source "$SCRIPT_DIR/lib/pr.sh"
+# shellcheck source=lib/dockerhub.sh
+source "$SCRIPT_DIR/lib/dockerhub.sh"
 
 CHART_DIR="charts/ibid-wordpress"
 CHART_YAML="${CHART_DIR}/Chart.yaml"
@@ -75,28 +77,33 @@ if [[ -n "$(git status --porcelain -- . ":(exclude)${CHART_DIR}")" ]]; then
 fi
 pr_require_main_uptodate
 
-# Docker Hub の <repo>:latest の現在のdigest(マルチアーキのindex)を返す。
-# HEADリクエストはDocker Hubのpull回数制限にカウントされない。
-latest_digest() {
-  local repo="$1" token
-  token="$(curl -fsS "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${repo}:pull" | jq -r .token)"
-  curl -fsSI \
-    -H "Authorization: Bearer ${token}" \
-    -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json' \
-    "https://registry-1.docker.io/v2/${repo}/manifests/latest" \
-    | tr -d '\r' | awk 'tolower($1) == "docker-content-digest:" {print $2}'
-}
-
+# PR本文に載せる、イメージのバージョン変化の説明(メジャー更新ならリハーサル必須と明記する)
+image_notes=""
 if $update_images; then
   for repo in bitnami/wordpress bitnami/mariadb; do
     digest="$(latest_digest "$repo")"
     [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "エラー: ${repo} のdigest取得に失敗しました: ${digest}" >&2; exit 1; }
-    current="$(sed -n "\#repository: ${repo}\$#,/digest:/ s/.*digest: //p" "$VALUES_YAML")"
+    current="$(pinned_digest "$VALUES_YAML" "$repo")"
     if [[ "$current" == "$digest" ]]; then
       echo "${repo}: 既に最新です(${digest})"
-    else
-      sed -i "\#repository: ${repo}\$#,/digest:/ s/digest: sha256:[0-9a-f]*/digest: ${digest}/" "$VALUES_YAML"
-      echo "${repo}: ${current} → ${digest}"
+      continue
+    fi
+    sed -i "\#repository: ${repo}\$#,/digest:/ s/digest: sha256:[0-9a-f]*/digest: ${digest}/" "$VALUES_YAML"
+    old_app="$(image_version "$repo" "$current")"
+    new_app="$(image_version "$repo" "$digest")"
+    echo "${repo}: ${current} → ${digest}(${old_app:-?} → ${new_app:-?})"
+    note="- \`${repo}\`: ${old_app:-?} → ${new_app:-?}"
+    if [[ -n "$old_app" && -n "$new_app" ]]; then
+      if [[ "${old_app%%.*}" != "${new_app%%.*}" ]]; then
+        note+="(**メジャー更新**。本番昇格前に本番データリハーサル必須)"
+      elif [[ "$repo" == bitnami/wordpress && "$(cut -d. -f1-2 <<< "$old_app")" != "$(cut -d. -f1-2 <<< "$new_app")" ]]; then
+        # WordPressは x.Y の変化がメジャーリリース(DBスキーマが変わり得る)
+        note+="(**WordPressのメジャーリリース**。本番昇格前に本番データリハーサル必須)"
+      fi
+    fi
+    image_notes+="${note}"$'\n'
+    if [[ "$repo" == bitnami/wordpress && -n "$new_app" ]]; then
+      sed -i "s/^appVersion: .*/appVersion: \"${new_app}\"/" "$CHART_YAML"
     fi
   done
 fi
@@ -131,7 +138,9 @@ git diff --cached --stat
 pr_commit_push_create "${title}(チャート${new_version})" "$(cat <<EOF
 ## 内容
 \`scripts/bump-chart.sh\` で作成。チャート \`ibid-wordpress\` を ${old_version} → ${new_version} に更新。
-
+${image_notes:+
+### イメージ
+${image_notes}}
 マージ後 \`release-chart.yaml\` がGHCRへ公開し、続けて同スクリプトがdevの全サイトの
 \`helm.version\` を ${new_version} に上げるPRを作成します。
 EOF
@@ -158,7 +167,9 @@ pr_commit_push_create "chore: devの全サイトをibid-wordpress ${new_version}
 ## 内容
 \`scripts/bump-chart.sh\` で作成。devの全サイトの \`helm.version\` を ${new_version} に更新
 (チャートは公開済み)。
-
+${image_notes:+
+### イメージ
+${image_notes}}
 devで確認後、\`promote\` ワークフロー(site=all)でproductionへ昇格する。
 EOF
 )" || exit 1
