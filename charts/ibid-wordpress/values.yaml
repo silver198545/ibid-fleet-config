@@ -31,7 +31,23 @@ backup:
   # NFSではサイズは制限として効かない(PVCの必須項目として書いているだけ)
   size: 20Gi
 
+# PHPの追加設定(templates/php-opcache-ini.yaml)。
+php:
+  # OPcacheがファイルの更新を確かめる間隔(秒)。Bitnamiの既定60秒だと、プラグイン更新後に
+  # 最長60秒500が出る。小さくするほどNFS上のファイルのstatが増える(wp-contentはnfs-external)。
+  opcacheRevalidateFreq: 2
+
 wordpress:
+  # PHPの追加設定ファイルを、php.iniが追加で読む conf.d に置く(templates/php-opcache-ini.yaml)
+  extraVolumes:
+    - name: php-opcache-ini
+      configMap:
+        name: php-opcache-ini
+  extraVolumeMounts:
+    - name: php-opcache-ini
+      mountPath: /opt/bitnami/php/etc/conf.d/zz-ibid-opcache.ini
+      subPath: zz-ibid-opcache.ini
+
   # docker.io/bitnami の無償イメージは2025年後半のBroadcom移行以降 `latest` タグしか
   # 提供されないため、digestで固定して全環境・全サイトの再現性を確保する。
   # (digest未固定だとPod再作成のたびに中身の異なる`latest`を引く恐れがある)
