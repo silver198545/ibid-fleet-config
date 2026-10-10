@@ -48,6 +48,40 @@ wordpress:
       mountPath: /opt/bitnami/php/etc/conf.d/zz-ibid-opcache.ini
       subPath: zz-ibid-opcache.ini
 
+  # 新規インストール時に生成される wp-config.php の WP_HOME/WP_SITEURL を https に直す。
+  # Bitnamiイメージ(libwordpress.sh の wordpress_configure_urls)はスキームを http に固定し、
+  # チャートが渡す WORDPRESS_HOSTNAME の末尾に "/" が付くため、'http://<host>//' になる
+  # (WORDPRESS_SCHEME=https も効かない)。このままだとTraefikでTLS終端している各サイトで
+  # 管理画面のリダイレクト等が http になる。以前は docs/manual-wordpress.md の手順で
+  # サイト追加のたびに手で直していた。
+  # customPostInitScripts は wp-config.php 生成後・Apache起動前に、永続ボリュームの印
+  # (/bitnami/wordpress/.user_scripts_initialized)が無いときだけ1回実行される。既存サイトでも
+  # このスクリプトを入れた後の最初の起動で1回走るが、壊れた形のときだけ書き換えるので
+  # 手で直し済み・独自の値のサイトには何もしない。失敗しても起動は止めない(元に戻して終了)。
+  customPostInitScripts:
+    10-ibid-fix-wp-home.sh: |
+      #!/bin/bash
+      conf=/bitnami/wordpress/wp-config.php
+      host="${WORDPRESS_HOSTNAME%/}"
+      if [[ -z "$host" || ! -f "$conf" ]]; then
+        echo "ibid-fix-wp-home: WORDPRESS_HOSTNAMEかwp-config.phpが無いため何もしません"
+        exit 0
+      fi
+      host_re="${host//./\.}"
+      if ! grep -qE "'http://${host_re}/+'" "$conf"; then
+        echo "ibid-fix-wp-home: WP_HOME/WP_SITEURLは直す必要がありません"
+        exit 0
+      fi
+      cp -p "$conf" "${conf}.bak-ibid-fix-wp-home"
+      if sed -i -E "s#'http://${host_re}/+'#'https://${host}'#g" "$conf" && php -l "$conf" >/dev/null; then
+        echo "ibid-fix-wp-home: WP_HOME/WP_SITEURLを https://${host} に直しました"
+        grep -n "WP_HOME\|WP_SITEURL" "$conf" || true
+      else
+        cp -p "${conf}.bak-ibid-fix-wp-home" "$conf"
+        echo "ibid-fix-wp-home: 書き換えに失敗したため元に戻しました(手で直してください: docs/manual-wordpress.md)"
+      fi
+      exit 0
+
   # docker.io/bitnami の無償イメージは2025年後半のBroadcom移行以降 `latest` タグしか
   # 提供されないため、digestで固定して全環境・全サイトの再現性を確保する。
   # (digest未固定だとPod再作成のたびに中身の異なる`latest`を引く恐れがある)
