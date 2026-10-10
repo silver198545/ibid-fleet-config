@@ -92,7 +92,7 @@ jobs:
               echo "scripts/update-app-image.sh promote-production $NAME で行ってください(SealedSecretの作成が要るため)。" >&2
               exit 1
             fi
-            rm -rf "$DST/$NAME"
+            rm -rf "${DST:?}/${NAME:?}"
             cp -r "$SRC/$NAME" "$DST/$NAME"
             SUBJECT="${LABEL}${NAME}を${FROM_ENV}から${TO_ENV}へ昇格"
           fi
