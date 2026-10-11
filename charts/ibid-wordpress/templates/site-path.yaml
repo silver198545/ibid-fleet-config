@@ -1,0 +1,59 @@
+{{- /*
+サブパス公開(例: https://<公開ドメイン>/ja/ と /en/ を別々のWordPressで運用)と、外部リバース
+プロキシ(RIKEN側nginx等)配下での公開用の設定(values.yaml の sitePath / publicHost)。
+values.yaml の wordpress.extraVolumes で各キーをマウントする。どちらも空なら何もしない設定になる。
+
+- zz-ibid-site.conf(Apache、vhosts/): sitePath を WordPress本体に割り当てる Alias。
+  パスを外さずに届けるので、WordPressが見るREQUEST_URIと公開URLが一致する
+  (パスを外して転送する方式は、ログイン後の戻り先等が公開ドメイン直下へずれる)。
+  Bitnamiのvhostの書き換え規則(RewriteBase / → /index.php)はそのまま本体へ届く。
+- zz-ibid-site.ini(PHP、conf.d/)+ ibid-prepend.php: publicHost が設定されていれば、
+  WordPressの処理前に HTTP_HOST を公開ドメインに差し替える。外部nginxはTraefikの
+  ルーティングのため Host を内部名(<site>.<env>.ibid.lan)に固定して送るので、そのままだと
+  WordPressが Host から組み立てるリダイレクト(redirect_to、正規URLへの転送)に内部名が出る。
+- ibid-public-url: 新規インストール時に WP_HOME/WP_SITEURL に書く値
+  (values.yaml の customPostInitScripts が読む。既存サイトの wp-config.php は書き換えない)。
+
+ConfigMapの変更だけではPodは再起動しないため、sitePath/publicHost を後から変えたときは
+kubectl rollout restart が必要(docs/manual-wordpress-restore.md 6b)。
+サイトごとにnamespaceが分かれているため名前は固定。
+*/ -}}
+{{- $path := trimSuffix "/" .Values.sitePath }}
+{{- if and $path (not (regexMatch "^/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$" $path)) }}
+{{- fail (printf "sitePath は /ja のような / 始まりのパスにしてください: %q" .Values.sitePath) }}
+{{- end }}
+{{- if and .Values.publicHost (not (regexMatch "^[a-z0-9.-]+$" .Values.publicHost)) }}
+{{- fail (printf "publicHost はホスト名だけを書いてください(スキーム・パス無し): %q" .Values.publicHost) }}
+{{- end }}
+{{- $host := .Values.publicHost | default (trimSuffix "/" (.Values.wordpress.ingress.hostname | default "")) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ibid-site
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: ibid-site
+data:
+  zz-ibid-site.conf: |
+    {{- if $path }}
+    Alias {{ $path }} /opt/bitnami/wordpress
+    {{- else }}
+    # sitePath 未設定(ドメイン直下で公開)
+    {{- end }}
+  zz-ibid-site.ini: |
+    {{- if .Values.publicHost }}
+    auto_prepend_file = /opt/bitnami/php/etc/ibid-prepend.php
+    {{- else }}
+    ; publicHost 未設定
+    {{- end }}
+  ibid-prepend.php: |
+    <?php
+    // templates/site-path.yaml 参照。wp-cli(CLI)には影響させない。
+    if (PHP_SAPI !== 'cli') {
+        $_SERVER['HTTP_HOST'] = {{ .Values.publicHost | squote }};
+        $_SERVER['SERVER_NAME'] = {{ .Values.publicHost | squote }};
+    }
+  {{- /* どちらも未設定なら空(customPostInitScripts は従来どおり WORDPRESS_HOSTNAME を使う) */}}
+  ibid-public-url: {{ ternary (printf "https://%s%s" $host $path) "" (and (ne $host "") (or (ne $path "") (ne .Values.publicHost ""))) | quote }}
