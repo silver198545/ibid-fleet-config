@@ -51,7 +51,39 @@ publicHost: ""
 
 wordpress:
   # PHPの追加設定ファイルを、php.iniが追加で読む conf.d に置く(templates/php-opcache-ini.yaml)
-  # サブパス公開・外部プロキシ用の設定(templates/site-path.yaml)も同様に置く(未設定なら何もしない内容)
+  # サブパス公開・外部プロキシ用の設定(templates/site-path.yaml)も同様に置く(未設定なら何もしない内容)。
+  # Apacheの vhosts/ へのマウントは、そのままだとマウント先の vhosts/ をコンテナランタイムが
+  # root所有で先に作り、Bitnamiの起動処理が設定をコピーできずに落ちる(0.7.0で全サイト
+  # CrashLoopBackOff)。Bitnamiチャート自身の customHTAccessCM 用の回避策と同じく、
+  # initコンテナで emptyDir 内に vhosts/ を先に作っておく。
+  initContainers:
+    - name: ibid-prepare-apache-vhosts
+      image: '{{ include "wordpress.image" . }}'
+      command:
+        - /bin/bash
+        - -ec
+        - mkdir -p /emptydir/apache-conf-dir/vhosts
+      securityContext:
+        runAsUser: 1001
+        runAsGroup: 1001
+        runAsNonRoot: true
+        readOnlyRootFilesystem: true
+        allowPrivilegeEscalation: false
+        privileged: false
+        capabilities:
+          drop: ["ALL"]
+        seccompProfile:
+          type: RuntimeDefault
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          cpu: 100m
+          memory: 64Mi
+      volumeMounts:
+        - name: empty-dir
+          mountPath: /emptydir
   extraVolumes:
     - name: php-opcache-ini
       configMap:
