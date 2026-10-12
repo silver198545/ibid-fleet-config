@@ -23,7 +23,7 @@ dev → production の2つのRKE2クラスタ(Harvester上、Rancher管理)で
 | | dev1(`env=dev`) | prod1(`env=production`) |
 |---|---|---|
 | ノード | control-plane 3台(SSD) + worker 5台 | 同じ |
-| WordPressサイト | 15 | 2(web、dna) |
+| WordPressサイト | 34(17サイト × `/ja`の`<site>`・`/en`の`<site>-en`。公開は`wpdev1.brc.riken.jp`、[6b.](docs/manual-wordpress-restore.md)) | 2(web、dna) |
 | 自作アプリ | 4(brc-advanced-search、riken-diips、sparqlist、metadatabase-v2) | 3(metadatabase-v2以外) |
 | TraefikのLB IP(IPPool) | `192.168.1.33`(pool1 `.30-.49`) | `192.168.1.99`(pool3 `.90-.100`) |
 | ホスト名(DNS) | `<site>.dev.ibid.lan`(`*.dev`のワイルドカード) | `<site>.production.ibid.lan`(`*.production`のワイルドカード) |
