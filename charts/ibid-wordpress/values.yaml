@@ -37,16 +37,76 @@ php:
   # 最長60秒500が出る。小さくするほどNFS上のファイルのstatが増える(wp-contentはnfs-external)。
   opcacheRevalidateFreq: 2
 
+# サブパス公開・外部リバースプロキシ配下での公開(templates/site-path.yaml、
+# docs/manual-wordpress-restore.md 6b)。どちらも空ならドメイン直下・内部名での公開(従来どおり)。
+# sitePath: このWordPressを置くパス(例: "/ja")。全環境共通なのでサイトのfleet.yamlの共通部分に書き、
+#   wordpress.ingress.path も同じ値(pathType: Prefix)にする。同じホスト名で /ja と /en を
+#   別サイト(<site> と <site>-en)として並べられる。
+# publicHost: 外部nginxで公開するドメイン(例: "wpdev1.brc.riken.jp")。環境ごとに違うので
+#   fleet.yamlの targetCustomizations に書く。
+# 新規インストール時の WP_HOME/WP_SITEURL は https://<publicHost(無ければingressのホスト名)><sitePath>
+# になる。既存サイトの wp-config.php は書き換わらないので手で直す(上記ドキュメント)。
+sitePath: ""
+publicHost: ""
+
 wordpress:
   # PHPの追加設定ファイルを、php.iniが追加で読む conf.d に置く(templates/php-opcache-ini.yaml)
+  # サブパス公開・外部プロキシ用の設定(templates/site-path.yaml)も同様に置く(未設定なら何もしない内容)。
+  # Apacheの vhosts/ へのマウントは、そのままだとマウント先の vhosts/ をコンテナランタイムが
+  # root所有で先に作り、Bitnamiの起動処理が設定をコピーできずに落ちる(0.7.0で全サイト
+  # CrashLoopBackOff)。Bitnamiチャート自身の customHTAccessCM 用の回避策と同じく、
+  # initコンテナで emptyDir 内に vhosts/ を先に作っておく。
+  initContainers:
+    - name: ibid-prepare-apache-vhosts
+      image: '{{ include "wordpress.image" . }}'
+      command:
+        - /bin/bash
+        - -ec
+        - mkdir -p /emptydir/apache-conf-dir/vhosts
+      securityContext:
+        runAsUser: 1001
+        runAsGroup: 1001
+        runAsNonRoot: true
+        readOnlyRootFilesystem: true
+        allowPrivilegeEscalation: false
+        privileged: false
+        capabilities:
+          drop: ["ALL"]
+        seccompProfile:
+          type: RuntimeDefault
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          cpu: 100m
+          memory: 64Mi
+      volumeMounts:
+        - name: empty-dir
+          mountPath: /emptydir
   extraVolumes:
     - name: php-opcache-ini
       configMap:
         name: php-opcache-ini
+    - name: ibid-site
+      configMap:
+        name: ibid-site
   extraVolumeMounts:
     - name: php-opcache-ini
       mountPath: /opt/bitnami/php/etc/conf.d/zz-ibid-opcache.ini
       subPath: zz-ibid-opcache.ini
+    - name: ibid-site
+      mountPath: /opt/bitnami/apache/conf/vhosts/zz-ibid-site.conf
+      subPath: zz-ibid-site.conf
+    - name: ibid-site
+      mountPath: /opt/bitnami/php/etc/conf.d/zz-ibid-site.ini
+      subPath: zz-ibid-site.ini
+    - name: ibid-site
+      mountPath: /opt/bitnami/php/etc/ibid-prepend.php
+      subPath: ibid-prepend.php
+    - name: ibid-site
+      mountPath: /opt/bitnami/php/etc/ibid-public-url
+      subPath: ibid-public-url
 
   # 新規インストール時に生成される wp-config.php の WP_HOME/WP_SITEURL を https に直す。
   # Bitnamiイメージ(libwordpress.sh の wordpress_configure_urls)はスキームを http に固定し、
@@ -58,11 +118,14 @@ wordpress:
   # (/bitnami/wordpress/.user_scripts_initialized)が無いときだけ1回実行される。既存サイトでも
   # このスクリプトを入れた後の最初の起動で1回走るが、壊れた形のときだけ書き換えるので
   # 手で直し済み・独自の値のサイトには何もしない。失敗しても起動は止めない(元に戻して終了)。
+  # 直す先は sitePath/publicHost を反映した公開URL(templates/site-path.yaml の ibid-public-url)。
   customPostInitScripts:
     10-ibid-fix-wp-home.sh: |
       #!/bin/bash
       conf=/bitnami/wordpress/wp-config.php
       host="${WORDPRESS_HOSTNAME%/}"
+      url="$(cat /opt/bitnami/php/etc/ibid-public-url 2>/dev/null)"
+      url="${url:-https://${host}}"
       if [[ -z "$host" || ! -f "$conf" ]]; then
         echo "ibid-fix-wp-home: WORDPRESS_HOSTNAMEかwp-config.phpが無いため何もしません"
         exit 0
@@ -73,8 +136,8 @@ wordpress:
         exit 0
       fi
       cp -p "$conf" "${conf}.bak-ibid-fix-wp-home"
-      if sed -i -E "s#'http://${host_re}/+'#'https://${host}'#g" "$conf" && php -l "$conf" >/dev/null; then
-        echo "ibid-fix-wp-home: WP_HOME/WP_SITEURLを https://${host} に直しました"
+      if sed -i -E "s#'http://${host_re}/+'#'${url}'#g" "$conf" && php -l "$conf" >/dev/null; then
+        echo "ibid-fix-wp-home: WP_HOME/WP_SITEURLを ${url} に直しました"
         grep -n "WP_HOME\|WP_SITEURL" "$conf" || true
       else
         cp -p "${conf}.bak-ibid-fix-wp-home" "$conf"
@@ -98,6 +161,19 @@ wordpress:
   # podAntiAffinityPreset: hard を上書きする。wp-content は ReadWriteMany の
   # ボリュームで全レプリカ間共有するため、レプリカ数を変えてもマウント方式は変わらない。
   replicaCount: 1
+
+  # Bitnamiの既定プリセット(micro: メモリ上限384Mi)では、旧サイトの実データ(有効プラグイン35個程度)を
+  # 入れるとApacheとwp-cliでOOMKilledになる(2026-10-12、devのabcのリストア後)。上限だけ上げ、
+  # 予約量(requests)はプリセットと同じにしてスケジューリング(ノードの必要台数)への影響を避ける。
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+      ephemeral-storage: 50Mi
+    limits:
+      cpu: 380m
+      memory: 768Mi
+      ephemeral-storage: 2Gi
 
   # 既定はLoadBalancer(サイト個別IP)。現在の全サイトは、scripts/new-wordpress-site.sh が
   # 生成するfleet.yamlでこのブロックとingressを下記例のように上書きしている

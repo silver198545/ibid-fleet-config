@@ -12,7 +12,7 @@ helm:
   # 全サイト共通デフォルトを内包したラッパーチャート(charts/ibid-wordpress)。
   # バージョンを上げる=このサイトへの変更適用。環境ごとに段階的に昇格させる。
   chart: oci://ghcr.io/silver198545/charts/ibid-wordpress
-  version: "0.6.5"
+  version: "0.7.2"
   # BitnamiのmariadbサブチャートはHelmアップグレード時、existingSecretを
   # 使っていてもauth.rootPassword/auth.passwordの明示指定を要求してくる
   # (PASSWORDS ERROR)。Gitにパスワードを書かないよう、
@@ -32,6 +32,10 @@ helm:
     # plugins:
     #   - name: advanced-custom-fields
     #     version: "6.8.4"
+    # 同じホスト名の /ja と /en を別々のWordPress(jcm と jcm-en)で運用する。
+    # このサイトは日本語版で /ja に置く(チャートのsitePath。docs/manual-wordpress-restore.md 6b)。
+    # 公開ドメイン(外部nginx)は環境ごとに違うので下の targetCustomizations の publicHost に書く。
+    sitePath: /ja
     wordpress:
       # wp-contentは外部NFS(csi-driver-nfs の nfs-external)に置く。Longhorn RWX
       # (share-manager/NFS-Ganesha)のRemote I/O error対策(docs/manual-storage-migration.md参照)。
@@ -53,6 +57,9 @@ helm:
         ingressClassName: traefik
         # 環境名はクラスタの env ラベルからFleetが展開する(<site>.<env>.ibid.lan)。
         hostname: jcm.${ .ClusterLabels.env }.ibid.lan
+        # sitePath と同じパスだけをこのサイトへ振り分ける(もう一方の言語版は別サイト)
+        path: /ja
+        pathType: Prefix
         tls: true
         annotations:
           cert-manager.io/cluster-issuer: freeipa-acme
@@ -63,6 +70,15 @@ helm:
 # 適用先クラスタの env ラベルに一致するエントリが1つ選ばれ、helm.values へ深くマージされる。
 # ingressのホスト名は上の values 内でクラスタラベルから展開している(${ .ClusterLabels.env })。
 targetCustomizations:
+  - name: dev
+    clusterSelector:
+      matchLabels:
+        env: dev
+    helm:
+      values:
+        # 外部nginx(RIKEN側)で公開するドメイン。nginxはHostを内部名で送るため、
+        # WordPressにはこのドメインでのアクセスとして扱わせる(チャートのpublicHost)
+        publicHost: wpdev1.brc.riken.jp
   - name: production
     clusterSelector:
       matchLabels:

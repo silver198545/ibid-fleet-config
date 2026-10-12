@@ -270,145 +270,183 @@ kubectl -n "wordpress-$SITE" get svc
 
 ## 6b. 外部リバースプロキシ（RIKEN側nginx等）経由で公開する場合
 
-Traefik Ingress化（[manual-harvester-loadbalancer.md](manual-harvester-loadbalancer.md)参照）
-以降、サイトは`<site>.<env>.ibid.lan`というホスト名でTraefik経由の1つの共有LB IPに
-到達する構成になっている。外部公開が必要なサイトを、RIKEN側の既存nginx等の
-リバースプロキシ（別ドメイン、独自のLet's Encrypt証明書）からこの内部Ingressへ
-プロキシする場合、単純な移行元/移行先のドメイン置換（上記6.）だけでは不十分で、
-追加の設定が2箇所で必要になる。
+サイトは`<site>.<env>.ibid.lan`というホスト名で、Traefik経由の共有LB IPに届く構成になっている
+（[manual-harvester-loadbalancer.md](manual-harvester-loadbalancer.md)参照）。これをRIKEN側の
+nginx等（別ドメイン、独自のLet's Encrypt証明書）から公開する場合の設定。チャート0.7.1以降は、
+Gitで管理する設定（fleet.yaml）と、既存サイトだけに必要な1回限りの手作業に分かれる。
+
+1つのドメインの`/ja`と`/en`を別々のWordPressで運用する（サブパス公開）こともできる。
+日本語版を`<site>`、英語版を`<site>-en`という別サイトにし、同じホスト名`<site>.<env>.ibid.lan`の
+`/ja`と`/en`に振り分ける（2026-10-11、devのabc/abc-enで導入。2026-10-12にdevの全17サイト
+（acd・dgprt・mgenを新規追加、mcdは削除）へ展開し、旧サイトのデータを戻した）。
+
+devの公開ドメインは、開発用として全サイト`wpdev1.brc.riken.jp`に統一している。外部nginx側で
+`proxy_pass`/`Host`の向き先（`<site>.dev.ibid.lan`）を切り替えて、見たいサイトを表示する。
+
+### 仕組み
+
+外部nginxは、Traefikのルーティング（Ingressのホスト名と照合）のため`Host`を内部名
+`<site>.<env>.ibid.lan`に固定して送る。そのままだと、WordPressは内部名でアクセスされたと
+みなすので、Hostから組み立てるURL（ログイン後の戻り先`redirect_to`、正規URLへの転送、
+フィードの転送）に内部名が出る。また、WP_HOMEを外部ドメインにすると、正規URLへの転送が
+無限ループになる。
+
+チャート（`templates/site-path.yaml`）は2つの値でこれを解消する。
+
+| 値 | 書く場所 | 効果 |
+|---|---|---|
+| `sitePath`（例: `/ja`） | fleet.yamlの共通部分（全環境同じ） | Apacheの`Alias`でこのパスをWordPress本体に割り当てる。パスを外さずに届けるので、WordPressが見るURLと公開URLが一致する |
+| `publicHost`（例: `wpdev1.brc.riken.jp`） | fleet.yamlの`targetCustomizations`（環境ごと） | PHPの`auto_prepend_file`で、処理前に`HTTP_HOST`を公開ドメインへ差し替える。リダイレクト類が公開ドメインになり、無限ループも起きない |
+
+新規インストール時の`WP_HOME`/`WP_SITEURL`は`https://<publicHost><sitePath>`になる
+（`publicHost`が無ければingressのホスト名）。
+
+以前の方式（`redirect_canonical`を無効にするmu-pluginと、WP_HOMEだけを外部ドメインに固定する方式）は
+もう使わない。この方式では、`redirect_to`に内部名が出る問題が残っていた。
+**`X-Forwarded-Host`で外部ドメインを伝える方式は機能しない**：TraefikはデフォルトでUpstreamからの
+転送ヘッダを信頼せず、自分の値で上書きする。
+
+### Git側: fleet.yaml
+
+サブパスで公開するサイト（例: `envs/dev/sites/abc/fleet.yaml`）:
+
+```yaml
+helm:
+  values:
+    sitePath: /ja            # 英語版(<site>-en)は /en
+    wordpress:
+      ingress:
+        hostname: abc.${ .ClusterLabels.env }.ibid.lan   # <site>-en も同じホスト名
+        path: /ja            # sitePath と同じ値
+        pathType: Prefix
+targetCustomizations:
+  - name: dev
+    clusterSelector:
+      matchLabels:
+        env: dev
+    helm:
+      values:
+        publicHost: wpdev1.brc.riken.jp
+```
+
+ドメイン直下で公開するサイトは`sitePath`/`path`を書かず、`publicHost`だけを設定する。
+
+英語版の新規作成は、通常の`scripts/new-wordpress-site.sh <env> <site>-en`と
+`scripts/seal-site-secrets.sh <env> <site>-en`の後、生成されたfleet.yamlのingressの
+`hostname`を`<site>.${ .ClusterLabels.env }.ibid.lan`に直し、上記の値を足す。
+
+**ConfigMapの変更だけではPodは再起動しない。** 既存サイトに`sitePath`/`publicHost`を足したり
+変えたりしたときは、Fleetの適用後に再起動する:
+
+```bash
+kubectl -n "wordpress-$SITE" rollout restart deploy "wordpress-$SITE"
+```
 
 ### 外部nginx側の設定
 
-TraefikはHTTPのHostヘッダ（SNIではない）でIngressのルーティング先を決定するため、
-上流（外部nginx）から届くHostヘッダが元の公開ドメインのままだとルーティングが
-一致せず失敗する。`proxy_pass`はIngressのホスト名を指定しつつ、`Host`ヘッダは
-その内部ホスト名に固定して送る必要がある。
-
 ```nginx
-location / {
-    proxy_pass https://<site>.<env>.ibid.lan/;
+server {
+    server_name  <公開ドメイン>;
+    # (listen / ssl / ヘッダ / allow・deny 等は従来どおり)
 
-    # SNI送信に必須（Traefikは証明書選択にSNIを使う）
-    proxy_ssl_server_name on;
-    # FreeIPA内部CA発行の証明書のため、そのままだと検証失敗する
-    proxy_ssl_verify off;
+    # ドメイン直下は日本語版へ
+    location = / {
+        return 302 /ja/;
+    }
 
-    proxy_http_version 1.1;
+    location / {
+        proxy_pass https://<site>.<env>.ibid.lan;   # 末尾に / を付けない(パスをそのまま渡す)
 
-    # 重要: $host(=外部公開ドメイン)のままだとTraefikのIngressルール
-    # (Host: <site>.<env>.ibid.lan)に一致せず404になる。
-    proxy_set_header Host <site>.<env>.ibid.lan;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
+        # SNI送信に必須（Traefikは証明書選択にSNIを使う）
+        proxy_ssl_server_name on;
+        # FreeIPA内部CA発行の証明書のため、そのままだと検証失敗する
+        proxy_ssl_verify off;
+
+        proxy_http_version 1.1;
+        # 重要: $host(=公開ドメイン)のままだとTraefikのIngressルール
+        # (Host: <site>.<env>.ibid.lan)に一致せず404になる。
+        proxy_set_header Host <site>.<env>.ibid.lan;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Apache自身のリダイレクト(例: /ja/wp-admin → /ja/wp-admin/)は内部名で返るため、
+        # 公開ドメインに書き換える
+        proxy_redirect http://<site>.<env>.ibid.lan/ /;
+        proxy_redirect https://<site>.<env>.ibid.lan/ /;
+    }
 }
 ```
 
-**`X-Forwarded-Host`で外部ドメインを伝搬させる方式は機能しない**（試して判明した点）。
-TraefikはデフォルトでUpstreamからの転送ヘッダを信頼しないため、`X-Forwarded-Host`を
-自分の値（内部ホスト名）で上書きしてしまう。Traefik側で`forwardedHeaders.trustedIPs`に
-外部nginxのIPを設定すれば伝搬できる可能性はあるが未検証。現状は下記のwp-config.php側の
-固定値方式で対処する。
+`/ja`と`/en`は同じホスト名のIngress（パス別）に届くので、nginx側で言語ごとに`location`を
+分ける必要はない。`sitePath`も`path`も無いIngressへ届いたパスはTraefikが404を返す。
 
-### WordPress側: wp-config.phpのWP_HOME/WP_SITEURLを固定する
+### WordPress側（既存サイトのみ、1回限り）
 
-Bitnamiイメージの既定のwp-config.phpは、アクセスされた`$_SERVER['HTTP_HOST']`から
-動的に`WP_HOME`/`WP_SITEURL`を組み立てる（`define('WP_HOME', 'http://' .
-$_SERVER['HTTP_HOST'] . '/')`）。上記の通りTraefikへ届くHostヘッダは内部ホスト名固定の
-ため、**このままだと常に内部ホスト名（`https://<site>.<env>.ibid.lan/`）でURLが
-生成されてしまい、外部ドメインでは正しく表示されない（CSS等のアセットが内部ホスト名を
-指してしまう）**。
-
-`wp option update siteurl/home`は効果がない。PHPの`define()`はwp-config.php内の
-動的な定義が優先され、DBの値を上書きしてしまうため。ここで初めて気づく落とし穴なので
-明記しておく。
-
-`wordpressExtraConfigContent`（Helm値）で対処しようとしても効果がない。
-**wp-config.phpは一度生成されると永続ボリューム上に残り続け、既存インストールでは
-再生成されない**（手順2で既出の注意点と同じ）ため、稼働中サイトではHelm値の変更は
-反映されない。動作中のPodに対して直接wp-config.phpを書き換える必要がある。
+既存サイトの`wp-config.php`は永続ボリューム上にあり、作り直されない（2.参照）。このため、
+`WP_HOME`/`WP_SITEURL`は手で公開URLに直す。新規サイト（`<site>-en`等）は不要
+（初回起動時に自動で入る）。`wp option update siteurl/home`では直らない：wp-config.phpの
+`define()`がDBの値より優先される。
 
 ```bash
+URL=https://<公開ドメイン>/ja    # ドメイン直下なら https://<公開ドメイン>
 POD=$(kubectl -n "wordpress-$SITE" get pod -l app.kubernetes.io/name=wordpress -o jsonpath='{.items[0].metadata.name}')
 
 kubectl -n "wordpress-$SITE" exec -c wordpress "$POD" -- sed -i \
-  -e "s|define( 'WP_HOME',.*|define( 'WP_HOME', 'https://<外部公開ドメイン>/' );|" \
-  -e "s|define( 'WP_SITEURL',.*|define( 'WP_SITEURL', 'https://<外部公開ドメイン>/' );|" \
+  -e "s|define( 'WP_HOME',.*|define( 'WP_HOME', '$URL' );|" \
+  -e "s|define( 'WP_SITEURL',.*|define( 'WP_SITEURL', '$URL' );|" \
   /bitnami/wordpress/wp-config.php
-
-# 反映確認
 kubectl -n "wordpress-$SITE" exec -c wordpress "$POD" -- grep -n "WP_HOME\|WP_SITEURL" /bitnami/wordpress/wp-config.php
 ```
 
-`wp-content`と同じ共有ボリューム（RWX）上のファイルなので、1レプリカに適用すれば
-他のレプリカにも即座に反映される（レプリカ分の繰り返し実行は不要）。
+続けて、本文等に残る旧URLを置換する（6.と同じ`wp search-replace`、guid列は除く）。
+例（devのabc、2026-10-11）: 内部名`https://abc.dev.ibid.lan`→`https://wpdev1.brc.riken.jp/ja`、
+旧本番ドメイン`https://abc.brc.riken.jp`→`https://wpdev1.brc.riken.jp`（`/ja`・`/en`はそのまま残す）。
 
-外部公開ドメインに固定すると、`https://<site>.<env>.ibid.lan/`への直接アクセス時にも
-リンク先は外部公開ドメインになる（内部確認用アクセスでは見た目上のリンクだけがずれるが、
-実運用では外部ドメインが正のURLなので問題ない）。
+旧サイトのバックアップ（`<site>/{ja,en}/yyyymmdd_hhmm.{tar,dump}.lzo`）を戻した場合（2026-10-12、
+devの全サイト）は、`restore-wordpress.sh`の後に次の3つを順に置換した。旧データは
+`http://<site>.brc.riken.jp/{ja,en}`なので、スキームもhttpsに揃える。
 
-**この設定はwp-config.phpに直接書き込むため、対象PVCを作り直した場合（手順2、または
-別クラスタへのDR復元）は再度この手順をやり直す必要がある。**
+1. `http://<site>.brc.riken.jp` → `https://<公開ドメイン>`
+2. `https://<site>.brc.riken.jp` → `https://<公開ドメイン>`
+3. `//<site>.brc.riken.jp/` → `//<公開ドメイン>/`（スキーム無しの参照。プラグイン設定等に残る）
+4. `http:\/\/<site>.brc.riken.jp`・`https:\/\/<site>.brc.riken.jp` → `https:\/\/<公開ドメイン>`
+   （JSON内でエスケープされたURL。TablePressの表などに残る。1.〜3.では一致しない。15サイトで計230件ほどあった）
 
-**上記sedを実行しただけでは反映が確認できない場合（PHP OPcacheの罠）:**
-BitnamiのApache+PHPはOPcacheが有効なため、稼働中のPodはコンテナ起動時点で
-コンパイル済みのwp-config.phpをキャッシュしている。ファイルを書き換えても、
-Apacheワーカーが再読み込みするとは限らず、ページのレンダリング結果（アセットURL等）
-が古い値（内部ホスト名）のままになることがある。`wp eval 'echo WP_HOME;'`
-（wp-cliは別プロセスなのでファイルを都度読み直す）では新しい値が正しく返るのに、
-ブラウザ/curlでのアクセス結果だけ食い違う場合はこれが原因。
+テーマのファイル（例: dnaの`raindrops-child/header.php`、webの`RIKEN_BRC_Theme_2/index.php`）にも
+旧ドメインが直接書かれているものがある。DBの置換では直らず、devではそのロゴ画像等だけ旧サーバーから
+読み込まれる。本番を旧ドメイン（`<site>.brc.riken.jp`）で公開すれば正しくなるため、テーマは書き換えていない。
 
-対処はPodの再起動（OPcacheはプロセスローカルなので、再起動すれば新しいファイル内容で
-再コンパイルされる）。
+他サイトのドメイン（例: abcの本文からの`dna.brc.riken.jp`へのリンク）は置換しない
+（旧本番を指したまま）。Freemius等のライセンス情報（`fs_accounts`の`host`）は書き換えると
+認証に影響しうるため、3.では`//<host>/`のようにパス区切りまで含めて一致させ、`host`値
+（`<site>.brc.riken.jp`だけの文字列）を変えないようにしている。
 
-```bash
-kubectl -n "wordpress-$SITE" delete pod -l app.kubernetes.io/name=wordpress
-```
+**Fleetの適用中（Podの入れ替え中）にリストアや置換を始めない。** 置換を実行しているPodが
+入れ替えで止められると途中で切れる（2026-10-12、cellで発生。置換は何度実行しても結果が
+同じなので、やり直せばよい）。Ingressの`path`が`/ja`・`/en`になり、`rollout status`が
+完了してから始める。
 
-再起動後、アセットURLが外部公開ドメインを指しているか（このファイルの手順7参照）を
-再確認する。
-
-### WP_HOME/WP_SITEURL固定後に無限リダイレクトになる場合
-
-上記のWP_HOME/WP_SITEURL固定を行うと、`https://<外部公開ドメイン>/`へのアクセスが
-`ERR_TOO_MANY_REDIRECTS`で無限ループになることがある。
-
-原因はWordPressコア機能`redirect_canonical()`（`wp-includes/canonical.php`）。
-トップページアクセス時、現在のリクエストURLが`home_url()`と完全一致しないと
-`home_url()`へ301リダイレクトする仕様がある。外部nginxはTraefikのIngressルーティング
-のため`Host`ヘッダを常に内部ホスト名（`<site>.<env>.ibid.lan`）に固定して転送しており
-（上記「外部nginx側の設定」参照）、かつTraefik→Pod間は平文HTTPなので、WordPressが
-実際に見るリクエストは常に`http://<site>.<env>.ibid.lan/`。これがWP_HOME固定値
-（`https://<外部公開ドメイン>/`）と食い違うため`redirect_canonical()`が発火し、
-リダイレクト先に再アクセスしても同じ食い違いが再現するため無限ループになる。
-
-`X-Forwarded-Host`をTraefikに伝搬させる方式は前述の通り機能しないため、
-`redirect_canonical`のフック自体を無効化するmu-plugin（配置するだけで自動読込され、
-有効化操作は不要）で回避する。
+実データを入れたサイトはメモリを多く使う。チャート0.7.2でWordPressのメモリ上限を
+768Miにした（Bitnamiの既定384MiではOOMKilled）。
 
 ```bash
-POD=$(kubectl -n "wordpress-$SITE" get pod -l app.kubernetes.io/name=wordpress -o jsonpath='{.items[0].metadata.name}')
-
-kubectl -n "wordpress-$SITE" exec -c wordpress "$POD" -- mkdir -p /bitnami/wordpress/wp-content/mu-plugins
-
-kubectl -n "wordpress-$SITE" exec -i -c wordpress "$POD" -- sh -c "cat > /bitnami/wordpress/wp-content/mu-plugins/disable-canonical-redirect.php" <<'EOF'
-<?php
-/**
- * Plugin Name: Disable Canonical Redirect (reverse proxy fix)
- */
-remove_action( 'template_redirect', 'redirect_canonical' );
-EOF
-
-# 反映確認
-kubectl -n "wordpress-$SITE" exec -c wordpress "$POD" -- cat /bitnami/wordpress/wp-content/mu-plugins/disable-canonical-redirect.php
+kubectl -n "wordpress-$SITE" exec -c wordpress "$POD" -- \
+  wp search-replace '<旧URL>' '<新URL>' --all-tables-with-prefix --skip-columns=guid --dry-run
+# 件数を確認してから --dry-run を外して実行し、最後に wp cache flush
 ```
 
-`wp-content`と同じRWX共有ボリューム上のファイルなので、1レプリカに適用すれば
-他のレプリカにも即座に反映される。パーマリンク自体の正規化（カテゴリ/ID表記ゆれの
-是正）は失われるが、外部リバースプロキシ経由公開ではこちらを優先する。
+最後にPodを再起動する（OPcacheが古いwp-config.phpを持っているため）。
 
-**この設定もwp-config.phpと同様、共有ボリューム上への直接配置のため、対象PVCを
-作り直した場合（手順2、または別クラスタへのDR復元）は再度この手順をやり直す必要がある。**
+```bash
+kubectl -n "wordpress-$SITE" rollout restart deploy "wordpress-$SITE"
+```
+
+wp-content と同じ共有ボリューム上のファイルなので、レプリカが複数でも1回でよい。
+対象PVCを作り直した場合（2.、または別クラスタへのDR復元）はやり直す。
+
+内部名（`https://<site>.<env>.ibid.lan/ja/`）で直接アクセスしても、リンク先は公開ドメインになる。
+実運用の正のURLは公開ドメインなので問題ない。
 
 ## 7. 動作確認
 
@@ -421,7 +459,7 @@ kubectl -n "wordpress-$SITE" exec -c wordpress "$POD" -- cat /bitnami/wordpress/
 - プラグイン一覧でエラー表示がないか
   （旧WPコアバージョンとBitnamiが提供する新コアの差異で非互換警告が出ることがある）
 - 外部リバースプロキシ経由で公開するサイトの場合（6b.参照）、CSS/JS等のアセットURLが
-  外部公開ドメインを指しているか（`curl -sk https://<site>.<env>.ibid.lan/ | grep -o
+  外部公開ドメイン（サブパス公開なら`/ja`等を含む）を指しているか（`curl -sk https://<site>.<env>.ibid.lan/ | grep -o
   'https://[^"'"'"']*\.css[^"'"'"']*'`で確認可能）
 
 ## トラブルシューティング
@@ -435,9 +473,10 @@ kubectl -n "wordpress-$SITE" exec -c wordpress "$POD" -- cat /bitnami/wordpress/
   → 2.の「PVCごと作り直す」方法に切り替えてください。
 - **PVC削除後に`persistentvolumeclaim "..." not found`でPodがスケジュールされない**
   → `scripts/deploy-wordpress.sh <env> <site>`を再実行してPVCをチャートに作り直させてください。
-- **外部ドメインでアクセスすると404、または内部ホスト名(`*.ibid.lan`)のCSSが混ざる**
-  → 6b.参照。前者は外部nginxの`proxy_set_header Host`が内部ホスト名に固定されているか、
-  後者はwp-config.phpのWP_HOME/WP_SITEURLが外部ドメインに固定されているかを確認。
+- **外部ドメインでアクセスすると404、または内部ホスト名(`*.ibid.lan`)のURLが混ざる**
+  → 6b.参照。404なら外部nginxの`proxy_set_header Host`が内部ホスト名に固定されているか
+  （サブパス公開ならfleet.yamlの`sitePath`とingressの`path`も）、CSS等のURLが内部名なら
+  wp-config.phpのWP_HOME/WP_SITEURL、リダイレクト先が内部名なら`publicHost`と再起動の有無を確認。
 - **リストア後、`wp plugin list`がfleet.yamlの`plugins:`と一致しない（一部のプラグインが無効になっている）**
   → プラグイン同期Jobが、リストアのDB作り直しと同時に走ったため（DBが空の間に処理された分が失われる。
   2026-09-04にwebで発生、`Table 'bitnami_wordpress.tp_options' doesn't exist`が多発）。
@@ -448,5 +487,5 @@ kubectl -n "wordpress-$SITE" exec -c wordpress "$POD" -- cat /bitnami/wordpress/
   `search-replace`では直らない。`wp-config.php`をsedで`https://<hostname>`に書き換える
   （6b.の「wp-config.phpのWP_HOME/WP_SITEURLを固定する」と同じ方法）。
 - **WP_HOME/WP_SITEURL固定後、外部ドメインで`ERR_TOO_MANY_REDIRECTS`になる**
-  → 6b.「WP_HOME/WP_SITEURL固定後に無限リダイレクトになる場合」参照。
-  `redirect_canonical`無効化のmu-pluginを配置する。
+  → `publicHost`が未設定か、設定後にPodを再起動していない（6b.「仕組み」参照）。
+  以前の回避策（`redirect_canonical`を無効にするmu-plugin）は不要になった。

@@ -53,7 +53,7 @@ scripts/bump-chart.sh "fix: <変更内容>"
 ## devで確認する
 
 ```bash
-for s in $(ls envs/dev/sites); do printf '%-8s %s\n' $s "$(curl -sk -o /dev/null -w '%{http_code}' https://$s.dev.ibid.lan/)"; done   # 全部 200
+for f in envs/dev/sites/*/fleet.yaml; do h=$(grep -oP 'hostname: \K[a-z0-9-]+' $f); p=$(grep -oP '^    sitePath: \K\S+' $f); printf '%-12s %s\n' $(basename $(dirname $f)) "$(curl -sk -o /dev/null -w '%{http_code}' https://$h.dev.ibid.lan$p/)"; done   # 全部 200
 kubectl --context dev1 get pods -A | grep wordpress- | grep -v -E 'Running|Completed'                                                 # 何も出ない
 ```
 
@@ -75,7 +75,7 @@ WordPress本体のメジャーリリース(7.0→7.1 など)、MariaDBのメジ�
 3. PRの差分が、devで確認した変更(`helm.version`、プラグインの `version`)だけであることを見てマージする
 4. 5〜10分後に本番を確認する:
    ```bash
-   for s in $(ls envs/production/sites); do printf '%-8s %s\n' $s "$(curl -sk -o /dev/null -w '%{http_code}' https://$s.production.ibid.lan/)"; done
+   for f in envs/production/sites/*/fleet.yaml; do h=$(grep -oP 'hostname: \K[a-z0-9-]+' $f); p=$(grep -oP '^    sitePath: \K\S+' $f); printf '%-12s %s\n' $(basename $(dirname $f)) "$(curl -sk -o /dev/null -w '%{http_code}' https://$h.production.ibid.lan$p/)"; done
    kubectl --context prod1 get pods -A | grep wordpress- | grep -v -E 'Running|Completed'
    ```
 5. MariaDBのイメージを更新したときは、アップグレードが済んだか確認する(全サイトがイメージの版と同じになっていればよい):

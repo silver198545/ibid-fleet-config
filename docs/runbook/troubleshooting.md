@@ -53,6 +53,16 @@ kubectl --context <ctx> -n wordpress-<site> logs deploy/wordpress-<site> --previ
 ```
 
 - `Could not connect to the database`: 作ったばかりのサイトなら1〜2回は正常(DBの準備待ち)。続くならMariaDBを見る
+- `Installing WordPress` の直後に毎回落ちる(作ったばかりのサイト): 初回インストールが途中で切れ、DBに
+  テーブルが半端に残っている(2026-10-12、kougaku-enで発生。同時に多数作ってDBの準備が遅れたとき)。
+  **中身の無い新規サイトに限り**、DBを空にしてPodを作り直すと、もう一度きれいにインストールされる:
+  ```bash
+  kubectl --context <ctx> -n wordpress-<site> exec wordpress-<site>-mariadb-0 -- bash -c \
+    'MYSQL_PWD="$(cat $MARIADB_ROOT_PASSWORD_FILE)" mysql -u root -e "DROP DATABASE bitnami_wordpress; CREATE DATABASE bitnami_wordpress CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON bitnami_wordpress.* TO \"bn_wordpress\"@\"%\";"'
+  kubectl --context <ctx> -n wordpress-<site> delete pod -l app.kubernetes.io/name=wordpress
+  ```
+- `OOMKilled`(`kubectl describe pod` の Last State): メモリ上限はチャート0.7.2で768Mi。実データでも
+  足りないサイトは、そのサイトの `fleet.yaml` の `wordpress.resources.limits.memory` を上げる
 
 ## MariaDBが起動しない
 
