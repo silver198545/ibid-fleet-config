@@ -50,18 +50,6 @@ helm:
       # Traefik Ingress経由で公開する(docs/manual-harvester-loadbalancer.md参照)。
       # チャートデフォルトの個別LoadBalancerではなく、共有Traefik LBの
       # ホスト名ルーティングを使う。
-      # Bitnamiの既定プリセット(micro: メモリ上限384Mi)では、旧サイトの実データ(有効プラグイン35個)を
-      # 入れるとApacheとwp-cliでOOMKilledになる(2026-10-12、abcのリストア後)。上限だけ上げ、
-      # 予約量(requests)はプリセットと同じにしてスケジューリングへの影響を避ける。
-      resources:
-        requests:
-          cpu: 250m
-          memory: 256Mi
-          ephemeral-storage: 50Mi
-        limits:
-          cpu: 380m
-          memory: 768Mi
-          ephemeral-storage: 2Gi
       service:
         type: ClusterIP
       ingress:
