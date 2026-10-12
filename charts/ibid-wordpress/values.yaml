@@ -162,6 +162,19 @@ wordpress:
   # ボリュームで全レプリカ間共有するため、レプリカ数を変えてもマウント方式は変わらない。
   replicaCount: 1
 
+  # Bitnamiの既定プリセット(micro: メモリ上限384Mi)では、旧サイトの実データ(有効プラグイン35個程度)を
+  # 入れるとApacheとwp-cliでOOMKilledになる(2026-10-12、devのabcのリストア後)。上限だけ上げ、
+  # 予約量(requests)はプリセットと同じにしてスケジューリング(ノードの必要台数)への影響を避ける。
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+      ephemeral-storage: 50Mi
+    limits:
+      cpu: 380m
+      memory: 768Mi
+      ephemeral-storage: 2Gi
+
   # 既定はLoadBalancer(サイト個別IP)。現在の全サイトは、scripts/new-wordpress-site.sh が
   # 生成するfleet.yamlでこのブロックとingressを下記例のように上書きしている
   # (docs/manual-harvester-loadbalancer.md「Traefikを LoadBalancer 化する」参照)。
