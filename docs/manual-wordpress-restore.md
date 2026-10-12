@@ -277,7 +277,11 @@ Gitで管理する設定（fleet.yaml）と、既存サイトだけに必要な1
 
 1つのドメインの`/ja`と`/en`を別々のWordPressで運用する（サブパス公開）こともできる。
 日本語版を`<site>`、英語版を`<site>-en`という別サイトにし、同じホスト名`<site>.<env>.ibid.lan`の
-`/ja`と`/en`に振り分ける（2026-10-11、devのabc/abc-enで導入）。
+`/ja`と`/en`に振り分ける（2026-10-11、devのabc/abc-enで導入。2026-10-12にdevの全17サイト
+（acd・dgprt・mgenを新規追加、mcdは削除）へ展開し、旧サイトのデータを戻した）。
+
+devの公開ドメインは、開発用として全サイト`wpdev1.brc.riken.jp`に統一している。外部nginx側で
+`proxy_pass`/`Host`の向き先（`<site>.dev.ibid.lan`）を切り替えて、見たいサイトを表示する。
 
 ### 仕組み
 
@@ -398,6 +402,33 @@ kubectl -n "wordpress-$SITE" exec -c wordpress "$POD" -- grep -n "WP_HOME\|WP_SI
 続けて、本文等に残る旧URLを置換する（6.と同じ`wp search-replace`、guid列は除く）。
 例（devのabc、2026-10-11）: 内部名`https://abc.dev.ibid.lan`→`https://wpdev1.brc.riken.jp/ja`、
 旧本番ドメイン`https://abc.brc.riken.jp`→`https://wpdev1.brc.riken.jp`（`/ja`・`/en`はそのまま残す）。
+
+旧サイトのバックアップ（`<site>/{ja,en}/yyyymmdd_hhmm.{tar,dump}.lzo`）を戻した場合（2026-10-12、
+devの全サイト）は、`restore-wordpress.sh`の後に次の3つを順に置換した。旧データは
+`http://<site>.brc.riken.jp/{ja,en}`なので、スキームもhttpsに揃える。
+
+1. `http://<site>.brc.riken.jp` → `https://<公開ドメイン>`
+2. `https://<site>.brc.riken.jp` → `https://<公開ドメイン>`
+3. `//<site>.brc.riken.jp/` → `//<公開ドメイン>/`（スキーム無しの参照。プラグイン設定等に残る）
+4. `http:\/\/<site>.brc.riken.jp`・`https:\/\/<site>.brc.riken.jp` → `https:\/\/<公開ドメイン>`
+   （JSON内でエスケープされたURL。TablePressの表などに残る。1.〜3.では一致しない。15サイトで計230件ほどあった）
+
+テーマのファイル（例: dnaの`raindrops-child/header.php`、webの`RIKEN_BRC_Theme_2/index.php`）にも
+旧ドメインが直接書かれているものがある。DBの置換では直らず、devではそのロゴ画像等だけ旧サーバーから
+読み込まれる。本番を旧ドメイン（`<site>.brc.riken.jp`）で公開すれば正しくなるため、テーマは書き換えていない。
+
+他サイトのドメイン（例: abcの本文からの`dna.brc.riken.jp`へのリンク）は置換しない
+（旧本番を指したまま）。Freemius等のライセンス情報（`fs_accounts`の`host`）は書き換えると
+認証に影響しうるため、3.では`//<host>/`のようにパス区切りまで含めて一致させ、`host`値
+（`<site>.brc.riken.jp`だけの文字列）を変えないようにしている。
+
+**Fleetの適用中（Podの入れ替え中）にリストアや置換を始めない。** 置換を実行しているPodが
+入れ替えで止められると途中で切れる（2026-10-12、cellで発生。置換は何度実行しても結果が
+同じなので、やり直せばよい）。Ingressの`path`が`/ja`・`/en`になり、`rollout status`が
+完了してから始める。
+
+実データを入れたサイトはメモリを多く使う。チャート0.7.2でWordPressのメモリ上限を
+768Miにした（Bitnamiの既定384MiではOOMKilled）。
 
 ```bash
 kubectl -n "wordpress-$SITE" exec -c wordpress "$POD" -- \

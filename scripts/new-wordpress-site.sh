@@ -22,7 +22,10 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # ラッパーチャート(charts/ibid-wordpress)の参照先。チャートを更新したら
 # ここではなく、各環境のfleet.yamlのhelm.versionを昇格させて追従する。
 CHART_REF="oci://ghcr.io/silver198545/charts/ibid-wordpress"
-CHART_VERSION="0.6.1"
+# 版はチャートの Chart.yaml から読む(mainのChart.yamlは release-chart.yaml で公開済みの版)。
+# 以前はここに固定値を書いていたため、チャートを上げても新規サイトだけ古い版で作られていた。
+CHART_VERSION="$(awk '/^version:/ {print $2; exit}' "$REPO_ROOT/charts/ibid-wordpress/Chart.yaml")"
+[[ -n "$CHART_VERSION" ]] || { echo "エラー: charts/ibid-wordpress/Chart.yaml の version が読めません。" >&2; exit 1; }
 
 if [[ $# -ne 2 ]]; then
   echo "使い方: $0 <env> <site>" >&2
