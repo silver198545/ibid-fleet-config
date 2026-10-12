@@ -72,7 +72,9 @@ resource state with `kubectl`.
   publish → all dev sites' `helm.version`, one run), `bump-plugins.sh` (dev plugins → latest
   WordPress.org versions). `auto-update.yaml` runs both weekly (dev only; production still via promote). These scripts auto-merge dev-only PRs; see branch protection below.
 - `docs/` — manual runbooks for steps Fleet cannot automate. Always check these before changing
-  behavior they document, and update them when the corresponding config changes. Key one:
+  behavior they document, and update them when the corresponding config changes. `docs/runbook/` holds
+  the short, steps-only operator runbooks (new site, WP update, new app, app update, troubleshooting);
+  when a procedure changes, update both the detailed doc and the runbook. Key one:
   `docs/manual-multi-env.md` (environment setup, dev1 migration, promotion operation, break-glass).
 
 ## Key architectural facts to know before editing
