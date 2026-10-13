@@ -17,7 +17,7 @@ resource state with `kubectl`.
   GitRepo CRs on the Rancher local cluster (copies kept in `fleet-bootstrap/`, applied manually) each
   watch only their environment's directory and target clusters labeled `env=<name>`.
 - **Promotion is controlled through GitHub PRs**, not cluster-side tooling: the `promote` workflow
-  (manual dispatch; `kind=sites|apps`, `name=<site|app>|all`) copies `envs/dev/<kind>/<name>` (or, with
+  (manual dispatch; `kind=sites|apps`, `name=<site|app>[ <site|app>...]|all`) copies `envs/dev/<kind>/<name>` (or, with
   `all`, every one already in production) to `envs/production/<kind>/` and opens a PR.
   `scripts/update-app-image.sh deploy-production` just dispatches it; an app's *first* production
   promotion stays in `update-app-image.sh promote-production` (needs kubeseal). Branch protection and the

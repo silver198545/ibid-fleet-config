@@ -67,14 +67,13 @@ git add envs/production/secrets && git commit -m "feat: 本番にWordPressサイ
 git push -u origin HEAD && gh pr create --fill
 ```
 
-このPRをマージしてから、昇格PRを作る(1サイトずつ):
+このPRをマージしてから、昇格PRを作る(2サイトを1つのPRにまとめる):
 
 ```bash
-gh workflow run promote.yaml -f kind=sites -f name=$SITE
-gh workflow run promote.yaml -f kind=sites -f name=$SITE-en
+gh workflow run promote.yaml -f kind=sites -f name="$SITE $SITE-en"
 ```
 
-できた昇格PRの差分が `envs/production/sites/<site>/` の追加だけであることを確認してマージする。
+できた昇格PRの差分が `envs/production/sites/<site>/`・`<site>-en/` の追加だけであることを確認してマージする。
 本番の公開ドメイン(`publicHost`)は旧サイトと同じ `<site>.brc.riken.jp`(英語版も同じ)。手順1で `fleet.yaml` の `production` のエントリに書いておく(既存の `envs/dev/sites/abc/fleet.yaml` と同じ形)。
 
 ## 4. 本番で確認する
