@@ -6,7 +6,7 @@ Rancher管理サーバ(`rancher.ibid.lan` / `192.168.1.149`)は、2026-10-13ま�
 本書は、**同じホスト上で単一ノードのK3sに移し、RancherをHelmで管理する**ための手順をまとめる。
 
 **2026-10-13に移行済み。** 今はこのホストのK3s(v1.35.4+k3s1)上で、Helmリリース`rancher`
-(v2.14.1)として動いている。実施の記録は[11. 実施記録](#11-実施記録2026-10-13)。
+(v2.14.2、同日に2.14.1から更新)として動いている。実施の記録は[11. 実施記録](#11-実施記録2026-10-13)。
 今後のアップグレードは[8.](#8-フェーズ3-アップグレード例-2141--2142)、日常の運用は[9.](#9-移行後の運用)を見る。
 
 移行後の操作は、このホスト上で次のコマンドを使う(K3sの管理者kubeconfigを`~/.kube`へコピーしない)。
@@ -442,12 +442,29 @@ docker update --restart=unless-stopped "$RANCHER_CONTAINER"   # 2.-2.で記録�
    ```bash
    $H get values rancher -n cattle-system -o yaml > ~/rancher-migration/rancher-values.yaml
    $H repo update
-   $H upgrade rancher rancher-latest/rancher -n cattle-system --version 2.14.2 -f ~/rancher-migration/rancher-values.yaml
+   $H upgrade rancher rancher-stable/rancher -n cattle-system --version 2.14.2 -f ~/rancher-migration/rancher-values.yaml
    $K -n cattle-system rollout status deploy/rancher --timeout=15m
    ```
 4. 6.と同じ確認をする。rancher-backupのchartも、Rancherの版に合うものへ上げる。
 5. 失敗したときは、`helm rollback rancher -n cattle-system`で戻す。Rancherのデータ(CRD・settings)まで戻す
    必要がある場合は、2.のバックアップを使い、公式の「Rollback」手順に従う。
+
+### 実施記録: 2.14.1 → 2.14.2(2026-10-13)
+
+| 時刻(JST) | 内容 |
+|---|---|
+| 11:47 | `Backup/pre-upgrade-2142`を取得し、`helm upgrade`(`rancher-stable`、`-f`で今のvalues) |
+| 11:50 | Rancher v2.14.2が起動。server-urlとCAは変わらず |
+| 11:51〜11:52 | 下流のcattle-cluster-agentがv2.14.2へ入れ替わる(3クラスタとも) |
+| 11:58 | Fleetが54/54・34/34に戻る |
+
+- リリースノートの既知の問題は、rancher-logging(inotifyの上限)だけ。このリポジトリでは使っていない。
+- 更新されたのはRancherが管理するもの(fleet-agent、rancher-webhook、cattle-cluster-agent)だけで、
+  サイトやアプリのHelmリリースは更新されなかった。
+- rancher-backupのchartは109.0.9のままでよかった(2.14.2の`rancher-charts`でも最新)。
+- 同じ時間帯の11:46に、prod1の`rdndw`ノードが手作業で再起動された(このホストから`ubuntu`でSSHし、
+  `sudo reboot`)。アップグレードとは無関係だが、その影響で、そのノードのWordPress 6サイトの片方の
+  レプリカと、`metadatabase-v2`(1レプリカ)が数分止まった。Fleetの34/34への戻りが遅れたのもこのため。
 
 K3s自体の更新は、Rancherの更新とは別の日に、
 Rancherのサポートマトリクスに載っているK3sの版へ上げる(`INSTALL_K3S_VERSION`を指定してインストールスクリプトを再実行する)。
@@ -526,8 +543,7 @@ K3sの内部証明書は、期限の90日前を過ぎてからK3sを再起動す
 | 11:25 | Fleetが`ibid-dev` 54/54、`ibid-production` 34/34に戻る |
 | 11:26 | K3s側に`Backup/daily`を作り直し、初回分を取得 |
 
-**Rancher UIの停止は約10分、Fleetの同期が元に戻るまでは約20分**だった。下流クラスタ上の
-ワークロードへの影響は無かった。
+**Rancher UIの停止は約10分、Fleetの同期が元に戻るまでは約20分**だった。
 
 気づいた点:
 
@@ -535,6 +551,11 @@ K3sの内部証明書は、期限の90日前を過ぎてからK3sを再起動す
 - 新しいRancherは、下流の全ノードでsystem-agentの更新ジョブ(`apply-system-agent-upgrader-on-*`)を
   流し直した。版は同じ(v0.3.16)で、すべてCompleteになった。prod1に、置き換えられた古い試行のPodが
   1つ`Unknown`で残ったが、害は無い。
+- **それに続いて、dev1とprod1の全ノードでrke2(kubelet)が1台ずつ再起動した**(11:17〜11:24。
+  kube-proxyのstatic Podの起動時刻で確認した。prod1の`rdndw`と`wz25m`だけは11:53ごろ)。
+  ほとんどのコンテナは止まらなかったが、dev1の`fddfs`ノードではmariadbが3サイト
+  (`acd-en`・`kougaku-en`・`web-en`)で再起動した。本番のWordPressは2レプリカなので、サイトは止まっていない。
+  **移行の作業時間帯は、下流ノードのkubeletが再起動するものとして計画すること。**
 - Fleetのagentは下流で再デプロイされ、すべてのバンドルが揃うまで約10分かかった(途中は`WaitApplied`)。
 - 移行後のホストのメモリ使用量は約5.8GiB(Docker版のときは約10GiB使っていた)。
 - 秘密情報を扱う手順(直接kubeconfigの取得、CAの取り出し、バックアップファイルの取り出しと投入、
