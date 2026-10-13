@@ -462,7 +462,7 @@ docker update --restart=unless-stopped "$RANCHER_CONTAINER"   # 2.-2.で記録�
 - 更新されたのはRancherが管理するもの(fleet-agent、rancher-webhook、cattle-cluster-agent)だけで、
   サイトやアプリのHelmリリースは更新されなかった。
 - rancher-backupのchartは109.0.9のままでよかった(2.14.2の`rancher-charts`でも最新)。
-- 同じ時間帯の11:46に、prod1の`rdndw`ノードが手作業で再起動された(このホストから`ubuntu`でSSHし、
+- 同じ時間帯の11:46に、運用者の作業でprod1の`rdndw`ノードを再起動した(このホストから`ubuntu`でSSHし、
   `sudo reboot`)。アップグレードとは無関係だが、その影響で、そのノードのWordPress 6サイトの片方の
   レプリカと、`metadatabase-v2`(1レプリカ)が数分止まった。Fleetの34/34への戻りが遅れたのもこのため。
 
