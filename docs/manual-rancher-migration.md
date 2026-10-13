@@ -1,14 +1,22 @@
 # Rancher管理サーバのDocker版 → K3s + Helm版への移行とアップグレード
 
-Rancher管理サーバ(`rancher.ibid.lan` / `192.168.1.149`)は、`docker run rancher/rancher`の
-単一コンテナで動いている。Docker版は公式には開発・テスト用の扱いで、アップグレードは
+Rancher管理サーバ(`rancher.ibid.lan` / `192.168.1.149`)は、2026-10-13までは`docker run rancher/rancher`の
+単一コンテナで動いていた。Docker版は公式には開発・テスト用の扱いで、アップグレードは
 「コンテナを止めてボリュームを引き継ぐ」以外の手段がなく、切り戻しはtarの書き戻しだけになる。
 本書は、**同じホスト上で単一ノードのK3sに移し、RancherをHelmで管理する**ための手順をまとめる。
 
-Rancherのバックアップ(rancher-backup)は、移行に先立って2026-10-13に導入した(3.)。
+**2026-10-13に移行済み。** 今はこのホストのK3s(v1.35.4+k3s1)上で、Helmリリース`rancher`
+(v2.14.1)として動いている。実施の記録は[11. 実施記録](#11-実施記録2026-10-13)。
+今後のアップグレードは[8.](#8-フェーズ3-アップグレード例-2141--2142)、日常の運用は[9.](#9-移行後の運用)を見る。
 
-> 本書の手順はまだ一度も実施していない。「要検証」と書いた箇所は、実施時に結果を
-> 書き戻すこと(→ [10. 要検証ポイント](#10-要検証ポイント))。
+移行後の操作は、このホスト上で次のコマンドを使う(K3sの管理者kubeconfigを`~/.kube`へコピーしない)。
+
+```bash
+K="sudo k3s kubectl"
+H="sudo helm --kubeconfig /etc/rancher/k3s/k3s.yaml"
+```
+
+各下流クラスタへの`kubectl --context local|dev1|prod1|harvester1`は、移行前と同じくRancher経由で使える。
 
 ## 1. 方針
 
@@ -60,7 +68,18 @@ Rancherのバックアップ(rancher-backup)は、移行に先立って2026-10-1
    contextはすべて`https://192.168.1.149/k8s/clusters/...`経由なので、作業中はRancherと一緒に
    使えなくなる。agentの再接続を確認したり、障害時に対応したりできるよう、各クラスタの
    control-planeノードから`/etc/rancher/rke2/rke2.yaml`を取得し、`server:`をノードのIPに書き換えて
-   別名で保存しておく(Harvesterはサポートバンドルや管理VIP経由)。
+   別名で保存しておく。2026-10-13に、`kubectl debug node`で取得して`~/.kube/<クラスタ>-direct.yaml`
+   (権限600)に保存した。`rancher/shell`は非rootで動くので、`--custom`で`runAsUser: 0`を指定する
+   必要がある。管理者権限の認証情報なので、Claude Codeには実行させず、運用者が自分で実行した。
+   ```bash
+   echo '{"securityContext":{"runAsUser":0,"runAsNonRoot":false}}' > root.json
+   kubectl --context dev1 -n default debug node/<control-planeノード> --image=rancher/shell:v0.7.0 \
+     --profile=sysadmin --custom=root.json -- sleep 300
+   kubectl --context dev1 -n default exec <node-debugger-…> -- cat /host/etc/rancher/rke2/rke2.yaml \
+     | sed 's#https://127.0.0.1:6443#https://<ノードIP>:6443#' > ~/.kube/dev1-direct.yaml
+   kubectl --context dev1 -n default delete pod <node-debugger-…>
+   ```
+   Harvesterも同じ方法で、control-planeノード(例: hrvest2 `192.168.1.55`)から取得できる。
 5. **作業時間帯を決めて周知する。** Rancher UIとFleetの同期は30〜60分ほど止まる。下流クラスタ上の
    ワークロード(WordPressやアプリ)は止まらない。作業中はPRのマージ(特に`envs/production/`)を
    止める。マージしても、移行後にFleetが追いつけば反映はされる。
@@ -236,11 +255,15 @@ docker cp "$RANCHER_CONTAINER:/var/lib/rancher/rancher-backups/$BACKUP_FILE" ~/r
 docker update --restart=no "$RANCHER_CONTAINER"   # ホストを再起動しても上がってこないようにする
 docker stop "$RANCHER_CONTAINER"
 docker create --volumes-from "$RANCHER_CONTAINER" --name rancher-data-$(date +%Y%m%d) rancher/rancher:v2.14.1
-docker run --rm --volumes-from rancher-data-$(date +%Y%m%d) -v ~/rancher-migration:/backup busybox \
-  tar zcf /backup/rancher-data-backup-v2.14.1-$(date +%Y%m%d).tar.gz /var/lib/rancher
+docker run --rm --volumes-from rancher-data-$(date +%Y%m%d) -v ~/rancher-migration:/backup alpine:latest \
+  tar zcf /backup/rancher-data-backup-v2.14.1-$(date +%Y%m%d).tar.gz \
+  --exclude=var/lib/rancher/k3s/agent/containerd /var/lib/rancher
+chmod 600 ~/rancher-migration/rancher-data-backup-*.tar.gz   # Secretを含む
 ```
 
 コンテナ本体(`$RANCHER_CONTAINER`)は**削除しない**。
+
+containerdのイメージキャッシュ(7.8GB、再取得できる)を除外すると、tarは約720MBで済む(2026-10-13実績)。
 
 ### 5-3. K3sを入れる
 
@@ -249,10 +272,8 @@ curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION='v1.35.4+k3s1' sh -s - server
   --node-ip 192.168.1.149 \
   --tls-san 192.168.1.149 --tls-san rancher.ibid.lan \
   --write-kubeconfig-mode 600
-sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/rancher-k3s.yaml && sudo chown "$USER" ~/.kube/rancher-k3s.yaml
-export KUBECONFIG_K3S=~/.kube/rancher-k3s.yaml
-K="kubectl --kubeconfig $KUBECONFIG_K3S"    # 以降の手順はこの$K/$Hを使う
-H="helm --kubeconfig $KUBECONFIG_K3S"
+K="sudo k3s kubectl"    # 以降の手順はこの$K/$Hを使う
+H="sudo helm --kubeconfig /etc/rancher/k3s/k3s.yaml"
 $K get nodes        # Ready
 $K -n kube-system get svc traefik   # 80/443がホストで待ち受けること(servicelb)
 ```
@@ -435,7 +456,8 @@ Rancherのサポートマトリクスに載っているK3sの版へ上げる(`IN
 
 ### 9-1. 定期バックアップ
 
-Docker版では設定済み(3.)。移行後のK3s側でも同じ`Backup/daily`を作り直す。
+Docker版では設定済み(3.)。**`Backup` CRはリストアの対象外**なので、移行後のK3s側で
+同じ`Backup/daily`を作り直す(2026-10-13に作成済み)。
 
 ```bash
 $K apply -f - <<'EOF'
@@ -458,6 +480,9 @@ Docker版のときはRancherのボリュームの中にあり、それをBacula�
 $K get pv -o custom-columns=NAME:.metadata.name,CLAIM:.spec.claimRef.name,PATH:.spec.hostPath.path,LPATH:.spec.local.path
 ```
 
+2026-10-13時点の保存先(**BaculaのFileSetに追加すること**):
+`/var/lib/rancher/k3s/storage/pvc-706cec26-f26a-4e03-b536-6cfe41d59891_cattle-resources-system_rancher-backup-1/`
+
 ### 9-2. サーバ証明書の更新
 
 4-2.で発行した証明書は自動では更新されない(Docker版のdynamiclistenerとの違い)。期限が近づいたら、
@@ -477,12 +502,46 @@ K3sの内部証明書は、期限の90日前を過ぎてからK3sを再起動す
 
 ## 10. 要検証ポイント
 
-実施したら、結果をここに書き戻すこと。
+すべて2026-10-13の移行で確認した。
 
 | # | 内容 | 結果 |
 |---|---|---|
 | ① | Docker版の埋め込みK3sで、hostPathの静的PVを使ったrancher-backupが動くか | **OK**(2026-10-13)。ディレクトリの所有者をUID 1000に変える必要あり(3.) |
 | ② | 2.14.1でのResourceSet名(`rancher-resource-set-full`か) | **OK**(2026-10-13)。`rancher-resource-set-basic`と`-full`がある。`-full`はSecretを含む |
-| ③ | Helmで入れた後もserver-urlが`https://192.168.1.149`のまま残るか | 未実施 |
-| ④ | 受け皿のIngressとTLSStoreで、IP直接アクセス(SNI無し)・プロキシ経由の両方に正しい証明書が返るか。agentのwebsocketがつながるか | 未実施 |
-| ⑤ | Harvester UI拡張などのUIPluginがリストアで戻るか | バックアップにUIPluginが含まれることは確認済み(2026-10-13)。リストアは未実施 |
+| ③ | Helmで入れた後もserver-urlが`https://192.168.1.149`のまま残るか | **OK**(2026-10-13)。リストアした値がそのまま残った。`cacerts`のフィンガープリントも同じ |
+| ④ | 受け皿のIngressとTLSStoreで、IP直接アクセス(SNI無し)・プロキシ経由の両方に正しい証明書が返るか。agentのwebsocketがつながるか | **OK**(2026-10-13)。SNI無し・IP・各ホスト名とも同じCAの証明書が返る。agentはRancher起動の約20秒後に`Connected to proxy`。プロキシ経由の`/ping`も200 |
+| ⑤ | Harvester UI拡張などのUIPluginがリストアで戻るか | **OK**(2026-10-13)。`harvester` 1.8.2が`cached`・ready |
+
+## 11. 実施記録(2026-10-13)
+
+| 時刻(JST) | 内容 |
+|---|---|
+| 11:03 | 移行用バックアップ`migration-20261013`を取得し、ホストへ取り出す(5-1.) |
+| 11:04 | Dockerコンテナ`rancher`を停止(`--restart=no`に変更)。**ここからRancher停止** |
+| 11:06 | 切り戻し用のtar(721MB)を作成(5-2.) |
+| 11:08 | K3s v1.35.4+k3s1をインストール(5-3.)。rancher-backup 109.0.9を導入 |
+| 11:10 | リストア完了(73秒、5-4.)。証明書のSecretを作成(5-5.) |
+| 11:14 | Rancher v2.14.1をHelmで導入し、起動(5-6.)。受け皿のIngressとTLSStoreを適用(5-7.) |
+| 11:15 | dev1/prod1/harvester1のagentが再接続。既存のkubeconfig contextもそのまま使えた |
+| 11:25 | Fleetが`ibid-dev` 54/54、`ibid-production` 34/34に戻る |
+| 11:26 | K3s側に`Backup/daily`を作り直し、初回分を取得 |
+
+**Rancher UIの停止は約10分、Fleetの同期が元に戻るまでは約20分**だった。下流クラスタ上の
+ワークロードへの影響は無かった。
+
+気づいた点:
+
+- 切り替え前後で、agentの`CATTLE_CA_CHECKSUM`は`52f8ea80…`のまま変わらなかった。agent側の作業は不要だった。
+- 新しいRancherは、下流の全ノードでsystem-agentの更新ジョブ(`apply-system-agent-upgrader-on-*`)を
+  流し直した。版は同じ(v0.3.16)で、すべてCompleteになった。prod1に、置き換えられた古い試行のPodが
+  1つ`Unknown`で残ったが、害は無い。
+- Fleetのagentは下流で再デプロイされ、すべてのバンドルが揃うまで約10分かかった(途中は`WaitApplied`)。
+- 移行後のホストのメモリ使用量は約5.8GiB(Docker版のときは約10GiB使っていた)。
+- 秘密情報を扱う手順(直接kubeconfigの取得、CAの取り出し、バックアップファイルの取り出しと投入、
+  証明書のSecretの作成)は運用者が実行し、それ以外はClaude Codeが実行した。
+
+残作業:
+
+- [ ] BaculaのFileSetに、K3s側のバックアップの保存先を追加する(9-1.)
+- [ ] 2026-10-27ごろ、問題が無ければDocker版の後片付けをする(7.の最後)
+- [ ] `~/rancher-migration/ca.key`を安全な場所に保管する(9-2.)
