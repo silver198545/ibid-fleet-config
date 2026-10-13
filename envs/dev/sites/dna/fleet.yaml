@@ -114,6 +114,8 @@ targetCustomizations:
         env: production
     helm:
       values:
+        # 本番の公開ドメイン(外部nginx)。旧サイトと同じドメインで /ja・/en を公開する
+        publicHost: dna.brc.riken.jp
         wordpress:
           # 冗長化: 2レプリカをrequiredなPod Anti-Affinityで別ノードへ強制分散し、
           # 単一Pod障害・ノード障害時も他方が応答を継続できるようにする。

@@ -280,6 +280,7 @@ Gitで管理する設定（fleet.yaml）と、既存サイトだけに必要な1
 `/ja`と`/en`に振り分ける（2026-10-11、devのabc/abc-enで導入。2026-10-12にdevの全17サイト
 （acd・dgprt・mgenを新規追加、mcdは削除）へ展開し、旧サイトのデータを戻した）。
 
+本番の公開ドメインは旧サイトと同じ`<site>.brc.riken.jp`（`<site>-en`も同じ。fleet.yamlの`production`のエントリの`publicHost`）。
 devの公開ドメインは、開発用として全サイト`wpdev1.brc.riken.jp`に統一している。外部nginx側で
 `proxy_pass`/`Host`の向き先（`<site>.dev.ibid.lan`）を切り替えて、見たいサイトを表示する。
 
