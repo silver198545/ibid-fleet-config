@@ -5,7 +5,7 @@ Rancher管理サーバ(`rancher.ibid.lan` / `192.168.1.149`)は、`docker run ra
 「コンテナを止めてボリュームを引き継ぐ」以外の手段がなく、切り戻しはtarの書き戻しだけになる。
 本書は、**同じホスト上で単一ノードのK3sに移し、RancherをHelmで管理する**ための手順をまとめる。
 
-Rancherのバックアップ(rancher-backup)も、この移行で初めて導入する。
+Rancherのバックアップ(rancher-backup)は、移行に先立って2026-10-13に導入した(3.)。
 
 > 本書の手順はまだ一度も実施していない。「要検証」と書いた箇所は、実施時に結果を
 > 書き戻すこと(→ [10. 要検証ポイント](#10-要検証ポイント))。
@@ -69,13 +69,21 @@ Rancherのバックアップ(rancher-backup)も、この移行で初めて導入
    install -d -m 700 ~/rancher-migration
    ```
 
-## 3. フェーズ1: 今のDocker版にrancher-backupを入れる
+## 3. フェーズ1: 今のDocker版にrancher-backupを入れる 【済(2026-10-13)】
 
-移行するかどうかに関係なく、すぐ実施してよい。
+移行とは別に先行して導入した。以下は実施した手順。
+
+| 項目 | 値 |
+|---|---|
+| chart | `rancher-backup` / `rancher-backup-crd` 109.0.9+up10.0.10(`rancher-charts`のrelease-v2.14で最新、Rancher 2.14対応) |
+| Helmリリース | local の `cattle-resources-system` に `rancher-backup-crd`、`rancher-backup` |
+| 保存先 | 静的PV `rancher-backup-pv`(hostPath `/var/lib/rancher/rancher-backups`、10Gi、Retain) |
+| 定期バックアップ | `Backup/daily`: `rancher-resource-set-full`、毎日03:00 JST(`0 18 * * *`、cronはUTC)、14世代保持 |
+| 1回分のサイズ | 約17MB(2026-10-13時点) |
 
 Docker版のlocalクラスタにはStorageClassが無いため、**コンテナ内のhostPathを使う静的PV**を
-保存先にする。`/var/lib/rancher`配下に置けば、データはRancherのボリュームに残り、
-`docker cp`で取り出せる。**(要検証①)**
+保存先にした。localクラスタのノードはRancherのコンテナそのものなので、このhostPathはコンテナ内の
+パスになる。`/var/lib/rancher`配下なので、データはRancherのボリュームに残る。
 
 ```bash
 kubectl --context local apply -f - <<'EOF'
@@ -93,17 +101,31 @@ spec:
     path: /var/lib/rancher/rancher-backups
     type: DirectoryOrCreate
 EOF
+
+# chartの版は、rancher-charts(ClusterRepo)のindexで catalog.cattle.io/rancher-version が今のRancherに合うものを選ぶ
+helm pull rancher-backup-crd --repo https://charts.rancher.io --version 109.0.9+up10.0.10
+helm pull rancher-backup     --repo https://charts.rancher.io --version 109.0.9+up10.0.10
+helm --kube-context local install rancher-backup-crd rancher-backup-crd-109.0.9+up10.0.10.tgz \
+  -n cattle-resources-system --create-namespace --wait
+helm --kube-context local install rancher-backup rancher-backup-109.0.9+up10.0.10.tgz \
+  -n cattle-resources-system --wait --timeout 10m \
+  --set persistence.enabled=true --set persistence.storageClass=- \
+  --set persistence.volumeName=rancher-backup-pv --set persistence.size=10Gi
 ```
 
-Rancher UIで local → Apps → Charts → **Rancher Backups** を開き、次の設定でインストールする。
-UIに出る版が、Rancher 2.14.1に合った版になる。
-
-- Storage: **Use an existing persistent volume** → `rancher-backup-pv`
-
-インストールできたら、手動で1回バックアップを取る。
+**hostPathのディレクトリの権限を直す必要がある。** `DirectoryOrCreate`で作られたディレクトリは
+root所有になる。operatorはUID 1000(非root)で動くので、初回のバックアップは
+`permission denied`で失敗した(hostPathには`fsGroup`が効かない)。rootの一時Podで所有者を変える。
 
 ```bash
-kubectl --context local get resourcesets.resources.cattle.io   # 使えるResourceSet名を確認(要検証②)
+IMG=$(kubectl --context local get setting shell-image -o jsonpath='{.default}')   # rancher/shell
+kubectl --context local -n cattle-resources-system run fix-backup-perms --rm -i --restart=Never --image="$IMG" \
+  --overrides='{"spec":{"containers":[{"name":"fix","image":"'"$IMG"'","command":["sh","-c","chown 1000:1000 /data && chmod 0750 /data && ls -ld /data"],"securityContext":{"runAsUser":0,"runAsNonRoot":false},"volumeMounts":[{"name":"d","mountPath":"/data"}]}],"volumes":[{"name":"d","hostPath":{"path":"/var/lib/rancher/rancher-backups"}}]}}'
+```
+
+1回きりのバックアップと、定期バックアップを作る。
+
+```bash
 kubectl --context local apply -f - <<'EOF'
 apiVersion: resources.cattle.io/v1
 kind: Backup
@@ -111,20 +133,40 @@ metadata:
   name: initial-backup
 spec:
   resourceSetName: rancher-resource-set-full
+---
+apiVersion: resources.cattle.io/v1
+kind: Backup
+metadata:
+  name: daily
+spec:
+  resourceSetName: rancher-resource-set-full
+  schedule: "0 18 * * *"    # UTC。03:00 JST
+  retentionCount: 14
 EOF
-kubectl --context local get backups.resources.cattle.io initial-backup -w   # Completedになるまで待つ
-kubectl --context local get backups.resources.cattle.io initial-backup -o jsonpath='{.status.filename}{"\n"}'
+kubectl --context local get backups.resources.cattle.io     # STATUSがCompleted、LATEST-BACKUPにファイル名
 ```
 
-ファイルを取り出せるか、ここで確認しておく。
+`Backup/daily`は作成した直後にも1回バックアップを取る。
+
+### バックアップファイルの取り出し
+
+operatorのイメージには`tar`が無いので、`kubectl cp`は使えない。`exec`の`cat`で取り出す
+(`sh`と`cat`はある)。
 
 ```bash
-docker exec "$RANCHER_CONTAINER" ls -l /var/lib/rancher/rancher-backups/
+kubectl --context local -n cattle-resources-system exec deploy/rancher-backup -- ls -l /var/lib/backups
+kubectl --context local -n cattle-resources-system exec deploy/rancher-backup -- cat /var/lib/backups/<ファイル名> > <ファイル名>
 ```
 
-> `rancher-resource-set-full`はSecretも含むので、**バックアップファイルは秘密情報として扱う**
-> (権限600、使い終わったら消す)。暗号化したい場合は、`encryptionConfigSecretName`を使う
-> 公式手順に従う。暗号化した場合は、リストア側にも同じEncryptionConfigurationのSecretが要る。
+Dockerホストからは`docker cp "$RANCHER_CONTAINER":/var/lib/rancher/rancher-backups/<ファイル名> .`でも取り出せる。
+
+`rancher-resource-set-full`の中身(2026-10-13に確認):settings(172件)、Secret(104件、
+CAの`cattle-system/tls-rancher`を含む)、Fleetのバンドル、クラスタやマシンの定義、RBAC、
+UIPlugin(`cattle-ui-plugin-system`)など、約1,500件。
+
+> Secretを含むので、**バックアップファイルは秘密情報として扱う**(権限600、使い終わったら消す)。
+> 暗号化したい場合は、`encryptionConfigSecretName`を使う公式手順に従う。暗号化した場合は、
+> リストア側にも同じEncryptionConfigurationのSecretが要る。今は暗号化していない。
 
 ## 4. フェーズ2の準備: CAの取り出しとサーバ証明書の作成(移行日、停止の前)
 
@@ -234,10 +276,10 @@ $H install rancher-backup rancher-charts/rancher-backup -n cattle-resources-syst
 
 ```bash
 POD=$($K -n cattle-resources-system get pod -l app.kubernetes.io/name=rancher-backup -o jsonpath='{.items[0].metadata.name}')
-$K -n cattle-resources-system cp ~/rancher-migration/"$BACKUP_FILE" "$POD":/var/lib/backups/"$BACKUP_FILE"
+$K -n cattle-resources-system exec -i "$POD" -- sh -c "cat > /var/lib/backups/$BACKUP_FILE" < ~/rancher-migration/"$BACKUP_FILE"   # イメージにtarが無いのでkubectl cpは使えない
 ```
 
-> コンテナ内のマウント先(`/var/lib/backups`)は版によって違う可能性がある。
+> マウント先は109.0.9では`/var/lib/backups`。chartの版を変えた場合は、
 > `$K -n cattle-resources-system describe pod "$POD"`のMountsで確認する。
 
 ```bash
@@ -391,6 +433,8 @@ Rancherのサポートマトリクスに載っているK3sの版へ上げる(`IN
 
 ### 9-1. 定期バックアップ
 
+Docker版では設定済み(3.)。移行後のK3s側でも同じ`Backup/daily`を作り直す。
+
 ```bash
 $K apply -f - <<'EOF'
 apiVersion: resources.cattle.io/v1
@@ -399,7 +443,7 @@ metadata:
   name: daily
 spec:
   resourceSetName: rancher-resource-set-full
-  schedule: "0 3 * * *"
+  schedule: "0 18 * * *"    # UTC。03:00 JST
   retentionCount: 14
 EOF
 ```
@@ -430,8 +474,8 @@ K3sの内部証明書は、期限の90日前を過ぎてからK3sを再起動す
 
 | # | 内容 | 結果 |
 |---|---|---|
-| ① | Docker版の埋め込みK3sで、hostPathの静的PVを使ったrancher-backupが動くか | 未実施 |
-| ② | 2.14.1でのResourceSet名(`rancher-resource-set-full`か) | 未実施 |
+| ① | Docker版の埋め込みK3sで、hostPathの静的PVを使ったrancher-backupが動くか | **OK**(2026-10-13)。ディレクトリの所有者をUID 1000に変える必要あり(3.) |
+| ② | 2.14.1でのResourceSet名(`rancher-resource-set-full`か) | **OK**(2026-10-13)。`rancher-resource-set-basic`と`-full`がある。`-full`はSecretを含む |
 | ③ | Helmで入れた後もserver-urlが`https://192.168.1.149`のまま残るか | 未実施 |
 | ④ | 受け皿のIngressとTLSStoreで、IP直接アクセス(SNI無し)・プロキシ経由の両方に正しい証明書が返るか。agentのwebsocketがつながるか | 未実施 |
-| ⑤ | Harvester UI拡張などのUIPluginがリストアで戻るか | 未実施 |
+| ⑤ | Harvester UI拡張などのUIPluginがリストアで戻るか | バックアップにUIPluginが含まれることは確認済み(2026-10-13)。リストアは未実施 |
