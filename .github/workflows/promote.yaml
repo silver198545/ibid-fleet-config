@@ -7,6 +7,7 @@
 # 使い方:
 #   gh workflow run promote.yaml -f name=all                  # 本番にある全サイト
 #   gh workflow run promote.yaml -f name=<site>               # 1サイト(本番への新規追加も可)
+#   gh workflow run promote.yaml -f name="abc-en cell-en"     # 複数サイト(空白かカンマ区切り。1つのPRにまとめる)
 #   gh workflow run promote.yaml -f kind=apps -f name=all     # 本番にある全アプリ
 #   gh workflow run promote.yaml -f kind=apps -f name=<app>   # 1アプリ(本番にあるもののみ)
 # アプリの本番への初回昇格は、SealedSecretをkubesealで作る必要があるため
@@ -28,7 +29,7 @@ on:
         options: [sites, apps]
         default: sites
       name:
-        description: "サイト名・アプリ名(all で本番に既にある全件を更新)"
+        description: "サイト名・アプリ名(空白かカンマ区切りで複数可。all で本番に既にある全件を更新)"
         type: string
         required: true
         default: all
@@ -55,10 +56,23 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ ! "$NAME" =~ ^[a-z0-9-]+$ ]]; then
-            echo "エラー: 名前は英小文字・数字・ハイフンのみ使用できます: $NAME" >&2
+          # 複数指定(空白かカンマ区切り)を配列にする。all は単独でのみ使える
+          read -r -a NAMES <<< "${NAME//,/ }"
+          if [ "${#NAMES[@]}" -eq 0 ]; then
+            echo "エラー: 名前が空です" >&2
             exit 1
           fi
+          for n in "${NAMES[@]}"; do
+            if [[ ! "$n" =~ ^[a-z0-9-]+$ ]]; then
+              echo "エラー: 名前は英小文字・数字・ハイフンのみ使用できます: $n" >&2
+              exit 1
+            fi
+            if [ "$n" = "all" ] && [ "${#NAMES[@]}" -gt 1 ]; then
+              echo "エラー: all は他の名前と一緒に指定できません" >&2
+              exit 1
+            fi
+          done
+          NAME="${NAMES[*]}"
           case "$KIND" in
             sites) LABEL="サイト" ;;
             apps) LABEL="アプリ" ;;
@@ -83,18 +97,23 @@ jobs:
             done
             SUBJECT="本番の全${LABEL}を${FROM_ENV}から${TO_ENV}へ昇格"
           else
-            if [ ! -d "$SRC/$NAME" ]; then
-              echo "エラー: $SRC/$NAME がありません" >&2
-              exit 1
-            fi
-            if [ "$KIND" = "apps" ] && [ ! -d "$DST/$NAME" ]; then
-              echo "エラー: $DST/$NAME がありません。アプリの本番への初回昇格は" >&2
-              echo "scripts/update-app-image.sh promote-production $NAME で行ってください(SealedSecretの作成が要るため)。" >&2
-              exit 1
-            fi
-            rm -rf "${DST:?}/${NAME:?}"
-            cp -r "$SRC/$NAME" "$DST/$NAME"
-            SUBJECT="${LABEL}${NAME}を${FROM_ENV}から${TO_ENV}へ昇格"
+            # 先に全件を確かめてから(途中で失敗して一部だけコピーされないように)
+            for n in "${NAMES[@]}"; do
+              if [ ! -d "$SRC/$n" ]; then
+                echo "エラー: $SRC/$n がありません" >&2
+                exit 1
+              fi
+              if [ "$KIND" = "apps" ] && [ ! -d "$DST/$n" ]; then
+                echo "エラー: $DST/$n がありません。アプリの本番への初回昇格は" >&2
+                echo "scripts/update-app-image.sh promote-production $n で行ってください(SealedSecretの作成が要るため)。" >&2
+                exit 1
+              fi
+            done
+            for n in "${NAMES[@]}"; do
+              rm -rf "${DST:?}/${n:?}"
+              cp -r "$SRC/$n" "$DST/$n"
+            done
+            SUBJECT="${LABEL}${NAME// /・}を${FROM_ENV}から${TO_ENV}へ昇格"
           fi
 
           # コピーは新規ファイル(未追跡)になり得るため、addしてから差分判定する
@@ -104,7 +123,9 @@ jobs:
             exit 0
           fi
 
-          BRANCH="promote/${FROM_ENV}-to-${TO_ENV}-${KIND}-${NAME}-${{ github.run_id }}"
+          BRANCH_NAME="${NAMES[0]}"
+          [ "${#NAMES[@]}" -gt 1 ] && BRANCH_NAME="${NAMES[0]}-and-$(( ${#NAMES[@]} - 1 ))"
+          BRANCH="promote/${FROM_ENV}-to-${TO_ENV}-${KIND}-${BRANCH_NAME}-${{ github.run_id }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
@@ -137,7 +158,7 @@ jobs:
               if [ "$NAME" = "all" ]; then
                 echo "- [ ] 変更のあった各アプリで \`scripts/update-app-image.sh check-production <app>\`"
               else
-                echo "- [ ] \`scripts/update-app-image.sh check-production $NAME\`"
+                for n in "${NAMES[@]}"; do echo "- [ ] \`scripts/update-app-image.sh check-production $n\`"; done
               fi
             fi
             echo

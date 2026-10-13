@@ -41,7 +41,9 @@ promoteワークフローは環境ディレクトリを丸ごとコピーする�
    - `name=all`は**本番に既にあるサイトだけ**を更新する(`gh workflow run promote.yaml -f name=all`。
      アプリは `-f kind=apps` を付ける)。devにしか無いサイトを本番へ
      新規追加するときは、サイト名を指定して昇格させ、事前に
-     `scripts/seal-site-secrets.sh production <site>` でSecretを用意する
+     `scripts/seal-site-secrets.sh production <site>` でSecretを用意する。
+     サイト名は空白かカンマ区切りで複数指定でき、1つのPRにまとまる
+     (例: `-f name="abc abc-en"`。`all`は単独でのみ指定できる)
    - 昇格先固有の設定(ホスト名、production冗長化設定)は各fleet.yamlの中で
      環境ごとに書き分けてあるため、丸ごとコピーで消えることはない
      (下記「環境差分の書き方」)。PRのdiffは昇格させる変更そのもの(`helm.version`、
