@@ -39,8 +39,10 @@ spec:
             requests:
               cpu: 50m
               memory: 128Mi
+            # SPARQLetによっては10〜30MBの結果をまとめてメモリに載せるため(limit無しで
+            # 数十万件を返すものもある)、512MiではOOMKilledが頻発した(2026-10-13)。
             limits:
-              memory: 512Mi
+              memory: 2Gi
           # ROOT_PATH(/sparqlist/、Dockerfileに焼き込み済み)配下にしかルートが無いため、
           # ベアの"/"は404になる。
           readinessProbe:
