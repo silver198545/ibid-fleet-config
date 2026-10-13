@@ -26,6 +26,7 @@ done
   - `helm.values` に `sitePath: /ja`(英語版は `/en`)
   - ingressの `hostname` を両方とも `<site>.${ .ClusterLabels.env }.ibid.lan` にし、`path: /ja`(英語版は `/en`)と `pathType: Prefix` を足す
   - `targetCustomizations` に `dev` のエントリを足し、`publicHost: wpdev1.brc.riken.jp`(devの公開ドメイン。全サイト共通)
+  - `production` のエントリの `helm.values` に `publicHost: <site>.brc.riken.jp`(本番の公開ドメイン。旧サイトと同じ)
 - プラグインを入れる場合は、`fleet.yaml` の `plugins:` のコメントを外して書く(書き方は既存の `envs/dev/sites/web/fleet.yaml`)
 
 ```bash
@@ -74,7 +75,7 @@ gh workflow run promote.yaml -f kind=sites -f name=$SITE-en
 ```
 
 できた昇格PRの差分が `envs/production/sites/<site>/` の追加だけであることを確認してマージする。
-本番の公開ドメイン(`publicHost`)は、本番用の `targetCustomizations` に別途書く(未決定。決まるまでは内部名でのみ確認)。
+本番の公開ドメイン(`publicHost`)は旧サイトと同じ `<site>.brc.riken.jp`(英語版も同じ)。手順1で `fleet.yaml` の `production` のエントリに書いておく(既存の `envs/dev/sites/abc/fleet.yaml` と同じ形)。
 
 ## 4. 本番で確認する
 
