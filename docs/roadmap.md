@@ -350,7 +350,8 @@
   K3s(v1.35.4+k3s1)へ、server-url(`https://192.168.1.149`)とCAを変えずに移した(Rancher UIの停止は
   約10分、agentの再登録は不要)。rancher-backupで毎日03:00 JSTに14世代を保存。手順・記録・残作業
   (BaculaのFileSet変更、Docker版の後片付け)は[manual-rancher-migration.md](manual-rancher-migration.md)。
-  次のアップグレード先はHarvester v1.8.xのサポートマトリクスに従う(2026-10-13時点で2.14.2まで)。
+  同日に2.14.2へ更新済み。次のアップグレード先はHarvester v1.8.xのサポートマトリクスに従う
+  (2026-10-13時点では2.14.2が上限)。
 
 ## 将来検討(急がない)
 
