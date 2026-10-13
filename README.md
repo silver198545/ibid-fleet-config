@@ -68,6 +68,7 @@ WordPressの新規サイト作成・更新、自作アプリの新規展開・�
 | IPPool、TraefikのLoadBalancer化、Rancher chartValuesの注意 | [docs/manual-harvester-loadbalancer.md](docs/manual-harvester-loadbalancer.md) |
 | control-plane VMのディスクをSSDに限定(etcd遅延対策) | [docs/manual-harvester-etcd-ssd.md](docs/manual-harvester-etcd-ssd.md) |
 | ノードの時刻同期(chrony)とノードのUser Data | [docs/manual-node-ntp.md](docs/manual-node-ntp.md) |
+| Rancher管理サーバのDocker版→K3s+Helm移行、アップグレード、Rancherのバックアップ | [docs/manual-rancher-migration.md](docs/manual-rancher-migration.md) |
 
 障害対応・記録:
 
