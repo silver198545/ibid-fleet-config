@@ -345,6 +345,12 @@
   (日次バックアップの安定稼働確認後に削除可)。stagingの `pre-dr-drill-*` バックアップ4件は
   staging廃止に伴いNFSのstagingディレクトリごと削除する
   ([manual-multi-env.md](manual-multi-env.md) 9.)。
+- **Rancher管理サーバのDocker版からK3s+Helm版への移行**(2026-10-13計画): Docker版は
+  公式には開発・テスト用で、アップグレードと切り戻しの手段が弱く、Rancher自体のバックアップも
+  未導入。同じホスト上の単一ノードK3sへ、server-url(`https://192.168.1.149`)とCAを変えずに
+  移す。手順と要検証ポイントは[manual-rancher-migration.md](manual-rancher-migration.md)。
+  rancher-backupは2026-10-13に先行導入済み(同 3.、毎日03:00 JST・14世代)。アップグレード先は
+  Harvester v1.8.xのサポートマトリクスに従う(2026-10-13時点で2.14.2まで)。
 
 ## 将来検討(急がない)
 
