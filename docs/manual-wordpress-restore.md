@@ -278,7 +278,8 @@ Gitで管理する設定（fleet.yaml）と、既存サイトだけに必要な1
 1つのドメインの`/ja`と`/en`を別々のWordPressで運用する（サブパス公開）こともできる。
 日本語版を`<site>`、英語版を`<site>-en`という別サイトにし、同じホスト名`<site>.<env>.ibid.lan`の
 `/ja`と`/en`に振り分ける（2026-10-11、devのabc/abc-enで導入。2026-10-12にdevの全17サイト
-（acd・dgprt・mgenを新規追加、mcdは削除）へ展開し、旧サイトのデータを戻した）。
+（acd・dgprt・mgenを新規追加、mcdは削除）へ展開し、旧サイトのデータを戻した。2026-10-13に本番の34サイトへ
+昇格し（#262〜#265）、旧サイトの本番バックアップを戻した）。
 
 本番の公開ドメインは旧サイトと同じ`<site>.brc.riken.jp`（`<site>-en`も同じ。fleet.yamlの`production`のエントリの`publicHost`）。
 devの公開ドメインは、開発用として全サイト`wpdev1.brc.riken.jp`に統一している。外部nginx側で
@@ -427,6 +428,10 @@ devの全サイト）は、`restore-wordpress.sh`の後に次の3つを順に置
 入れ替えで止められると途中で切れる（2026-10-12、cellで発生。置換は何度実行しても結果が
 同じなので、やり直せばよい）。Ingressの`path`が`/ja`・`/en`になり、`rollout status`が
 完了してから始める。
+
+本番（公開ドメインが旧サイトと同じ）では、ドメインはそのままでスキームだけが違うので、置換は
+`http://<site>.brc.riken.jp`→`https://<site>.brc.riken.jp`と、そのJSONエスケープの形の2つで足りた
+（2026-10-13、34サイトで計約8.5万件）。
 
 実データを入れたサイトはメモリを多く使う。チャート0.7.2でWordPressのメモリ上限を
 768Miにした（Bitnamiの既定384MiではOOMKilled）。
