@@ -80,6 +80,7 @@ Rancherのバックアップ(rancher-backup)は、移行に先立って2026-10-1
 | 保存先 | 静的PV `rancher-backup-pv`(hostPath `/var/lib/rancher/rancher-backups`、10Gi、Retain) |
 | 定期バックアップ | `Backup/daily`: `rancher-resource-set-full`、毎日03:00 JST(`0 18 * * *`、cronはUTC)、14世代保持 |
 | 1回分のサイズ | 約17MB(2026-10-13時点) |
+| 二次コピー | Bacula(本リポジトリの管理外)。ホスト側のRancherのボリュームごと取得している |
 
 Docker版のlocalクラスタにはStorageClassが無いため、**コンテナ内のhostPathを使う静的PV**を
 保存先にした。localクラスタのノードはRancherのコンテナそのものなので、このhostPathはコンテナ内の
@@ -387,6 +388,7 @@ $K get gitrepos -n fleet-default                         # ibid-dev / ibid-produ
 - [ ] 下流クラスタのWordPress/アプリに影響が無い
 
 問題が無ければ、[9-1. 定期バックアップ](#9-1-定期バックアップ)を設定する。
+**BaculaのFileSetを、K3s側の保存先に変えること**(→ 9-1.)。変えないと、二次コピーが止まったことに気づけない。
 
 ## 7. 切り戻し
 
@@ -448,8 +450,13 @@ spec:
 EOF
 ```
 
-保存先はこのホストのlocal-path(`/var/lib/rancher/k3s/storage/`配下)。ホストごと失うと一緒に消えるので、
-二次コピー先(Baculaの対象に加えるなど。本リポジトリの管理外)を決めておく。
+保存先はこのホストのlocal-path(`/var/lib/rancher/k3s/storage/<PV名>_cattle-resources-system_<PVC名>/`)。
+Docker版のときはRancherのボリュームの中にあり、それをBaculaで二次コピーしていた。移行後は場所が
+変わるので、**BaculaのFileSetに新しいパスを追加する**(本リポジトリの管理外)。実際のパスは次で確認する。
+
+```bash
+$K get pv -o custom-columns=NAME:.metadata.name,CLAIM:.spec.claimRef.name,PATH:.spec.hostPath.path,LPATH:.spec.local.path
+```
 
 ### 9-2. サーバ証明書の更新
 
