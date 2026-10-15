@@ -15,7 +15,7 @@
 # (silver198545/metadatabase-v2)のソースを展開する場所。同上の理由で無視する。
 /images/metadatabase-v2/app/
 
-# CI(build-brc-cross-search-{xsearch,resource}-image.yaml)が公開リポジトリ
-# (d-usuda/brc-cross-search)のソースを展開する場所。sparqlistと同じ理由で無視する。
+# CI(build-brc-cross-search-{xsearch,resource}-image.yaml)がプライベートリポジトリ
+# (d-usuda/brc-cross-search)のソースを展開する場所。同上の理由で無視する。
 /images/brc-cross-search-xsearch/app/
 /images/brc-cross-search-resource/app/

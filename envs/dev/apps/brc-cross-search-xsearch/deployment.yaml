@@ -13,6 +13,8 @@ spec:
       labels:
         app: brc-cross-search-xsearch
     spec:
+      imagePullSecrets:
+        - name: ghcr-brc-cross-search-xsearch
       containers:
         - name: brc-cross-search-xsearch
           image: ghcr.io/silver198545/brc-cross-search-xsearch:0.1.0-r0

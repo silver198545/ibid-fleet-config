@@ -136,8 +136,8 @@ upstream_branch_for() {
 # 新規アプリ追加時は必ずどちらかに登録すること。
 ghcr_secret_needed_for() {
   case "$1" in
-    brc-advanced-search|riken-diips|metadatabase-v2) echo yes ;;
-    sparqlist|brc-cross-search-xsearch|brc-cross-search-resource) echo no ;;
+    brc-advanced-search|riken-diips|metadatabase-v2|brc-cross-search-xsearch|brc-cross-search-resource) echo yes ;;
+    sparqlist) echo no ;;
     *) echo "エラー: ${1} のGHCR pull secret要否が未登録です(このスクリプトの ghcr_secret_needed_for に追記してください)。" >&2; exit 1 ;;
   esac
 }

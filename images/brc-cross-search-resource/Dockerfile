@@ -7,11 +7,12 @@
 # だけが異なる。片方を直したらもう片方も同じように直すこと(docs/manual-apps.md
 # 「brc-cross-search-xsearch / brc-cross-search-resource 固有のメモ」参照)。
 #
-# ビルド元は公開リポジトリのため認証情報は不要(sparqlistと同じ)。ソース取得は
+# ビルド元はこのリポジトリ管理外のプライベートリポジトリ(d-usudaアカウント所有)。
+# 認証情報をイメージのレイヤー履歴に残さないため、ソース取得は
 # Dockerfile内でgit cloneせず、.github/workflows/build-brc-cross-search-resource-image.yaml の
 # actions/checkoutステップ(SRC_REFファイルの内容をrefに指定)で行い、ビルドコンテキストの
 # app/ ディレクトリとして渡す。GHCRへの公開は mainへのマージで同ワークフローが行う
-# (パッケージは公開設定):
+# (パッケージは非公開。pull用SealedSecretが要る):
 #   ghcr.io/silver198545/brc-cross-search-resource:<TAGファイルの内容>
 #
 # アプリ側のDockerfile/bin/docker-start.shはdocker-compose(ソースをボリュームでマウント、

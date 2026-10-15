@@ -487,7 +487,7 @@ devへコピーして本番相当データで確認できる**(`update-app-image
   `feature/docker-app-mode`ブランチ(Sinatra + Puma、DBなし。外部のSPARQLエンドポイント
   `https://knowledge.brc.riken.jp/sparql`を参照するのみ)。Docker対応(`APP_MODE`・
   `PAGE_CONFIG_DIR`)がmainにマージされたら、`scripts/update-app-image.sh`の
-  `upstream_branch_for`と各ワークフロー冒頭のコメントをmainに切り替える。
+  `upstream_branch_for`と両ワークフローのcheckoutの`ref:`をmainに切り替える。
 - **同じソースを2つのアプリとして展開している**。アプリ側の`docker-compose.yml`の
   profileに対応する:
 
@@ -526,14 +526,25 @@ devへコピーして本番相当データで確認できる**(`update-app-image
     `resources.limits.memory`と揃える。テンプレートの物理サーバー向けの値(4worker・6442MB)は
     使わない。12時間ごとのローリング再起動はテンプレートどおり残している。
   - `SPARQL_DEBUG=true`をDeploymentの`env`に足すと、実行したSPARQLクエリが`kubectl logs`に出る。
-- 公開リポジトリのため、sparqlistと同じくビルドに認証情報は不要で、**GHCRパッケージは
-  初回のみpublicに変更する**(`ghcr_secret_needed_for`に`no`で登録済み。
-  pull用SealedSecret・`imagePullSecrets`は無し)。
+- **ソースはd-usudaアカウント所有のプライベートリポジトリ**(silver198545はcollaborator)。
+  他ユーザー所有のためfine-grained PATは使えず、Deploy Keyの登録にはadmin権限が要るため、
+  metadatabase-v2と同じclassic PAT方式にしている。`BRC_CROSS_SEARCH_ACCESS_TOKEN`
+  (silver198545で専用に新規発行した`repo`スコープのclassic PAT)をxsearch/resourceの
+  両ワークフローで共用し、ブランチ名でfetchしてからSRC_REFをcheckoutする
+  (SHA直接指定のfetchは403になるため。riken-diipsと同じ回避策)。
+  GHCRパッケージは非公開のまま運用し、namespaceごとにpull用SealedSecret
+  (`ghcr-brc-cross-search-xsearch`・`ghcr-brc-cross-search-resource`)を持つ
+  (`ghcr_secret_needed_for`に`yes`で登録済み)。
 - **導入時に必要な手動手順(dev)**:
-  1. PRをマージし、`build-brc-cross-search-xsearch-image.yaml`・
-     `build-brc-cross-search-resource-image.yaml`の成功を確認する
-  2. GHCR上の`brc-cross-search-xsearch`・`brc-cross-search-resource`パッケージを
-     Package settingsで**Public**にする(それまではImagePullBackOffになる)
+  1. `repo`スコープのclassic PAT(専用に新規発行)を
+     `gh secret set BRC_CROSS_SEARCH_ACCESS_TOKEN --repo silver198545/ibid-fleet-config`
+     で登録し、両ワークフローを再実行して成功を確認する
+     (`gh workflow run build-brc-cross-search-xsearch-image.yaml`・
+     `gh workflow run build-brc-cross-search-resource-image.yaml`)
+  2. `read:packages`スコープのclassic PAT(専用に新規発行。2アプリで共用してよい)で、
+     アプリごとにGHCR pull用SealedSecretを作成する(本書「新しいアプリを追加する手順」の
+     コマンド例を`<app>=brc-cross-search-xsearch`・`brc-cross-search-resource`で実行し、
+     `envs/dev/secrets/<app>.yaml`としてコミット・マージする)。**PATの期限の日を控えておく**
   3. DNSは`*.dev`のワイルドカードで引けるため登録不要
   4. `scripts/update-app-image.sh check-dev brc-cross-search-xsearch`・
      `check-dev brc-cross-search-resource`で200を確認する
