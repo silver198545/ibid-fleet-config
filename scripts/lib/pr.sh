@@ -7,6 +7,25 @@
 #   承認待ちで止まるため、pr_automerge_and_wait は呼ばず人がレビュー・マージする。
 #
 # 前提: 呼び出し側で set -euo pipefail、カレントディレクトリがリポジトリルート。
+#
+# PIPELINE_ACTOR(Rundeckでジョブを実行した人。rundeck/generate-jobs.py が渡す)があれば、
+# 作ったPRにそれを書き残す。GitHub上の作成者はパイプライン用のマシンユーザーになるため
+# (docs/manual-rundeck.md「実行アカウント」)、誰が起動したかはここで追う。
+
+# PR本文・コメントに付ける実行者の行(PIPELINE_ACTORが無ければ空)
+pr_actor_line() {
+  if [[ -n "${PIPELINE_ACTOR:-}" ]]; then
+    echo "実行者: ${PIPELINE_ACTOR}(Rundeck、$(whoami)@$(hostname -s))"
+  fi
+}
+
+# 他の仕組み(promoteワークフロー等)が作ったPRに、実行者をコメントで残す
+# 引数: <pr_url>
+pr_comment_actor() {
+  if [[ -n "${PIPELINE_ACTOR:-}" ]]; then
+    gh pr comment "$1" --body "$(pr_actor_line)" >/dev/null || echo "警告: PRへの実行者のコメントに失敗しました: $1" >&2
+  fi
+}
 
 # 作業ツリー(このクローン)を排他ロックする。Rundeckの複数ジョブ(アプリの更新・
 # WordPressのリハーサル等)が同じクローンでブランチを切り替え合わないようにするためのもの。
@@ -75,7 +94,9 @@ pr_require_main_uptodate() {
 # 作成したPRのURLを PR_URL に入れる。終了後はmainに戻る(ブランチは残る)。
 # 引数: <title> <body>
 pr_commit_push_create() {
-  local title="$1" body="$2"
+  local title="$1" body="$2" actor
+  actor="$(pr_actor_line)"
+  [[ -n "$actor" ]] && body="${body}"$'\n\n'"${actor}"
   git commit -m "$title"
   git push -u origin "$(git rev-parse --abbrev-ref HEAD)"
   PR_URL="$(gh pr create --title "$title" --body "$body")"

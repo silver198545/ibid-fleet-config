@@ -18,7 +18,7 @@
   multipleExecutions: false
   timeout: 90m
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options:
   - name: src_ref
@@ -34,7 +34,8 @@
     - description: mainを最新化
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -49,7 +50,8 @@
     - description: イメージ更新 → ビルド → devへ反映 → devの確認
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh dev-update brc-advanced-search '@option.src_ref@' '@option.tag@'
       scriptInterpreter: /bin/bash
 - name: 2-production-update
@@ -72,7 +74,7 @@
   multipleExecutions: false
   timeout: 10h
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options:
   - name: merge_wait_minutes
@@ -93,7 +95,8 @@
     - description: mainを最新化
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -108,7 +111,8 @@
     - description: 昇格PR作成 → 人のマージ待ち → 本番の確認
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/update-app-image.sh release-production brc-advanced-search
       scriptInterpreter: /bin/bash
 - name: 3-first-promote-prepare
@@ -128,7 +132,7 @@
   multipleExecutions: false
   timeout: 30m
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options: []
   sequence:
@@ -138,7 +142,8 @@
     - description: mainを最新化
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -153,7 +158,8 @@
     - description: productionへのコピー(コミットしない)
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh promote-production brc-advanced-search
       scriptInterpreter: /bin/bash
 - name: 4-first-promote-finish
@@ -170,7 +176,7 @@
   multipleExecutions: false
   timeout: 30m
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options: []
   sequence:
@@ -180,7 +186,8 @@
     - description: コミット・PR作成
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh promote-production-finish brc-advanced-search
       scriptInterpreter: /bin/bash
 - name: 9-check
@@ -194,7 +201,7 @@
   multipleExecutions: false
   timeout: 10m
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options:
   - name: env
@@ -213,7 +220,8 @@
     - description: 確認
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh check-@option.env@ brc-advanced-search
       scriptInterpreter: /bin/bash
 - name: 1-dev-update
@@ -233,7 +241,7 @@
   multipleExecutions: false
   timeout: 90m
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options:
   - name: src_ref
@@ -249,7 +257,8 @@
     - description: mainを最新化
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -264,7 +273,8 @@
     - description: イメージ更新 → ビルド → devへ反映 → devの確認
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh dev-update brc-cross-search-resource '@option.src_ref@' '@option.tag@'
       scriptInterpreter: /bin/bash
 - name: 2-production-update
@@ -287,7 +297,7 @@
   multipleExecutions: false
   timeout: 10h
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options:
   - name: merge_wait_minutes
@@ -308,7 +318,8 @@
     - description: mainを最新化
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -323,7 +334,8 @@
     - description: 昇格PR作成 → 人のマージ待ち → 本番の確認
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/update-app-image.sh release-production brc-cross-search-resource
       scriptInterpreter: /bin/bash
 - name: 3-first-promote-prepare
@@ -343,7 +355,7 @@
   multipleExecutions: false
   timeout: 30m
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options: []
   sequence:
@@ -353,7 +365,8 @@
     - description: mainを最新化
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -368,7 +381,8 @@
     - description: productionへのコピー(コミットしない)
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh promote-production brc-cross-search-resource
       scriptInterpreter: /bin/bash
 - name: 4-first-promote-finish
@@ -385,7 +399,7 @@
   multipleExecutions: false
   timeout: 30m
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options: []
   sequence:
@@ -395,7 +409,8 @@
     - description: コミット・PR作成
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh promote-production-finish brc-cross-search-resource
       scriptInterpreter: /bin/bash
 - name: 9-check
@@ -409,7 +424,7 @@
   multipleExecutions: false
   timeout: 10m
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options:
   - name: env
@@ -428,7 +443,8 @@
     - description: 確認
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh check-@option.env@ brc-cross-search-resource
       scriptInterpreter: /bin/bash
 - name: 1-dev-update
@@ -448,7 +464,7 @@
   multipleExecutions: false
   timeout: 90m
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options:
   - name: src_ref
@@ -464,7 +480,8 @@
     - description: mainを最新化
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -479,7 +496,8 @@
     - description: イメージ更新 → ビルド → devへ反映 → devの確認
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh dev-update brc-cross-search-xsearch '@option.src_ref@' '@option.tag@'
       scriptInterpreter: /bin/bash
 - name: 2-production-update
@@ -502,7 +520,7 @@
   multipleExecutions: false
   timeout: 10h
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options:
   - name: merge_wait_minutes
@@ -523,7 +541,8 @@
     - description: mainを最新化
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -538,7 +557,8 @@
     - description: 昇格PR作成 → 人のマージ待ち → 本番の確認
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/update-app-image.sh release-production brc-cross-search-xsearch
       scriptInterpreter: /bin/bash
 - name: 3-first-promote-prepare
@@ -558,7 +578,7 @@
   multipleExecutions: false
   timeout: 30m
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options: []
   sequence:
@@ -568,7 +588,8 @@
     - description: mainを最新化
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -583,7 +604,8 @@
     - description: productionへのコピー(コミットしない)
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh promote-production brc-cross-search-xsearch
       scriptInterpreter: /bin/bash
 - name: 4-first-promote-finish
@@ -600,7 +622,7 @@
   multipleExecutions: false
   timeout: 30m
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options: []
   sequence:
@@ -610,7 +632,8 @@
     - description: コミット・PR作成
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh promote-production-finish brc-cross-search-xsearch
       scriptInterpreter: /bin/bash
 - name: 9-check
@@ -624,7 +647,7 @@
   multipleExecutions: false
   timeout: 10m
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options:
   - name: env
@@ -643,7 +666,8 @@
     - description: 確認
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh check-@option.env@ brc-cross-search-xsearch
       scriptInterpreter: /bin/bash
 - name: 1-dev-update
@@ -663,7 +687,7 @@
   multipleExecutions: false
   timeout: 90m
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options:
   - name: src_ref
@@ -679,7 +703,8 @@
     - description: mainを最新化
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -694,7 +719,8 @@
     - description: イメージ更新 → ビルド → devへ反映 → devの確認
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh dev-update metadatabase-v2 '@option.src_ref@' '@option.tag@'
       scriptInterpreter: /bin/bash
 - name: 2-production-update
@@ -717,7 +743,7 @@
   multipleExecutions: false
   timeout: 10h
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options:
   - name: merge_wait_minutes
@@ -738,7 +764,8 @@
     - description: mainを最新化
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -753,7 +780,8 @@
     - description: 昇格PR作成 → 人のマージ待ち → 本番の確認
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/update-app-image.sh release-production metadatabase-v2
       scriptInterpreter: /bin/bash
 - name: 3-first-promote-prepare
@@ -773,7 +801,7 @@
   multipleExecutions: false
   timeout: 30m
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options: []
   sequence:
@@ -783,7 +811,8 @@
     - description: mainを最新化
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -798,7 +827,8 @@
     - description: productionへのコピー(コミットしない)
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh promote-production metadatabase-v2
       scriptInterpreter: /bin/bash
 - name: 4-first-promote-finish
@@ -815,7 +845,7 @@
   multipleExecutions: false
   timeout: 30m
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options: []
   sequence:
@@ -825,7 +855,8 @@
     - description: コミット・PR作成
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh promote-production-finish metadatabase-v2
       scriptInterpreter: /bin/bash
 - name: 9-check
@@ -839,7 +870,7 @@
   multipleExecutions: false
   timeout: 10m
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options:
   - name: env
@@ -858,7 +889,8 @@
     - description: 確認
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh check-@option.env@ metadatabase-v2
       scriptInterpreter: /bin/bash
 - name: 1-dev-update
@@ -878,7 +910,7 @@
   multipleExecutions: false
   timeout: 90m
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options:
   - name: src_ref
@@ -894,7 +926,8 @@
     - description: mainを最新化
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -909,7 +942,8 @@
     - description: イメージ更新 → ビルド → devへ反映 → devの確認
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh dev-update riken-diips '@option.src_ref@' '@option.tag@'
       scriptInterpreter: /bin/bash
 - name: 2-production-update
@@ -932,7 +966,7 @@
   multipleExecutions: false
   timeout: 10h
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options:
   - name: merge_wait_minutes
@@ -953,7 +987,8 @@
     - description: mainを最新化
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -968,7 +1003,8 @@
     - description: 昇格PR作成 → 人のマージ待ち → 本番の確認
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/update-app-image.sh release-production riken-diips
       scriptInterpreter: /bin/bash
 - name: 3-first-promote-prepare
@@ -988,7 +1024,7 @@
   multipleExecutions: false
   timeout: 30m
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options: []
   sequence:
@@ -998,7 +1034,8 @@
     - description: mainを最新化
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -1013,7 +1050,8 @@
     - description: productionへのコピー(コミットしない)
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh promote-production riken-diips
       scriptInterpreter: /bin/bash
 - name: 4-first-promote-finish
@@ -1030,7 +1068,7 @@
   multipleExecutions: false
   timeout: 30m
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options: []
   sequence:
@@ -1040,7 +1078,8 @@
     - description: コミット・PR作成
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh promote-production-finish riken-diips
       scriptInterpreter: /bin/bash
 - name: 9-check
@@ -1054,7 +1093,7 @@
   multipleExecutions: false
   timeout: 10m
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options:
   - name: env
@@ -1073,7 +1112,8 @@
     - description: 確認
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh check-@option.env@ riken-diips
       scriptInterpreter: /bin/bash
 - name: 1-dev-update
@@ -1093,7 +1133,7 @@
   multipleExecutions: false
   timeout: 90m
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options:
   - name: src_ref
@@ -1118,7 +1158,8 @@
     - description: mainを最新化
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -1133,13 +1174,15 @@
     - description: イメージ更新 → ビルド → devへ反映 → devの確認
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh dev-update sparqlist '@option.src_ref@' '@option.tag@'
       scriptInterpreter: /bin/bash
     - description: 本番の永続データをdevへコピー(sync_prod_data=yesのとき)
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         if [ '@option.sync_prod_data@' = yes ]; then
           scripts/update-app-image.sh sync-dev-data sparqlist
         else
@@ -1166,7 +1209,7 @@
   multipleExecutions: false
   timeout: 10h
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options:
   - name: merge_wait_minutes
@@ -1187,7 +1230,8 @@
     - description: mainを最新化
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -1202,7 +1246,8 @@
     - description: 昇格PR作成 → 人のマージ待ち → 本番の確認
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/update-app-image.sh release-production sparqlist
       scriptInterpreter: /bin/bash
 - name: 3-first-promote-prepare
@@ -1222,7 +1267,7 @@
   multipleExecutions: false
   timeout: 30m
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options: []
   sequence:
@@ -1232,7 +1277,8 @@
     - description: mainを最新化
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -1247,7 +1293,8 @@
     - description: productionへのコピー(コミットしない)
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh promote-production sparqlist
       scriptInterpreter: /bin/bash
 - name: 4-first-promote-finish
@@ -1264,7 +1311,7 @@
   multipleExecutions: false
   timeout: 30m
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options: []
   sequence:
@@ -1274,7 +1321,8 @@
     - description: コミット・PR作成
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh promote-production-finish sparqlist
       scriptInterpreter: /bin/bash
 - name: 9-check
@@ -1288,7 +1336,7 @@
   multipleExecutions: false
   timeout: 10m
   nodefilters:
-    filter: 'tags: rancher'
+    filter: 'tags: ibid-ops'
   nodesSelectedByDefault: true
   options:
   - name: env
@@ -1307,6 +1355,7 @@
     - description: 確認
       script: |
         set -euo pipefail
-        cd /home/uchida/ibid-fleet-config
+        cd /home/ibidops/ibid-fleet-config
+        export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh check-@option.env@ sparqlist
       scriptInterpreter: /bin/bash
