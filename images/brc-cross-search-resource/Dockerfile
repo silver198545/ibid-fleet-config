@@ -22,6 +22,7 @@
 #     frozenにはしない(バージョンはlockどおりに入る)。
 #   - Pumaの設定はアプリ側のconfig/puma.rb.templateではなく同じディレクトリの puma.rb を使う
 #     (stdout_redirectでファイルに出すとkubectl logsで見えないため。詳細はpuma.rb冒頭)。
+#     rackupも同じディレクトリの k8s.ru を使う(developmentモードでのHost名の許可。詳細はk8s.ru冒頭)。
 #   - app.rbがアクセスログを log/<RACK_ENV>.log へ追記し続けるため、/dev/stdoutへの
 #     シンボリックリンクにしてコンテナ内に溜まらないようにする。devはDeploymentで
 #     RACK_ENV=developmentにして動かすため、production.log・development.logの両方を張る。
@@ -53,6 +54,7 @@ RUN useradd --uid 1000 --create-home --shell /usr/sbin/nologin app
 COPY --from=build /usr/local/bundle /usr/local/bundle
 COPY --from=build --chown=app:app /app ./
 COPY --chown=app:app puma.rb config/puma.rb
+COPY --chown=app:app k8s.ru config/k8s.ru
 RUN mkdir -p log tmp/puma \
   && ln -sf /dev/stdout log/production.log \
   && ln -sf /dev/stdout log/development.log \
