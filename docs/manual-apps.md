@@ -20,6 +20,11 @@ PVC(`envs/<env>/apps/sparqlist/pvc.yaml`)を持つ以外は同じ`apps/`パタ�
 DBなし。外部のSPARQLエンドポイントを参照するのみ)はriken-diipsと同じ構成
 (SSR・PVCなし)。詳細は下記「metadatabase-v2 固有のメモ」参照。
 
+[brc-cross-search](https://github.com/d-usuda/brc-cross-search)(Sinatra + Puma製、DBなし。
+外部のSPARQLエンドポイントを参照するのみ)は、同じソースを「横断検索」(`brc-cross-search-xsearch`)と
+「個別アプリ」(`brc-cross-search-resource`)の2つのアプリとして展開している。
+詳細は下記「brc-cross-search-xsearch / brc-cross-search-resource 固有のメモ」参照。
+
 ## 構成
 
 - `images/<app>/`: アプリのビルド定義。アプリ本体は別リポジトリにあるため、
@@ -475,3 +480,60 @@ devへコピーして本番相当データで確認できる**(`update-app-image
      (`docs/manual-cert-manager-freeipa-acme.md`参照)
   5. `https://metadatabase-v2.dev.ibid.lan/`で200を確認
      (`scripts/update-app-image.sh check-dev metadatabase-v2`でも可)
+
+## brc-cross-search-xsearch / brc-cross-search-resource 固有のメモ
+
+- ソースは[d-usuda/brc-cross-search](https://github.com/d-usuda/brc-cross-search)の
+  `feature/docker-app-mode`ブランチ(Sinatra + Puma、DBなし。外部のSPARQLエンドポイント
+  `https://knowledge.brc.riken.jp/sparql`を参照するのみ)。Docker対応(`APP_MODE`・
+  `PAGE_CONFIG_DIR`)がmainにマージされたら、`scripts/update-app-image.sh`の
+  `upstream_branch_for`と各ワークフロー冒頭のコメントをmainに切り替える。
+- **同じソースを2つのアプリとして展開している**。アプリ側の`docker-compose.yml`の
+  profileに対応する:
+
+  | アプリ | compose profile | ページ設定 | ポート | 確認用URL(dev) |
+  |---|---|---|---|---|
+  | `brc-cross-search-xsearch`(横断検索) | `xsearch` | `config/page_xsearch` | 4042 | `https://brc-cross-search-xsearch.dev.ibid.lan/xsearch/catalog/` |
+  | `brc-cross-search-resource`(個別アプリ) | `resource` | `config/page_resource` | 4043 | `https://brc-cross-search-resource.dev.ibid.lan/resource/animal/` |
+
+  ツール(`update-app-image.sh`・build workflow・`check-dev`)が「アプリ名 = イメージ名 =
+  namespace = Deployment名」前提のため、1つのイメージ・1つのnamespaceにまとめず、
+  `images/`・ワークフロー・`envs/<env>/apps/`をアプリごとに持たせている。2つの
+  Dockerfileは`APP_MODE`・`PAGE_CONFIG_DIR`・`PORT`以外同じ内容なので、片方を直したら
+  もう片方も直す。**ソース更新時は両方に同じSRC_REFで`set-image`を行う**:
+  ```bash
+  scripts/update-app-image.sh latest-src-ref brc-cross-search-xsearch
+  scripts/update-app-image.sh set-image brc-cross-search-xsearch <SRC_REF>
+  scripts/update-app-image.sh set-image brc-cross-search-resource <SRC_REF>
+  ```
+- **URLのパス**: アプリはルート`/`を404固定にしており、ページは
+  `/<任意の接頭辞>/<ページ名>/`(`list`・`card`等も同様)で開く。接頭辞は何でもよいが、
+  ページ内の相対リンク(`../../../animal/card/...`等)が既存運用(`knowledge.brc.riken.jp`)の
+  階層を前提にしているため、既存と同じ`/xsearch/...`・`/resource/...`で開く。Ingressは
+  ホスト名ごとに`/`をそのまま転送するだけで、パスの書き換えはしない。
+- **ヘルスチェック**は検索フォームのページ(`/xsearch/catalog/`・`/resource/animal/`)。
+  ページ設定のJSONを読んで描画するだけで外部SPARQLには問い合わせないため、
+  エンドポイント側の障害でPodが再起動されることはない。一覧・カード表示は
+  クラスタから`knowledge.brc.riken.jp`へのHTTPS通信が通る必要がある。
+- **アプリ側のDockerfile/`bin/docker-start.sh`は使っていない**(ソースのボリューム
+  マウント・ホストのlog/への出力というdocker-compose前提のため)。違いは
+  `images/brc-cross-search-*/Dockerfile`冒頭のコメント参照。要点:
+  - Pumaの設定は`images/brc-cross-search-*/puma.rb`(アプリ側`config/puma.rb.template`を
+    もとに、`stdout_redirect`を外してログを標準出力へ。`kubectl logs`で見られる)。
+    アクセスログ(`log/production.log`)も`/dev/stdout`へのリンクにしている。
+  - worker数(`WEB_CONCURRENCY`、既定2)とPumaWorkerKillerのメモリ上限
+    (`PUMA_WORKER_KILLER_RAM_MB`)はDeploymentの`env`で指定する。上限は
+    `resources.limits.memory`と揃える。テンプレートの物理サーバー向けの値(4worker・6442MB)は
+    使わない。12時間ごとのローリング再起動はテンプレートどおり残している。
+  - `SPARQL_DEBUG=true`をDeploymentの`env`に足すと、実行したSPARQLクエリが`kubectl logs`に出る。
+- 公開リポジトリのため、sparqlistと同じくビルドに認証情報は不要で、**GHCRパッケージは
+  初回のみpublicに変更する**(`ghcr_secret_needed_for`に`no`で登録済み。
+  pull用SealedSecret・`imagePullSecrets`は無し)。
+- **導入時に必要な手動手順(dev)**:
+  1. PRをマージし、`build-brc-cross-search-xsearch-image.yaml`・
+     `build-brc-cross-search-resource-image.yaml`の成功を確認する
+  2. GHCR上の`brc-cross-search-xsearch`・`brc-cross-search-resource`パッケージを
+     Package settingsで**Public**にする(それまではImagePullBackOffになる)
+  3. DNSは`*.dev`のワイルドカードで引けるため登録不要
+  4. `scripts/update-app-image.sh check-dev brc-cross-search-xsearch`・
+     `check-dev brc-cross-search-resource`で200を確認する
