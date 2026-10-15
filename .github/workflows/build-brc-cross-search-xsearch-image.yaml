@@ -6,12 +6,20 @@
 # image タグを切り替える(docs/manual-apps.md参照)。
 # 同じソースの brc-cross-search-resource は build-brc-cross-search-resource-image.yaml が別途公開する。
 #
-# brc-cross-search(d-usuda/brc-cross-search)は公開リポジトリのため、ソース取得に
-# Deploy Key/PAT等の認証情報は不要(sparqlistと同じ)。
+# brc-cross-search(d-usuda/brc-cross-search)はd-usudaアカウント所有のプライベート
+# リポジトリ(silver198545はcollaborator)のため、ソース取得には
+# BRC_CROSS_SEARCH_ACCESS_TOKEN シークレット(silver198545で専用に新規発行した`repo`スコープの
+# Personal access token(classic)。他ユーザー所有のリポジトリはfine-grained PATの対象に
+# できず、Deploy Keyの登録にはリポジトリのadmin権限が要るため)が必要
+# (このリポジトリのSettings > Secrets and variables > Actionsで事前に登録しておくこと。
+# xsearch/resourceの両ワークフローで共用する)。
+# 認証情報をDockerイメージのビルドコンテキスト/レイヤー履歴に残さないよう、
+# cloneはDockerfile内ではなくこのワークフローのactions/checkoutステップで行う。
+# PATでコミットSHAを直接fetchすると403になるため、metadatabase-v2と同じく
+# ブランチ名でfetchしてからローカルでSRC_REFをcheckoutする(docs/manual-apps.md参照)。
 #
-# 初回のみ: 公開されたパッケージ(ghcr.io上の brc-cross-search-xsearch)の可視性をGitHubの
-# Package設定で public にすること。publicにしておくことで、GHCR pull用SealedSecretも
-# imagePullSecretsも不要になる。
+# GHCR上の brc-cross-search-xsearch パッケージは非公開のまま運用する(ソースが非公開のリポジトリのため)。
+# クラスタからのpullにはGHCR pull用SealedSecret(ghcr-brc-cross-search-xsearch)が必要(docs/manual-apps.md参照)。
 
 name: build-brc-cross-search-xsearch-image
 
@@ -36,12 +44,19 @@ jobs:
         id: src_ref
         run: echo "ref=$(tr -d '[:space:]' < images/brc-cross-search-xsearch/SRC_REF)" >> "$GITHUB_OUTPUT"
 
-      - name: アプリ本体(公開リポジトリ)をSRC_REF固定で取得
+      - name: アプリ本体(プライベートリポジトリ)をブランチで取得
         uses: actions/checkout@v4
         with:
           repository: d-usuda/brc-cross-search
-          ref: ${{ steps.src_ref.outputs.ref }}
+          ref: feature/docker-app-mode
+          token: ${{ secrets.BRC_CROSS_SEARCH_ACCESS_TOKEN }}
+          persist-credentials: false
+          fetch-depth: 0
           path: images/brc-cross-search-xsearch/app
+
+      - name: SRC_REFのコミットへローカルで固定
+        working-directory: images/brc-cross-search-xsearch/app
+        run: git checkout "${{ steps.src_ref.outputs.ref }}"
 
       - name: イメージをビルドしてGHCRへpush
         env:
