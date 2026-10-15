@@ -23,7 +23,8 @@
 #   - Pumaの設定はアプリ側のconfig/puma.rb.templateではなく同じディレクトリの puma.rb を使う
 #     (stdout_redirectでファイルに出すとkubectl logsで見えないため。詳細はpuma.rb冒頭)。
 #   - app.rbがアクセスログを log/<RACK_ENV>.log へ追記し続けるため、/dev/stdoutへの
-#     シンボリックリンクにしてコンテナ内に溜まらないようにする。
+#     シンボリックリンクにしてコンテナ内に溜まらないようにする。devはDeploymentで
+#     RACK_ENV=developmentにして動かすため、production.log・development.logの両方を張る。
 #   - 非rootで実行する。
 #
 # 更新手順: scripts/update-app-image.sh set-image brc-cross-search-resource <SRC_REF>
@@ -53,7 +54,8 @@ COPY --from=build /usr/local/bundle /usr/local/bundle
 COPY --from=build --chown=app:app /app ./
 COPY --chown=app:app puma.rb config/puma.rb
 RUN mkdir -p log tmp/puma \
-  && ln -sf /dev/stdout "log/${RACK_ENV}.log" \
+  && ln -sf /dev/stdout log/production.log \
+  && ln -sf /dev/stdout log/development.log \
   && chown -R app:app log tmp
 
 USER app
