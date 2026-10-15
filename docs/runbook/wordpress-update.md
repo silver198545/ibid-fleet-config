@@ -4,6 +4,10 @@
 
 更新は「devに入れる → devで確認 → 本番へ昇格」の順。devに入れるところは自動化されている。
 
+Rundeckでは、手順B(リハーサル)がジョブ `wordpress/2-rehearsal`(終わったら `wordpress/2b-rehearsal-cleanup`)、
+手順C(バックアップ → 昇格PR → 人がマージ → 本番の確認)が `wordpress/3-production-promote` で1回ずつになる。
+devのサイトに本番のコンテンツを入れ直したいときは `wordpress/1-dev-refresh`([manual-rundeck.md](../manual-rundeck.md))。
+
 ## A. devへの反映(どれか)
 
 ### 自動(毎週月曜 9:00)
@@ -64,6 +68,8 @@ kubectl --context dev1 get pods -A | grep wordpress- | grep -v -E 'Running|Compl
 
 WordPress本体のメジャーリリース(7.0→7.1 など)、MariaDBのメジャー更新、プラグインの大きな更新のときに行う。
 本番のコピーで更新を試す。手順: [operations-flow.md](../operations-flow.md)「本番データリハーサル」
+(一連の手順は `scripts/wordpress-pipeline.sh rehearsal-start <site>` → `rehearsal-upgrade <site>` →
+`rehearsal-cleanup <site>` でまとめて実行できる)
 
 ## C. 本番へ昇格する
 

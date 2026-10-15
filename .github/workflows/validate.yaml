@@ -1,4 +1,4 @@
-# PRごとの検証: YAML構文、GitHub Actionsワークフロー(actionlint)、サイトfleet.yamlの必須項目、
+# PRごとの検証: YAML構文、Rundeckのジョブ定義の生成結果、GitHub Actionsワークフロー(actionlint)、サイトfleet.yamlの必須項目、
 # ラッパーチャートのlint/render。
 # ブランチ保護でこのチェックを必須にすること(docs/manual-multi-env.md 参照)。
 name: validate
@@ -38,6 +38,10 @@ jobs:
                   failed = True
           sys.exit(1 if failed else 0)
           EOF
+
+      - name: Rundeckのジョブ定義が最新か
+        # rundeck/jobs/*.yaml は envs/dev/ のアプリ・サイト一覧から生成する(docs/manual-rundeck.md)
+        run: python3 rundeck/generate-jobs.py --check
 
       - name: GitHub Actionsワークフローの検査(actionlint)
         env:

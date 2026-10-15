@@ -53,6 +53,16 @@
 #                                       確認すること)。Actionsから直接 promote を起動しても同じ。
 #   check-production <app>             productionのWEBアクセスを確認。
 #
+# パイプライン用(Rundeckの apps/<app> ジョブから呼ぶ。docs/manual-rundeck.md):
+#   dev-update <app> [src_ref] [tag]   src_refが空なら latest-src-ref の値を使い、現在の
+#                                       images/<app>/SRC_REFと同じなら何もせずcheck-devだけ行う。
+#                                       違えば set-image を行う(tagが空なら自動採番)。
+#   release-production <app>           deploy-production → 人がPRをマージするのを待つ
+#                                       (MERGE_WAIT_MINUTES、既定240分。マージはしない) →
+#                                       mainをpull → check-production。差分が無ければ確認だけ行う。
+#
+# gitを操作するサブコマンドは、同じクローンを使う他のジョブと排他する(scripts/lib/pr.sh pr_lock_repo)。
+#
 # 使い方の例(brc-advanced-searchをイメージ更新する場合):
 #   scripts/update-app-image.sh latest-src-ref brc-advanced-search
 #   (表示された内容を確認し、それが新TAGとして取り込みたいコミットか判断する)
@@ -327,9 +337,10 @@ cmd_deploy_production() {
     exit 1
   }
   require_main_uptodate
+  PR_URL=""
   if diff -rq "$from_dir" "$to_dir" >/dev/null; then
     echo "devとproductionの${APP}に差分がありません。PRは作成しません。"
-    exit 0
+    return 0
   fi
 
   local started run_id="" pr_url="" i
@@ -350,12 +361,49 @@ cmd_deploy_production() {
   pr_url="$(gh pr list --state open --search "head:promote/dev-to-production-apps-${APP}-${run_id}" --json url -q '.[0].url // empty')"
   [[ -n "$pr_url" ]] || { echo "エラー: 昇格PRが見つかりません(run ${run_id})。" >&2; exit 1; }
   echo "PR作成: ${pr_url}"
+  PR_URL="$pr_url"
   echo "CIチェックを待っています..."
   gh pr checks "$pr_url" --watch || echo "警告: CIチェックが失敗、またはタイムアウトしました: ${pr_url}" >&2
 
   echo ""
   echo "PRのdiffを確認してマージしてください。マージ後、次で確認してください:"
   echo "  git pull && scripts/update-app-image.sh check-production ${APP}"
+}
+
+# パイプライン用: 取り込み元の最新(またはsrc_ref指定)を、変更があるときだけdevへ入れる。
+cmd_dev_update() {
+  local src_ref="${1:-}" tag="${2:-}" current
+  if [[ -z "$src_ref" ]]; then
+    src_ref="$(cmd_latest_src_ref)"
+    echo "取り込み元の最新コミットを使います: ${src_ref}"
+  fi
+  current="$(tr -d '[:space:]' < "images/${APP}/SRC_REF")"
+  if [[ "$current" == "$src_ref"* || "$src_ref" == "$current"* ]]; then
+    echo "images/${APP}/SRC_REF は既に ${current} です。イメージ更新は不要なので、devの確認だけ行います。"
+    pr_unlock_repo
+    cmd_check dev
+    return
+  fi
+  if [[ -n "$tag" ]]; then
+    cmd_set_image "$tag" "$src_ref"
+  else
+    cmd_set_image "$src_ref"
+  fi
+}
+
+# パイプライン用: 本番への昇格PR作成 → 人のマージ待ち → 本番の確認。
+cmd_release_production() {
+  cmd_deploy_production
+  if [[ -n "$PR_URL" ]]; then
+    pr_unlock_repo   # マージ待ちの間は他のジョブにクローンを譲る
+    pr_wait_human_merge "$PR_URL" "${MERGE_WAIT_MINUTES:-240}"
+    pr_lock_repo
+    git pull --ff-only origin main
+    pr_unlock_repo
+    echo "Fleetの適用を待っています(60秒)..."
+    sleep 60
+  fi
+  cmd_check production
 }
 
 cmd_check() {
@@ -566,6 +614,11 @@ EOF
 }
 
 case "$SUBCOMMAND" in
+  set-image|deploy-dev|promote-production|promote-production-finish|deploy-production|dev-update|release-production)
+    pr_lock_repo ;;
+esac
+
+case "$SUBCOMMAND" in
   latest-src-ref)            cmd_latest_src_ref ;;
   set-image)                 cmd_set_image "$@" ;;
   deploy-dev)                cmd_deploy_dev ;;
@@ -575,5 +628,7 @@ case "$SUBCOMMAND" in
   promote-production-finish) cmd_promote_finish ;;
   deploy-production)         cmd_deploy_production ;;
   check-production)          cmd_check production ;;
+  dev-update)                cmd_dev_update "$@" ;;
+  release-production)        cmd_release_production ;;
   *) usage ;;
 esac

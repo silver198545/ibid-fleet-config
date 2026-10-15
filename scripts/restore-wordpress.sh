@@ -28,7 +28,7 @@
 #   - 手順7: 動作確認
 #
 # 前提:
-#   - kubectl が対象環境のクラスタを指すよう設定済みであること
+#   - kubectl が対象環境のクラスタを指すよう設定済みであること(または KUBE_CONTEXT で指定)
 #   - lzop がローカルにインストール済みであること(.lzo形式を使う場合)
 #   - 対象サイトのwordpress/mariadb PodがRunningであること
 #
@@ -38,6 +38,8 @@
 #       scripts/restore-wordpress.sh web /backups/oldsite 20260630_0300   # 時刻指定
 #
 # 環境変数:
+#   KUBE_CONTEXT=<context>   ... 使うkubectlコンテキスト(既定はcurrent-context。
+#                                Rundeck等から current-context を切り替えずに実行するためのもの)
 #   IBID_ASSUME_YES=1        ... 確認プロンプトを省略する
 #   RESTORE_CHUNK_SIZE=<size> ... 分割転送のチャンクサイズ(既定: 32m。接続が不安定なら
 #                                小さくする。splitの-b書式)
@@ -121,7 +123,10 @@ decompress() {
 }
 
 # --- 対象Podの特定 ---
-CONTEXT="$(kubectl config current-context)"
+if [[ -n "${KUBE_CONTEXT:-}" ]]; then
+  kubectl() { command kubectl --context "$KUBE_CONTEXT" "$@"; }
+fi
+CONTEXT="${KUBE_CONTEXT:-$(kubectl config current-context)}"
 WP_POD="$(kubectl -n "$NAMESPACE" get pods -l app.kubernetes.io/name=wordpress \
   --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
 DB_POD="$(kubectl -n "$NAMESPACE" get pods -l app.kubernetes.io/name=mariadb \

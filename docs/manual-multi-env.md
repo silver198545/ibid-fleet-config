@@ -533,8 +533,9 @@ Git側(`envs/staging/`、`fleet-bootstrap/gitrepo-staging.yaml`、promoteワー�
 - [ ] NFSのLonghornバックアップ先 `192.168.1.1:/data/nfs/longhorn/staging` を削除する
   (DRで戻す予定が無いことを確認してから)
 - [ ] オフライン保管しているstagingのSealed Secrets鍵バックアップを破棄する
-- [ ] Rundeckに取り込み済みの `app-image-update/staging` グループのジョブを削除し、
-  `rundeck/jobs/update-app-image.yaml` を再取り込みする(`rd jobs load`は既存ジョブを消さない。
+- [ ] Rundeckに取り込み済みの `app-image-update` グループ(stagingを含む)のジョブを削除し、
+  `rundeck/jobs/apps.yaml`・`wordpress.yaml` を取り込む(2026-10-15に作り直した。[manual-rundeck.md](manual-rundeck.md)。
+  `rd jobs load`は既存ジョブを消さない。
   rancherホストには`rd` CLIが無いため、Rundeck UIまたは`rd`のある端末で行う)
 - [x] 作業端末の `~/.kube/config` から `staging1` コンテキストを削除する(2026-10-08実施。
   `kubectl config delete-context staging1` / `delete-cluster staging1`。ユーザー`rancher`は他と共用のため残す)

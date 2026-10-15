@@ -62,7 +62,7 @@ WordPressの新規サイト作成・更新、自作アプリの新規展開・�
 | WordPressサイトの追加・削除、プラグイン管理 | [docs/manual-wordpress.md](docs/manual-wordpress.md) |
 | WordPressのデータ移行・リストア、外部リバースプロキシ経由の公開 | [docs/manual-wordpress-restore.md](docs/manual-wordpress-restore.md) |
 | 自作アプリ(`apps/`)の追加・昇格、アプリ別のメモ | [docs/manual-apps.md](docs/manual-apps.md) |
-| アプリのイメージ更新をRundeckから実行 | [docs/manual-rundeck-app-image.md](docs/manual-rundeck-app-image.md) |
+| Rundeckのパイプライン(アプリのdev/本番更新、WordPressの本番コンテンツ→dev・リハーサル・本番昇格) | [docs/manual-rundeck.md](docs/manual-rundeck.md) |
 | 監視・アラート(rancher-monitoring + Slack) | [docs/manual-monitoring.md](docs/manual-monitoring.md) |
 | TLS証明書(cert-manager + FreeIPA ACME)、DNS登録 | [docs/manual-cert-manager-freeipa-acme.md](docs/manual-cert-manager-freeipa-acme.md) |
 | IPPool、TraefikのLoadBalancer化、Rancher chartValuesの注意 | [docs/manual-harvester-loadbalancer.md](docs/manual-harvester-loadbalancer.md) |

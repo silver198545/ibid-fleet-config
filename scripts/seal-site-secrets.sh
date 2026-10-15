@@ -21,6 +21,8 @@
 #   例: scripts/seal-site-secrets.sh dev web
 #   環境→kubectlコンテキストの対応は既定(dev1/prod1)。
 #   異なる場合は KUBE_CONTEXT=<コンテキスト名> で上書きする。
+#   SEAL_HIDE_PASSWORDS=1 で、新規生成したパスワードを表示しない(Rundeck等ログが残る場所から
+#   実行するとき。値は復号後のSecretから kubectl get secret で読める)。
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -166,7 +168,9 @@ fi
 echo "作成しました: $OUT_FILE" >&2
 echo "PRを作成してマージしてください。" >&2
 
-if [[ "${GENERATED:-}" == "1" ]]; then
+if [[ "${GENERATED:-}" == "1" && "${SEAL_HIDE_PASSWORDS:-}" == "1" ]]; then
+  echo "生成したパスワードは表示しません(SEAL_HIDE_PASSWORDS=1)。マージ後に Secret '$CREDENTIALS_SECRET' 等から読めます。" >&2
+elif [[ "${GENERATED:-}" == "1" ]]; then
   cat >&2 <<EOF
 
 生成したパスワード('$NAMESPACE' @ $ENV_NAME。ここにしか表示されないので必ず控えてください):

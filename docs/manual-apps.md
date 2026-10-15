@@ -41,7 +41,7 @@ DBなし。外部のSPARQLエンドポイントを参照するのみ)はriken-di
 `apps/` のdev→production昇格も、サイトと同じ `.github/workflows/promote.yaml` で行う
 (2026-10-10から。`gh workflow run promote.yaml -f kind=apps -f name=<app>`、`name=all` で本番にある全アプリ)。
 `scripts/update-app-image.sh deploy-production <app>` はこのワークフローを起動してPRができるのを待つ
-(Rundeckからも実行できる。[manual-rundeck-app-image.md](manual-rundeck-app-image.md))。
+(Rundeckの `apps/<app>/2-production-update` は、これに続けて人のマージを待ち本番の確認まで行う。[manual-rundeck.md](manual-rundeck.md))。
 **本番への初回昇格だけは** SealedSecretをkubesealで作る必要があるため、ワークフローでは行わず
 `update-app-image.sh promote-production` / `promote-production-finish` を使う(ワークフローは
 本番に無いアプリを指定するとエラーにして案内する)。
