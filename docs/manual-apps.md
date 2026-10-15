@@ -533,6 +533,10 @@ devへコピーして本番相当データで確認できる**(`update-app-image
   戻している(`env`は名前で突き合わせてマージされるので、他の`env`はそのまま残る)。
   アクセスログは`log/<RACK_ENV>.log`に書かれるため、イメージ側で`production.log`・
   `development.log`の両方を`/dev/stdout`にリンクしている。
+  また、Sinatra 4.1以降はdevelopmentモードでHost名を検査し、localhost・IP以外を
+  `Host not permitted`(403)で拒否する。イメージのrackup(`images/<app>/k8s.ru`)が
+  環境変数`PERMITTED_HOSTS`(Deploymentで`.ibid.lan`)を許可リストに足している。
+  公開ホスト名を`.ibid.lan`以外にする場合は、この値にも足すこと。
 - **ソースはd-usudaアカウント所有のプライベートリポジトリ**(silver198545はcollaborator)。
   他ユーザー所有のためfine-grained PATは使えず、Deploy Keyの登録にはadmin権限が要るため、
   metadatabase-v2と同じclassic PAT方式にしている。`BRC_CROSS_SEARCH_ACCESS_TOKEN`

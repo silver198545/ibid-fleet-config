@@ -17,7 +17,7 @@ spec:
         - name: ghcr-brc-cross-search-xsearch
       containers:
         - name: brc-cross-search-xsearch
-          image: ghcr.io/silver198545/brc-cross-search-xsearch:0.1.0-r1
+          image: ghcr.io/silver198545/brc-cross-search-xsearch:0.1.0-r2
           ports:
             - name: http
               containerPort: 4042
@@ -28,6 +28,11 @@ spec:
             # (このファイルは昇格で本番へそのままコピーされるため)。
             - name: RACK_ENV
               value: development
+            # developmentモードではSinatraがlocalhost・IP以外のHostを403で拒否するため、
+            # Ingressのホスト名を許可する(images/<app>/k8s.ru参照)。環境に依存しない値にするため
+            # ドメイン全体を指定する(productionモードでは検査自体が無く効かない)。
+            - name: PERMITTED_HOSTS
+              value: ".ibid.lan"
             # Pumaのworker数と、PumaWorkerKillerがworkerを再起動するメモリ上限(MB)。
             # 上限はlimits.memoryと揃える(images/brc-cross-search-xsearch/puma.rb参照)。
             - name: WEB_CONCURRENCY
