@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: brc-cross-search-xsearch
+  namespace: brc-cross-search-xsearch
+  annotations:
+    cert-manager.io/cluster-issuer: freeipa-acme
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - brc-cross-search-xsearch.dev.ibid.lan
+      secretName: brc-cross-search-xsearch-tls
+  rules:
+    - host: brc-cross-search-xsearch.dev.ibid.lan
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: brc-cross-search-xsearch
+                port:
+                  number: 80
