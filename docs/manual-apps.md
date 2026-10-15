@@ -526,6 +526,13 @@ devへコピーして本番相当データで確認できる**(`update-app-image
     `resources.limits.memory`と揃える。テンプレートの物理サーバー向けの値(4worker・6442MB)は
     使わない。12時間ごとのローリング再起動はテンプレートどおり残している。
   - `SPARQL_DEBUG=true`をDeploymentの`env`に足すと、実行したSPARQLクエリが`kubectl logs`に出る。
+- **devは`RACK_ENV=development`で動かしている**(2026-10-15〜、開発用のため)。SPARQLクエリが
+  DEBUGで`kubectl logs`に出る、エラー時にスタックトレースを画面に表示する、reloaderが
+  リクエストごとにソース変更を確認する(少し遅くなる)。`deployment.yaml`の値は昇格で本番へ
+  そのままコピーされるため、`overlays/production/deployment_patch.yaml`で`RACK_ENV=production`に
+  戻している(`env`は名前で突き合わせてマージされるので、他の`env`はそのまま残る)。
+  アクセスログは`log/<RACK_ENV>.log`に書かれるため、イメージ側で`production.log`・
+  `development.log`の両方を`/dev/stdout`にリンクしている。
 - **ソースはd-usudaアカウント所有のプライベートリポジトリ**(silver198545はcollaborator)。
   他ユーザー所有のためfine-grained PATは使えず、Deploy Keyの登録にはadmin権限が要るため、
   metadatabase-v2と同じclassic PAT方式にしている。`BRC_CROSS_SEARCH_ACCESS_TOKEN`
