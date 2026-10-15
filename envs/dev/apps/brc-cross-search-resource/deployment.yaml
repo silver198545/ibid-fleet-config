@@ -17,11 +17,17 @@ spec:
         - name: ghcr-brc-cross-search-resource
       containers:
         - name: brc-cross-search-resource
-          image: ghcr.io/silver198545/brc-cross-search-resource:0.1.0-r0
+          image: ghcr.io/silver198545/brc-cross-search-resource:0.1.0-r1
           ports:
             - name: http
               containerPort: 4043
           env:
+            # devは開発用にdevelopmentモードで動かす(SPARQLクエリがDEBUGでログに出る、
+            # エラー時にスタックトレースを表示する、ソース変更を検知するreloaderが有効)。
+            # productionは overlays/production/deployment_patch.yaml で production に戻す
+            # (このファイルは昇格で本番へそのままコピーされるため)。
+            - name: RACK_ENV
+              value: development
             # Pumaのworker数と、PumaWorkerKillerがworkerを再起動するメモリ上限(MB)。
             # 上限はlimits.memoryと揃える(images/brc-cross-search-resource/puma.rb参照)。
             - name: WEB_CONCURRENCY
