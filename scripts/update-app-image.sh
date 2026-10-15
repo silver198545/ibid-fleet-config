@@ -134,9 +134,9 @@ upstream_branch_for() {
     riken-diips) echo "main" ;;
     sparqlist) echo "main" ;;
     metadatabase-v2) echo "main" ;;
-    # 2026-10-15時点でDocker対応(APP_MODE)がmainに未マージのため作業ブランチを追う。
-    # mainにマージされたらmainに切り替えること。
-    brc-cross-search-xsearch|brc-cross-search-resource) echo "feature/docker-app-mode" ;;
+    # Docker対応(APP_MODE)の作業ブランチ feature/docker-app-mode を追っていたが、
+    # 2026-10-15にmainへマージされ(取り込み元PR #3)ブランチが削除されたためmainに切り替えた。
+    brc-cross-search-xsearch|brc-cross-search-resource) echo "main" ;;
     *) echo "エラー: ${1} の取り込み元ブランチが未登録です。" >&2; exit 1 ;;
   esac
 }
