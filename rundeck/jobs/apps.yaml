@@ -1,0 +1,1312 @@
+# 自動生成ファイル。直接編集せず rundeck/generate-jobs.py を直して再生成すること。
+# 取り込み: rd jobs load -p <プロジェクト名> -f rundeck/jobs/apps.yaml --format yaml
+# 説明: docs/manual-rundeck.md
+- name: 1-dev-update
+  group: apps/brc-advanced-search
+  uuid: 958ebafd-b607-5c1a-b4e6-7a278fe0c5a6
+  description: |
+    【開発環境更新パイプライン】brc-advanced-search
+
+    取り込み元の最新コミット(または指定したsrc_ref)でイメージを作り直し、devへ反映して確認する。
+    イメージPR → auto-merge → ビルド完了待ち → devのdeployment.yamlを更新するPR → auto-merge →
+    devのrollout・WEB疎通確認、までを1回で行う(devだけのPRなので承認なしでマージされる)。
+
+    devでブラウザ確認したら「2-production-update」で本番へ。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 90m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: src_ref
+    description: 取り込み元のコミットSHA。空欄なら取り込み元ブランチの最新を使う(現在のimages/brc-advanced-search/SRC_REFと同じなら、イメージは更新せずdevの確認だけ行う)
+    regex: ^([0-9a-f]{7,40})?$
+  - name: tag
+    description: 新しいイメージタグ。空欄なら現在のTAG(<version>-r<N>)から自動採番
+    regex: ^([0-9A-Za-z._-]+)?$
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: イメージ更新 → ビルド → devへ反映 → devの確認
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        scripts/update-app-image.sh dev-update brc-advanced-search '@option.src_ref@' '@option.tag@'
+      scriptInterpreter: /bin/bash
+- name: 2-production-update
+  group: apps/brc-advanced-search
+  uuid: 8c20e935-4ecc-56b2-a431-89a617640593
+  description: |
+    【本番環境更新パイプライン】brc-advanced-search
+
+    envs/production/apps/brc-advanced-search を dev と同じ内容にする昇格PRを promote ワークフローで作り、
+    **人がPRをレビュー・マージするのを待つ(このジョブはマージしない)**。マージされたら
+    mainを取り込み、Fleetの適用を待って本番のrollout・WEB疎通を確認する。
+    devと本番に差分が無ければPRは作らず、確認だけ行う。
+
+    PRのdiffはイメージタグに限らずdevに入っている変更すべて。内容を見てからマージすること。
+    マージ待ちの間、クローンのロックは手放すので他のジョブは動ける。
+    本番にまだ無いアプリはエラーになる(初回は「3-first-promote-prepare」)。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 10h
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: merge_wait_minutes
+    description: 本番PRのレビュー・マージを待つ時間(分)。過ぎたらジョブは失敗で終わる(PRはそのまま残る)
+    required: true
+    value: '240'
+    values:
+    - '60'
+    - '120'
+    - '240'
+    - '480'
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: 昇格PR作成 → 人のマージ待ち → 本番の確認
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/update-app-image.sh release-production brc-advanced-search
+      scriptInterpreter: /bin/bash
+- name: 3-first-promote-prepare
+  group: apps/brc-advanced-search
+  uuid: 49bee1b3-b6a4-57a0-9ed1-035ad1d16762
+  description: |
+    【本番への初回昇格 1/2】brc-advanced-search(本番にまだ無いときだけ。既にあれば「2-production-update」を使う)
+
+    envs/dev/apps/brc-advanced-search を envs/production/apps/brc-advanced-search へコピーするブランチを作る(コミットはしない)。
+    出力に表示されるkubesealコマンド(PATを扱うためジョブ化しない)を踏み台端末で人が実行し、
+    envs/production/secrets/brc-advanced-search.yaml を作ってから「4-first-promote-finish」を実行する。
+
+    **finishまでの間、クローンは未コミットのまま残る**。他のジョブは「mainを最新化」で止まる。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 30m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options: []
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: productionへのコピー(コミットしない)
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        scripts/update-app-image.sh promote-production brc-advanced-search
+      scriptInterpreter: /bin/bash
+- name: 4-first-promote-finish
+  group: apps/brc-advanced-search
+  uuid: 15886e84-d5d2-5839-bc6f-f7f922ec9552
+  description: |
+    【本番への初回昇格 2/2】brc-advanced-search
+
+    kubesealでSealedSecretを作った後に実行。コミット・PR作成まで行う。
+    マージはレビューのうえ人が行い、マージ後に「9-check」(env=production)で確認する。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 30m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options: []
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: コミット・PR作成
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        scripts/update-app-image.sh promote-production-finish brc-advanced-search
+      scriptInterpreter: /bin/bash
+- name: 9-check
+  group: apps/brc-advanced-search
+  uuid: cd15a2d1-980e-50ae-963c-9d59c645358b
+  description: |
+    brc-advanced-search のrollout状況とWEB疎通(readinessProbeのpathで200か)を確認する(読み取りのみ)。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 10m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: env
+    description: 確認する環境
+    required: true
+    value: dev
+    values:
+    - dev
+    - production
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: 確認
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        scripts/update-app-image.sh check-@option.env@ brc-advanced-search
+      scriptInterpreter: /bin/bash
+- name: 1-dev-update
+  group: apps/brc-cross-search-resource
+  uuid: 91a758e6-7ab6-572f-bb02-e616441b02f6
+  description: |
+    【開発環境更新パイプライン】brc-cross-search-resource
+
+    取り込み元の最新コミット(または指定したsrc_ref)でイメージを作り直し、devへ反映して確認する。
+    イメージPR → auto-merge → ビルド完了待ち → devのdeployment.yamlを更新するPR → auto-merge →
+    devのrollout・WEB疎通確認、までを1回で行う(devだけのPRなので承認なしでマージされる)。
+
+    devでブラウザ確認したら「2-production-update」で本番へ。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 90m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: src_ref
+    description: 取り込み元のコミットSHA。空欄なら取り込み元ブランチの最新を使う(現在のimages/brc-cross-search-resource/SRC_REFと同じなら、イメージは更新せずdevの確認だけ行う)
+    regex: ^([0-9a-f]{7,40})?$
+  - name: tag
+    description: 新しいイメージタグ。空欄なら現在のTAG(<version>-r<N>)から自動採番
+    regex: ^([0-9A-Za-z._-]+)?$
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: イメージ更新 → ビルド → devへ反映 → devの確認
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        scripts/update-app-image.sh dev-update brc-cross-search-resource '@option.src_ref@' '@option.tag@'
+      scriptInterpreter: /bin/bash
+- name: 2-production-update
+  group: apps/brc-cross-search-resource
+  uuid: 412c20a0-16cd-507d-bf2f-d296e00c9a04
+  description: |
+    【本番環境更新パイプライン】brc-cross-search-resource
+
+    envs/production/apps/brc-cross-search-resource を dev と同じ内容にする昇格PRを promote ワークフローで作り、
+    **人がPRをレビュー・マージするのを待つ(このジョブはマージしない)**。マージされたら
+    mainを取り込み、Fleetの適用を待って本番のrollout・WEB疎通を確認する。
+    devと本番に差分が無ければPRは作らず、確認だけ行う。
+
+    PRのdiffはイメージタグに限らずdevに入っている変更すべて。内容を見てからマージすること。
+    マージ待ちの間、クローンのロックは手放すので他のジョブは動ける。
+    本番にまだ無いアプリはエラーになる(初回は「3-first-promote-prepare」)。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 10h
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: merge_wait_minutes
+    description: 本番PRのレビュー・マージを待つ時間(分)。過ぎたらジョブは失敗で終わる(PRはそのまま残る)
+    required: true
+    value: '240'
+    values:
+    - '60'
+    - '120'
+    - '240'
+    - '480'
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: 昇格PR作成 → 人のマージ待ち → 本番の確認
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/update-app-image.sh release-production brc-cross-search-resource
+      scriptInterpreter: /bin/bash
+- name: 3-first-promote-prepare
+  group: apps/brc-cross-search-resource
+  uuid: ba57fe31-0b5b-52d4-8e3f-0a054aca05d7
+  description: |
+    【本番への初回昇格 1/2】brc-cross-search-resource(本番にまだ無いときだけ。既にあれば「2-production-update」を使う)
+
+    envs/dev/apps/brc-cross-search-resource を envs/production/apps/brc-cross-search-resource へコピーするブランチを作る(コミットはしない)。
+    出力に表示されるkubesealコマンド(PATを扱うためジョブ化しない)を踏み台端末で人が実行し、
+    envs/production/secrets/brc-cross-search-resource.yaml を作ってから「4-first-promote-finish」を実行する。
+
+    **finishまでの間、クローンは未コミットのまま残る**。他のジョブは「mainを最新化」で止まる。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 30m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options: []
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: productionへのコピー(コミットしない)
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        scripts/update-app-image.sh promote-production brc-cross-search-resource
+      scriptInterpreter: /bin/bash
+- name: 4-first-promote-finish
+  group: apps/brc-cross-search-resource
+  uuid: 1a9ec9ff-a408-5c93-b484-66c918d53ea2
+  description: |
+    【本番への初回昇格 2/2】brc-cross-search-resource
+
+    kubesealでSealedSecretを作った後に実行。コミット・PR作成まで行う。
+    マージはレビューのうえ人が行い、マージ後に「9-check」(env=production)で確認する。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 30m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options: []
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: コミット・PR作成
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        scripts/update-app-image.sh promote-production-finish brc-cross-search-resource
+      scriptInterpreter: /bin/bash
+- name: 9-check
+  group: apps/brc-cross-search-resource
+  uuid: 939b2a5f-d8d2-5a98-8c15-a2fa50395a6b
+  description: |
+    brc-cross-search-resource のrollout状況とWEB疎通(readinessProbeのpathで200か)を確認する(読み取りのみ)。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 10m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: env
+    description: 確認する環境
+    required: true
+    value: dev
+    values:
+    - dev
+    - production
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: 確認
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        scripts/update-app-image.sh check-@option.env@ brc-cross-search-resource
+      scriptInterpreter: /bin/bash
+- name: 1-dev-update
+  group: apps/brc-cross-search-xsearch
+  uuid: 2dd24bfd-2024-54fa-82d3-f52e252c09a9
+  description: |
+    【開発環境更新パイプライン】brc-cross-search-xsearch
+
+    取り込み元の最新コミット(または指定したsrc_ref)でイメージを作り直し、devへ反映して確認する。
+    イメージPR → auto-merge → ビルド完了待ち → devのdeployment.yamlを更新するPR → auto-merge →
+    devのrollout・WEB疎通確認、までを1回で行う(devだけのPRなので承認なしでマージされる)。
+
+    devでブラウザ確認したら「2-production-update」で本番へ。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 90m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: src_ref
+    description: 取り込み元のコミットSHA。空欄なら取り込み元ブランチの最新を使う(現在のimages/brc-cross-search-xsearch/SRC_REFと同じなら、イメージは更新せずdevの確認だけ行う)
+    regex: ^([0-9a-f]{7,40})?$
+  - name: tag
+    description: 新しいイメージタグ。空欄なら現在のTAG(<version>-r<N>)から自動採番
+    regex: ^([0-9A-Za-z._-]+)?$
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: イメージ更新 → ビルド → devへ反映 → devの確認
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        scripts/update-app-image.sh dev-update brc-cross-search-xsearch '@option.src_ref@' '@option.tag@'
+      scriptInterpreter: /bin/bash
+- name: 2-production-update
+  group: apps/brc-cross-search-xsearch
+  uuid: 9782ade7-107e-5858-84f1-20b4f1dfd81c
+  description: |
+    【本番環境更新パイプライン】brc-cross-search-xsearch
+
+    envs/production/apps/brc-cross-search-xsearch を dev と同じ内容にする昇格PRを promote ワークフローで作り、
+    **人がPRをレビュー・マージするのを待つ(このジョブはマージしない)**。マージされたら
+    mainを取り込み、Fleetの適用を待って本番のrollout・WEB疎通を確認する。
+    devと本番に差分が無ければPRは作らず、確認だけ行う。
+
+    PRのdiffはイメージタグに限らずdevに入っている変更すべて。内容を見てからマージすること。
+    マージ待ちの間、クローンのロックは手放すので他のジョブは動ける。
+    本番にまだ無いアプリはエラーになる(初回は「3-first-promote-prepare」)。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 10h
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: merge_wait_minutes
+    description: 本番PRのレビュー・マージを待つ時間(分)。過ぎたらジョブは失敗で終わる(PRはそのまま残る)
+    required: true
+    value: '240'
+    values:
+    - '60'
+    - '120'
+    - '240'
+    - '480'
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: 昇格PR作成 → 人のマージ待ち → 本番の確認
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/update-app-image.sh release-production brc-cross-search-xsearch
+      scriptInterpreter: /bin/bash
+- name: 3-first-promote-prepare
+  group: apps/brc-cross-search-xsearch
+  uuid: 9d7167a2-0986-5220-80d0-dbab92ed45bd
+  description: |
+    【本番への初回昇格 1/2】brc-cross-search-xsearch(本番にまだ無いときだけ。既にあれば「2-production-update」を使う)
+
+    envs/dev/apps/brc-cross-search-xsearch を envs/production/apps/brc-cross-search-xsearch へコピーするブランチを作る(コミットはしない)。
+    出力に表示されるkubesealコマンド(PATを扱うためジョブ化しない)を踏み台端末で人が実行し、
+    envs/production/secrets/brc-cross-search-xsearch.yaml を作ってから「4-first-promote-finish」を実行する。
+
+    **finishまでの間、クローンは未コミットのまま残る**。他のジョブは「mainを最新化」で止まる。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 30m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options: []
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: productionへのコピー(コミットしない)
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        scripts/update-app-image.sh promote-production brc-cross-search-xsearch
+      scriptInterpreter: /bin/bash
+- name: 4-first-promote-finish
+  group: apps/brc-cross-search-xsearch
+  uuid: a545a4c6-9fa5-56bf-bf67-f38897675d07
+  description: |
+    【本番への初回昇格 2/2】brc-cross-search-xsearch
+
+    kubesealでSealedSecretを作った後に実行。コミット・PR作成まで行う。
+    マージはレビューのうえ人が行い、マージ後に「9-check」(env=production)で確認する。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 30m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options: []
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: コミット・PR作成
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        scripts/update-app-image.sh promote-production-finish brc-cross-search-xsearch
+      scriptInterpreter: /bin/bash
+- name: 9-check
+  group: apps/brc-cross-search-xsearch
+  uuid: 4c5f37e9-b3f1-518d-a0ae-59dbea303956
+  description: |
+    brc-cross-search-xsearch のrollout状況とWEB疎通(readinessProbeのpathで200か)を確認する(読み取りのみ)。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 10m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: env
+    description: 確認する環境
+    required: true
+    value: dev
+    values:
+    - dev
+    - production
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: 確認
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        scripts/update-app-image.sh check-@option.env@ brc-cross-search-xsearch
+      scriptInterpreter: /bin/bash
+- name: 1-dev-update
+  group: apps/metadatabase-v2
+  uuid: 2c55435b-9e9c-590d-b4a4-94e3953c95d2
+  description: |
+    【開発環境更新パイプライン】metadatabase-v2
+
+    取り込み元の最新コミット(または指定したsrc_ref)でイメージを作り直し、devへ反映して確認する。
+    イメージPR → auto-merge → ビルド完了待ち → devのdeployment.yamlを更新するPR → auto-merge →
+    devのrollout・WEB疎通確認、までを1回で行う(devだけのPRなので承認なしでマージされる)。
+
+    devでブラウザ確認したら「2-production-update」で本番へ。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 90m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: src_ref
+    description: 取り込み元のコミットSHA。空欄なら取り込み元ブランチの最新を使う(現在のimages/metadatabase-v2/SRC_REFと同じなら、イメージは更新せずdevの確認だけ行う)
+    regex: ^([0-9a-f]{7,40})?$
+  - name: tag
+    description: 新しいイメージタグ。空欄なら現在のTAG(<version>-r<N>)から自動採番
+    regex: ^([0-9A-Za-z._-]+)?$
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: イメージ更新 → ビルド → devへ反映 → devの確認
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        scripts/update-app-image.sh dev-update metadatabase-v2 '@option.src_ref@' '@option.tag@'
+      scriptInterpreter: /bin/bash
+- name: 2-production-update
+  group: apps/metadatabase-v2
+  uuid: 7db6ab41-f5d4-5f25-b492-e9b25f030583
+  description: |
+    【本番環境更新パイプライン】metadatabase-v2
+
+    envs/production/apps/metadatabase-v2 を dev と同じ内容にする昇格PRを promote ワークフローで作り、
+    **人がPRをレビュー・マージするのを待つ(このジョブはマージしない)**。マージされたら
+    mainを取り込み、Fleetの適用を待って本番のrollout・WEB疎通を確認する。
+    devと本番に差分が無ければPRは作らず、確認だけ行う。
+
+    PRのdiffはイメージタグに限らずdevに入っている変更すべて。内容を見てからマージすること。
+    マージ待ちの間、クローンのロックは手放すので他のジョブは動ける。
+    本番にまだ無いアプリはエラーになる(初回は「3-first-promote-prepare」)。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 10h
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: merge_wait_minutes
+    description: 本番PRのレビュー・マージを待つ時間(分)。過ぎたらジョブは失敗で終わる(PRはそのまま残る)
+    required: true
+    value: '240'
+    values:
+    - '60'
+    - '120'
+    - '240'
+    - '480'
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: 昇格PR作成 → 人のマージ待ち → 本番の確認
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/update-app-image.sh release-production metadatabase-v2
+      scriptInterpreter: /bin/bash
+- name: 3-first-promote-prepare
+  group: apps/metadatabase-v2
+  uuid: 6ead2b26-d954-518a-8e2b-2f587efaa25a
+  description: |
+    【本番への初回昇格 1/2】metadatabase-v2(本番にまだ無いときだけ。既にあれば「2-production-update」を使う)
+
+    envs/dev/apps/metadatabase-v2 を envs/production/apps/metadatabase-v2 へコピーするブランチを作る(コミットはしない)。
+    出力に表示されるkubesealコマンド(PATを扱うためジョブ化しない)を踏み台端末で人が実行し、
+    envs/production/secrets/metadatabase-v2.yaml を作ってから「4-first-promote-finish」を実行する。
+
+    **finishまでの間、クローンは未コミットのまま残る**。他のジョブは「mainを最新化」で止まる。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 30m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options: []
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: productionへのコピー(コミットしない)
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        scripts/update-app-image.sh promote-production metadatabase-v2
+      scriptInterpreter: /bin/bash
+- name: 4-first-promote-finish
+  group: apps/metadatabase-v2
+  uuid: 0cc2bde5-a26b-51b6-8113-a2b7d62d3d23
+  description: |
+    【本番への初回昇格 2/2】metadatabase-v2
+
+    kubesealでSealedSecretを作った後に実行。コミット・PR作成まで行う。
+    マージはレビューのうえ人が行い、マージ後に「9-check」(env=production)で確認する。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 30m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options: []
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: コミット・PR作成
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        scripts/update-app-image.sh promote-production-finish metadatabase-v2
+      scriptInterpreter: /bin/bash
+- name: 9-check
+  group: apps/metadatabase-v2
+  uuid: 03a4963c-2836-539a-827a-688314108141
+  description: |
+    metadatabase-v2 のrollout状況とWEB疎通(readinessProbeのpathで200か)を確認する(読み取りのみ)。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 10m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: env
+    description: 確認する環境
+    required: true
+    value: dev
+    values:
+    - dev
+    - production
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: 確認
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        scripts/update-app-image.sh check-@option.env@ metadatabase-v2
+      scriptInterpreter: /bin/bash
+- name: 1-dev-update
+  group: apps/riken-diips
+  uuid: 273fcf0d-6f87-5864-b3e7-3e0251238466
+  description: |
+    【開発環境更新パイプライン】riken-diips
+
+    取り込み元の最新コミット(または指定したsrc_ref)でイメージを作り直し、devへ反映して確認する。
+    イメージPR → auto-merge → ビルド完了待ち → devのdeployment.yamlを更新するPR → auto-merge →
+    devのrollout・WEB疎通確認、までを1回で行う(devだけのPRなので承認なしでマージされる)。
+
+    devでブラウザ確認したら「2-production-update」で本番へ。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 90m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: src_ref
+    description: 取り込み元のコミットSHA。空欄なら取り込み元ブランチの最新を使う(現在のimages/riken-diips/SRC_REFと同じなら、イメージは更新せずdevの確認だけ行う)
+    regex: ^([0-9a-f]{7,40})?$
+  - name: tag
+    description: 新しいイメージタグ。空欄なら現在のTAG(<version>-r<N>)から自動採番
+    regex: ^([0-9A-Za-z._-]+)?$
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: イメージ更新 → ビルド → devへ反映 → devの確認
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        scripts/update-app-image.sh dev-update riken-diips '@option.src_ref@' '@option.tag@'
+      scriptInterpreter: /bin/bash
+- name: 2-production-update
+  group: apps/riken-diips
+  uuid: 938bf6f9-28c6-569a-9a22-608153efd71b
+  description: |
+    【本番環境更新パイプライン】riken-diips
+
+    envs/production/apps/riken-diips を dev と同じ内容にする昇格PRを promote ワークフローで作り、
+    **人がPRをレビュー・マージするのを待つ(このジョブはマージしない)**。マージされたら
+    mainを取り込み、Fleetの適用を待って本番のrollout・WEB疎通を確認する。
+    devと本番に差分が無ければPRは作らず、確認だけ行う。
+
+    PRのdiffはイメージタグに限らずdevに入っている変更すべて。内容を見てからマージすること。
+    マージ待ちの間、クローンのロックは手放すので他のジョブは動ける。
+    本番にまだ無いアプリはエラーになる(初回は「3-first-promote-prepare」)。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 10h
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: merge_wait_minutes
+    description: 本番PRのレビュー・マージを待つ時間(分)。過ぎたらジョブは失敗で終わる(PRはそのまま残る)
+    required: true
+    value: '240'
+    values:
+    - '60'
+    - '120'
+    - '240'
+    - '480'
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: 昇格PR作成 → 人のマージ待ち → 本番の確認
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/update-app-image.sh release-production riken-diips
+      scriptInterpreter: /bin/bash
+- name: 3-first-promote-prepare
+  group: apps/riken-diips
+  uuid: f2d89229-9574-5420-a34f-1989c7ee4a8b
+  description: |
+    【本番への初回昇格 1/2】riken-diips(本番にまだ無いときだけ。既にあれば「2-production-update」を使う)
+
+    envs/dev/apps/riken-diips を envs/production/apps/riken-diips へコピーするブランチを作る(コミットはしない)。
+    出力に表示されるkubesealコマンド(PATを扱うためジョブ化しない)を踏み台端末で人が実行し、
+    envs/production/secrets/riken-diips.yaml を作ってから「4-first-promote-finish」を実行する。
+
+    **finishまでの間、クローンは未コミットのまま残る**。他のジョブは「mainを最新化」で止まる。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 30m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options: []
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: productionへのコピー(コミットしない)
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        scripts/update-app-image.sh promote-production riken-diips
+      scriptInterpreter: /bin/bash
+- name: 4-first-promote-finish
+  group: apps/riken-diips
+  uuid: 81af824e-fd2a-562c-bb57-4b7d8a63de2e
+  description: |
+    【本番への初回昇格 2/2】riken-diips
+
+    kubesealでSealedSecretを作った後に実行。コミット・PR作成まで行う。
+    マージはレビューのうえ人が行い、マージ後に「9-check」(env=production)で確認する。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 30m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options: []
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: コミット・PR作成
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        scripts/update-app-image.sh promote-production-finish riken-diips
+      scriptInterpreter: /bin/bash
+- name: 9-check
+  group: apps/riken-diips
+  uuid: 6092329c-eb51-50e5-b35d-c6dfa93267d0
+  description: |
+    riken-diips のrollout状況とWEB疎通(readinessProbeのpathで200か)を確認する(読み取りのみ)。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 10m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: env
+    description: 確認する環境
+    required: true
+    value: dev
+    values:
+    - dev
+    - production
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: 確認
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        scripts/update-app-image.sh check-@option.env@ riken-diips
+      scriptInterpreter: /bin/bash
+- name: 1-dev-update
+  group: apps/sparqlist
+  uuid: 1ba7dc80-47cc-5f4c-b42b-8a5a7d45c4d0
+  description: |
+    【開発環境更新パイプライン】sparqlist
+
+    取り込み元の最新コミット(または指定したsrc_ref)でイメージを作り直し、devへ反映して確認する。
+    イメージPR → auto-merge → ビルド完了待ち → devのdeployment.yamlを更新するPR → auto-merge →
+    devのrollout・WEB疎通確認、までを1回で行う(devだけのPRなので承認なしでマージされる)。
+
+    devでブラウザ確認したら「2-production-update」で本番へ。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 90m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: src_ref
+    description: 取り込み元のコミットSHA。空欄なら取り込み元ブランチの最新を使う(現在のimages/sparqlist/SRC_REFと同じなら、イメージは更新せずdevの確認だけ行う)
+    regex: ^([0-9a-f]{7,40})?$
+  - name: tag
+    description: 新しいイメージタグ。空欄なら現在のTAG(<version>-r<N>)から自動採番
+    regex: ^([0-9A-Za-z._-]+)?$
+  - name: sync_prod_data
+    description: 最後に本番の永続データをdevへコピーし、本番相当データで確認できるようにする(**devの内容は上書きされる**)
+    required: true
+    value: 'no'
+    values:
+    - 'yes'
+    - 'no'
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: イメージ更新 → ビルド → devへ反映 → devの確認
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        scripts/update-app-image.sh dev-update sparqlist '@option.src_ref@' '@option.tag@'
+      scriptInterpreter: /bin/bash
+    - description: 本番の永続データをdevへコピー(sync_prod_data=yesのとき)
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        if [ '@option.sync_prod_data@' = yes ]; then
+          scripts/update-app-image.sh sync-dev-data sparqlist
+        else
+          echo 'sync_prod_data=no のためスキップします。'
+        fi
+      scriptInterpreter: /bin/bash
+- name: 2-production-update
+  group: apps/sparqlist
+  uuid: e2340c99-5ea2-559b-9544-6aadba3e09b6
+  description: |
+    【本番環境更新パイプライン】sparqlist
+
+    envs/production/apps/sparqlist を dev と同じ内容にする昇格PRを promote ワークフローで作り、
+    **人がPRをレビュー・マージするのを待つ(このジョブはマージしない)**。マージされたら
+    mainを取り込み、Fleetの適用を待って本番のrollout・WEB疎通を確認する。
+    devと本番に差分が無ければPRは作らず、確認だけ行う。
+
+    PRのdiffはイメージタグに限らずdevに入っている変更すべて。内容を見てからマージすること。
+    マージ待ちの間、クローンのロックは手放すので他のジョブは動ける。
+    本番にまだ無いアプリはエラーになる(初回は「3-first-promote-prepare」)。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 10h
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: merge_wait_minutes
+    description: 本番PRのレビュー・マージを待つ時間(分)。過ぎたらジョブは失敗で終わる(PRはそのまま残る)
+    required: true
+    value: '240'
+    values:
+    - '60'
+    - '120'
+    - '240'
+    - '480'
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: 昇格PR作成 → 人のマージ待ち → 本番の確認
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/update-app-image.sh release-production sparqlist
+      scriptInterpreter: /bin/bash
+- name: 3-first-promote-prepare
+  group: apps/sparqlist
+  uuid: 6a7e16a2-385e-5562-beca-b4a652768b1e
+  description: |
+    【本番への初回昇格 1/2】sparqlist(本番にまだ無いときだけ。既にあれば「2-production-update」を使う)
+
+    envs/dev/apps/sparqlist を envs/production/apps/sparqlist へコピーするブランチを作る(コミットはしない)。
+    出力に表示されるkubesealコマンド(PATを扱うためジョブ化しない)を踏み台端末で人が実行し、
+    envs/production/secrets/sparqlist.yaml を作ってから「4-first-promote-finish」を実行する。
+
+    **finishまでの間、クローンは未コミットのまま残る**。他のジョブは「mainを最新化」で止まる。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 30m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options: []
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: productionへのコピー(コミットしない)
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        scripts/update-app-image.sh promote-production sparqlist
+      scriptInterpreter: /bin/bash
+- name: 4-first-promote-finish
+  group: apps/sparqlist
+  uuid: 95cfcd1b-9d38-5745-bcfd-997900c3a6f5
+  description: |
+    【本番への初回昇格 2/2】sparqlist
+
+    kubesealでSealedSecretを作った後に実行。コミット・PR作成まで行う。
+    マージはレビューのうえ人が行い、マージ後に「9-check」(env=production)で確認する。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 30m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options: []
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: コミット・PR作成
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        scripts/update-app-image.sh promote-production-finish sparqlist
+      scriptInterpreter: /bin/bash
+- name: 9-check
+  group: apps/sparqlist
+  uuid: f37f8fde-983c-5015-9eba-bb9a57b16e35
+  description: |
+    sparqlist のrollout状況とWEB疎通(readinessProbeのpathで200か)を確認する(読み取りのみ)。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 10m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: env
+    description: 確認する環境
+    required: true
+    value: dev
+    values:
+    - dev
+    - production
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: 確認
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        scripts/update-app-image.sh check-@option.env@ sparqlist
+      scriptInterpreter: /bin/bash

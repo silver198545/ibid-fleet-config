@@ -8,6 +8,47 @@
 #
 # 前提: 呼び出し側で set -euo pipefail、カレントディレクトリがリポジトリルート。
 
+# 作業ツリー(このクローン)を排他ロックする。Rundeckの複数ジョブ(アプリの更新・
+# WordPressのリハーサル等)が同じクローンでブランチを切り替え合わないようにするためのもの。
+# 本番PRのマージ待ちのような長い待ちの間は pr_unlock_repo で手放すこと。
+# 引数: [待つ秒数(既定3600)]
+pr_lock_repo() {
+  local wait="${1:-3600}" lockfile
+  lockfile="$(git rev-parse --git-dir)/ibid-pipeline.lock"
+  exec 9>"$lockfile"
+  if ! flock -n 9; then
+    echo "このクローンは他のジョブが使用中です。空くのを待っています(最大${wait}秒)..." >&2
+    flock -w "$wait" 9 || { echo "エラー: ${wait}秒待ってもロックが空きませんでした: ${lockfile}" >&2; exit 1; }
+  fi
+}
+
+pr_unlock_repo() {
+  flock -u 9 2>/dev/null || true
+}
+
+# 人がPRをマージするのを待つ(このスクリプトはマージしない。productionに触れるPR用)。
+# マージされたらマージコミットのSHAを MERGE_SHA に入れる。closeされた・時間切れはエラー終了。
+# 引数: <pr_url> <待つ分数>
+pr_wait_human_merge() {
+  local pr_url="$1" minutes="$2" state i
+  echo "PRのレビュー・マージを待っています(最大${minutes}分。マージは人が行う): ${pr_url}"
+  for ((i = 0; i < minutes * 2; i++)); do
+    state="$(gh pr view "$pr_url" --json state -q .state)"
+    case "$state" in
+      MERGED)
+        MERGE_SHA="$(gh pr view "$pr_url" --json mergeCommit -q .mergeCommit.oid)"
+        echo "マージされました: ${MERGE_SHA}"
+        return 0
+        ;;
+      CLOSED) echo "エラー: PRがマージされずにcloseされました: ${pr_url}" >&2; exit 1 ;;
+    esac
+    (( i % 20 == 19 )) && echo "  まだマージされていません($(( (i + 1) / 2 ))分経過)"
+    sleep 30
+  done
+  echo "エラー: ${minutes}分待ってもマージされませんでした。マージ後に確認だけ行う場合は check のジョブを使ってください: ${pr_url}" >&2
+  exit 1
+}
+
 # 作業ツリーがクリーンかを確認する。
 pr_ensure_clean_worktree() {
   if [[ -n "$(git status --porcelain)" ]]; then

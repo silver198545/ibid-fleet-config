@@ -156,4 +156,9 @@ diff:
 EOF
 
 echo "作成しました: $SITE_DIR/fleet.yaml"
+# Rundeckのジョブのサイト選択肢はdevのサイト一覧から作る(validateが生成結果との一致を確かめる)
+if [[ "$ENV_NAME" == "dev" ]]; then
+  python3 "$REPO_ROOT/rundeck/generate-jobs.py" >/dev/null
+  echo "Rundeckのジョブ定義も更新しました: rundeck/jobs/wordpress.yaml(一緒にコミットし、マージ後にRundeckへ取り込み直す)"
+fi
 echo "次の手順は docs/manual-wordpress.md を参照してください。"

@@ -36,12 +36,15 @@
    ```
    Deployment の `imagePullSecrets` に `ghcr-<app>` を入れる。**PATの期限の日を控えておく**
 4. `README.md` の「現在の構成」の表と、ワークフロー一覧の `build-<app>-image` の行にアプリ名を足す
+5. Rundeckのジョブを作り直す: `python3 rundeck/generate-jobs.py`(`rundeck/jobs/apps.yaml` にこのアプリの
+   ジョブが増える。一緒にコミットしないとvalidateが落ちる。マージ後にRundeckへ取り込む。
+   [manual-rundeck.md](../manual-rundeck.md))
 
 ## 3. devに出す
 
 ```bash
 git checkout -b feat/new-app-<app>
-git add images .github envs/dev scripts README.md .gitignore
+git add images .github envs/dev scripts README.md .gitignore rundeck
 git commit -m "feat: 自作アプリ<app>をdevに追加"
 git push -u origin HEAD && gh pr create --fill
 ```

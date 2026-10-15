@@ -59,6 +59,9 @@ resource state with `kubectl`.
   build — a core update is a digest change in `charts/ibid-wordpress/values.yaml` + chart version bump.
 - `images/<app>/` — build definitions for the custom apps under `envs/<env>/apps/`, published to GHCR
   by `build-<app>-image.yaml`.
+- `rundeck/` — Rundeck job definitions, **generated** by `rundeck/generate-jobs.py` from `envs/dev/`
+  (per-app jobs + WordPress jobs with a site selector; `validate` checks they are up to date). Jobs only
+  call `scripts/` subcommands; production jobs wait for a human merge and never merge. See `docs/manual-rundeck.md`.
 - `fleet-bootstrap/` — the two GitRepo definitions (manual apply to Rancher local; `.fleetignore`d).
 - `scripts/` — `new-wordpress-site.sh <env> <site>` (scaffold a site bundle, required for every site),
   `seal-site-secrets.sh <env> <site>` (generate/migrate the 3 per-site Secrets as SealedSecrets under
@@ -70,7 +73,8 @@ resource state with `kubectl`.
   rehearsals), `update-app-image.sh` (apps: `set-image` does image bump → build → dev in one run; production via
   `deploy-production`), `bump-chart.sh [--update-images] "<title>"` (chart change/Bitnami digest bump →
   publish → all dev sites' `helm.version`, one run), `bump-plugins.sh` (dev plugins → latest
-  WordPress.org versions). `auto-update.yaml` runs both weekly (dev only; production still via promote). These scripts auto-merge dev-only PRs; see branch protection below.
+  WordPress.org versions), `wordpress-pipeline.sh` (WP pipelines: production content → dev site, rehearsal
+  start/upgrade/cleanup, production promotion that waits for a human merge). `auto-update.yaml` runs both weekly (dev only; production still via promote). These scripts auto-merge dev-only PRs; see branch protection below.
 - `docs/` — manual runbooks for steps Fleet cannot automate. Always check these before changing
   behavior they document, and update them when the corresponding config changes. `docs/runbook/` holds
   the short, steps-only operator runbooks (new site, WP update, new app, app update, troubleshooting);

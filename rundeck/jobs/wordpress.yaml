@@ -1,0 +1,669 @@
+# 自動生成ファイル。直接編集せず rundeck/generate-jobs.py を直して再生成すること。
+# 取り込み: rd jobs load -p <プロジェクト名> -f rundeck/jobs/wordpress.yaml --format yaml
+# 説明: docs/manual-rundeck.md
+- name: 1-dev-refresh
+  group: wordpress
+  uuid: 94c91d87-8aa7-5401-9238-aeea08a0690a
+  description: |
+    【開発環境更新パイプライン】本番コンテンツ → devの同名サイト
+
+    選んだサイトごとに、本番のバックアップ(日次バックアップのCronJobから今すぐ1つ)を取り、
+    devの現状をバックアップしてから、本番のwp-content・DBをdevへリストアする。
+    続けてDB内の本番の公開URLをdevの公開URL(wp-config.phpのWP_HOME)へ置換し、HTTP 200を確認する。
+    gitは触らない。チャート版・プラグイン(構成)はdevのまま変わらない。
+
+    **devの記事・設定は本番のもので上書きされる**(上書き前のバックアップはNFSの
+    backup/dev/wordpress-<site>/ に残る)。全34サイトを選ぶと数時間かかる。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 12h
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: sites
+    description: コンテンツを本番から戻すdevのサイト(複数選択可)
+    required: true
+    values:
+    - abc
+    - abc-en
+    - acd
+    - acd-en
+    - cell
+    - cell-en
+    - dgprt
+    - dgprt-en
+    - dna
+    - dna-en
+    - epd
+    - epd-en
+    - hdm
+    - hdm-en
+    - iddd
+    - iddd-en
+    - info
+    - info-en
+    - jcm
+    - jcm-en
+    - jmc
+    - jmc-en
+    - kougaku
+    - kougaku-en
+    - mgen
+    - mgen-en
+    - mus
+    - mus-en
+    - pms
+    - pms-en
+    - tet
+    - tet-en
+    - web
+    - web-en
+    valuesListDelimiter: ','
+    enforced: true
+    multivalued: true
+    delimiter: ' '
+  - name: fresh_backup
+    description: 'yes: 本番のバックアップを今すぐ取ってそれを使う / no: 最新の日次バックアップ(JST 3:00)を使う'
+    required: true
+    value: 'yes'
+    values:
+    - 'yes'
+    - 'no'
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: 本番バックアップ → devバックアップ → リストア → URL置換 → 確認
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        FRESH_BACKUP=$([ '@option.fresh_backup@' = yes ] && echo 1 || echo 0) scripts/wordpress-pipeline.sh dev-refresh @option.sites@
+      scriptInterpreter: /bin/bash
+- name: 2-rehearsal
+  group: wordpress
+  uuid: c9a8843f-2955-509f-9599-957fc2884643
+  description: |
+    【本番データのリハーサル】
+
+    dev1に一時サイト <site>-rh を本番と同じ構成で作り(devだけのPRなのでauto-merge)、本番の最新
+    コンテンツをリストアして比較の基準(各ページのHTTPステータス・WordPress/プラグインの版)を記録する。
+    upgrade=yes なら続けて <site>-rh をdevの構成(昇格予定の helm.version・plugins)へ切り替え、
+    プラグイン同期Job・DB更新(wp core update-db)の所要時間、MariaDBのアップグレード、
+    ページの表示、PHPエラーを基準と比べて報告する。
+
+    WordPress本体のメジャー更新・MariaDBのメジャー更新・プラグインの大きな更新の前に行う
+    (docs/operations-flow.md「本番データリハーサル」)。dev1のメモリの都合で同時に1サイトまで。
+    結果は昇格PRに書き、終わったら「2b-rehearsal-cleanup」で必ず削除する。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 6h
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: site
+    description: リハーサルする本番のサイト
+    required: true
+    values:
+    - abc
+    - abc-en
+    - acd
+    - acd-en
+    - cell
+    - cell-en
+    - dgprt
+    - dgprt-en
+    - dna
+    - dna-en
+    - epd
+    - epd-en
+    - hdm
+    - hdm-en
+    - iddd
+    - iddd-en
+    - info
+    - info-en
+    - jcm
+    - jcm-en
+    - jmc
+    - jmc-en
+    - kougaku
+    - kougaku-en
+    - mgen
+    - mgen-en
+    - mus
+    - mus-en
+    - pms
+    - pms-en
+    - tet
+    - tet-en
+    - web
+    - web-en
+    valuesListDelimiter: ','
+    enforced: true
+  - name: fresh_backup
+    description: 'yes: 本番のバックアップを今すぐ取ってそれを使う / no: 最新の日次バックアップ(JST 3:00)を使う'
+    required: true
+    value: 'yes'
+    values:
+    - 'yes'
+    - 'no'
+    valuesListDelimiter: ','
+    enforced: true
+  - name: upgrade
+    description: 'yes: 続けてdevの構成へ切り替えて確認する / no: 本番のコピーを作るところまで'
+    required: true
+    value: 'yes'
+    values:
+    - 'yes'
+    - 'no'
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: リハーサルサイト作成 → 本番データのリストア → 基準の記録
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        FRESH_BACKUP=$([ '@option.fresh_backup@' = yes ] && echo 1 || echo 0) scripts/wordpress-pipeline.sh rehearsal-start '@option.site@'
+      scriptInterpreter: /bin/bash
+    - description: devの構成へ切り替え → 基準と比較(upgrade=yesのとき)
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        if [ '@option.upgrade@' = yes ]; then
+          scripts/wordpress-pipeline.sh rehearsal-upgrade '@option.site@'
+        else
+          echo 'upgrade=no のため切り替えません。あとで 2a-rehearsal-upgrade を実行できます。'
+        fi
+      scriptInterpreter: /bin/bash
+- name: 2a-rehearsal-upgrade
+  group: wordpress
+  uuid: 9e736bfa-24ab-5a4b-8027-c16cfd506afd
+  description: |
+    【本番データのリハーサル: 切り替えのやり直し】
+
+    既にある <site>-rh を、devの現在の構成へ切り替えて基準と比べる。リハーサルで見つかった問題を
+    devで直したあとや、2-rehearsal を upgrade=no で実行したあとに使う。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 3h
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: site
+    description: リハーサル中のサイト(<site>-rh の <site>)
+    required: true
+    values:
+    - abc
+    - abc-en
+    - acd
+    - acd-en
+    - cell
+    - cell-en
+    - dgprt
+    - dgprt-en
+    - dna
+    - dna-en
+    - epd
+    - epd-en
+    - hdm
+    - hdm-en
+    - iddd
+    - iddd-en
+    - info
+    - info-en
+    - jcm
+    - jcm-en
+    - jmc
+    - jmc-en
+    - kougaku
+    - kougaku-en
+    - mgen
+    - mgen-en
+    - mus
+    - mus-en
+    - pms
+    - pms-en
+    - tet
+    - tet-en
+    - web
+    - web-en
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: devの構成へ切り替え → 基準と比較
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        scripts/wordpress-pipeline.sh rehearsal-upgrade '@option.site@'
+      scriptInterpreter: /bin/bash
+- name: 2b-rehearsal-cleanup
+  group: wordpress
+  uuid: 33133a87-31a3-5ba2-81a6-8e80e23a5fc5
+  description: |
+    【本番データのリハーサル: 後片付け】
+
+    <site>-rh をGitから削除するPRを作ってauto-mergeし、マージ後にdev1の wordpress-<site>-rh
+    namespace(本番データのコピー)を削除する。harvesterのPVがReleasedで残ったら警告を出す。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 1h
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: site
+    description: 削除するリハーサルサイトの元のサイト名(<site>-rh の <site>)
+    required: true
+    values:
+    - abc
+    - abc-en
+    - acd
+    - acd-en
+    - cell
+    - cell-en
+    - dgprt
+    - dgprt-en
+    - dna
+    - dna-en
+    - epd
+    - epd-en
+    - hdm
+    - hdm-en
+    - iddd
+    - iddd-en
+    - info
+    - info-en
+    - jcm
+    - jcm-en
+    - jmc
+    - jmc-en
+    - kougaku
+    - kougaku-en
+    - mgen
+    - mgen-en
+    - mus
+    - mus-en
+    - pms
+    - pms-en
+    - tet
+    - tet-en
+    - web
+    - web-en
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: Gitから削除 → namespace削除
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        scripts/wordpress-pipeline.sh rehearsal-cleanup '@option.site@'
+      scriptInterpreter: /bin/bash
+- name: 3-production-promote
+  group: wordpress
+  uuid: 8f2bcfd1-7e89-5b25-befb-af7ea1f65605
+  description: |
+    【本番昇格パイプライン】
+
+    devと本番で差分のあるサイトの昇格PRを promote ワークフローで作り、CI通過後に対象サイトの
+    本番バックアップを取って(結果はPRにコメントする)、**人がPRをレビュー・マージするのを待つ
+    (このジョブはマージしない)**。マージされたらFleetの適用(Helmリビジョンの更新とrollout)を待ち、
+    本番のHTTP 200・Pod・MariaDBのアップグレード状況を確認する。差分が無ければ確認だけ行う。
+
+    all は本番に既にあるサイトだけが対象。devにしか無いサイトを本番へ追加するときはサイト名を選ぶ
+    (先に scripts/seal-site-secrets.sh production <site> のSecretをmainへ入れておくこと)。
+    DBマイグレーションを伴う更新なら、先に「2-rehearsal」を済ませておく。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 10h
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: sites
+    description: 昇格するサイト(all、または複数選択)
+    required: true
+    value: all
+    values:
+    - all
+    - abc
+    - abc-en
+    - acd
+    - acd-en
+    - cell
+    - cell-en
+    - dgprt
+    - dgprt-en
+    - dna
+    - dna-en
+    - epd
+    - epd-en
+    - hdm
+    - hdm-en
+    - iddd
+    - iddd-en
+    - info
+    - info-en
+    - jcm
+    - jcm-en
+    - jmc
+    - jmc-en
+    - kougaku
+    - kougaku-en
+    - mgen
+    - mgen-en
+    - mus
+    - mus-en
+    - pms
+    - pms-en
+    - tet
+    - tet-en
+    - web
+    - web-en
+    valuesListDelimiter: ','
+    enforced: true
+    multivalued: true
+    delimiter: ' '
+  - name: merge_wait_minutes
+    description: 本番PRのレビュー・マージを待つ時間(分)。過ぎたらジョブは失敗で終わる(PRはそのまま残る)
+    required: true
+    value: '240'
+    values:
+    - '60'
+    - '120'
+    - '240'
+    - '480'
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: 昇格PR作成 → 本番バックアップ → 人のマージ待ち → 反映確認
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/wordpress-pipeline.sh promote-production @option.sites@
+      scriptInterpreter: /bin/bash
+- name: backup
+  group: wordpress/tools
+  uuid: 9288616e-4c38-5a04-9530-55774d94a473
+  description: |
+    日次バックアップのCronJobから今すぐ1つ取る(完了まで待つ)。出力はNFSの backup/<env>/wordpress-<site>/。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 2h
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: env
+    description: 環境
+    required: true
+    value: production
+    values:
+    - production
+    - dev
+    valuesListDelimiter: ','
+    enforced: true
+  - name: sites
+    description: サイト(all、または複数選択)
+    required: true
+    value: all
+    values:
+    - all
+    - abc
+    - abc-en
+    - acd
+    - acd-en
+    - cell
+    - cell-en
+    - dgprt
+    - dgprt-en
+    - dna
+    - dna-en
+    - epd
+    - epd-en
+    - hdm
+    - hdm-en
+    - iddd
+    - iddd-en
+    - info
+    - info-en
+    - jcm
+    - jcm-en
+    - jmc
+    - jmc-en
+    - kougaku
+    - kougaku-en
+    - mgen
+    - mgen-en
+    - mus
+    - mus-en
+    - pms
+    - pms-en
+    - tet
+    - tet-en
+    - web
+    - web-en
+    valuesListDelimiter: ','
+    enforced: true
+    multivalued: true
+    delimiter: ' '
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: バックアップ
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        scripts/wordpress-pipeline.sh backup '@option.env@' @option.sites@
+      scriptInterpreter: /bin/bash
+- name: check
+  group: wordpress/tools
+  uuid: 1af6ea62-5b12-5c6e-b7ce-cb687f3f1324
+  description: |
+    各サイトのHTTPステータス(200か)と、正常でないPodが無いかを確認する(読み取りのみ)。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 15m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: env
+    description: 環境
+    required: true
+    value: production
+    values:
+    - production
+    - dev
+    valuesListDelimiter: ','
+    enforced: true
+  - name: sites
+    description: サイト(all、または複数選択)
+    required: true
+    value: all
+    values:
+    - all
+    - abc
+    - abc-en
+    - acd
+    - acd-en
+    - cell
+    - cell-en
+    - dgprt
+    - dgprt-en
+    - dna
+    - dna-en
+    - epd
+    - epd-en
+    - hdm
+    - hdm-en
+    - iddd
+    - iddd-en
+    - info
+    - info-en
+    - jcm
+    - jcm-en
+    - jmc
+    - jmc-en
+    - kougaku
+    - kougaku-en
+    - mgen
+    - mgen-en
+    - mus
+    - mus-en
+    - pms
+    - pms-en
+    - tet
+    - tet-en
+    - web
+    - web-en
+    valuesListDelimiter: ','
+    enforced: true
+    multivalued: true
+    delimiter: ' '
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: 確認
+      script: |
+        set -euo pipefail
+        cd /home/uchida/ibid-fleet-config
+        scripts/wordpress-pipeline.sh check '@option.env@' @option.sites@
+      scriptInterpreter: /bin/bash

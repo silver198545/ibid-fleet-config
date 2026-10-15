@@ -93,6 +93,10 @@ devのサイトは新品DB(またはテスト用コンテンツ)のため、**�
 - dev1(とHarvesterホスト)はメモリに余裕がないため、**同時に置くリハーサルサイトは1つまで**
 - リハーサルサイトもFleet管理(Git経由)にする。名前の置き換えは
   `scripts/rehearsal-site.sh` が行う
+- 以下の1.〜5.は `scripts/wordpress-pipeline.sh` の `rehearsal-start <site>`(1.〜3.)・
+  `rehearsal-upgrade <site>`(4.。基準との比較も行う)・`rehearsal-cleanup <site>`(5.)で
+  まとめて実行できる(Rundeckのジョブ `wordpress/2-rehearsal` 等。[manual-rundeck.md](manual-rundeck.md))。
+  以下はその中身の説明を兼ねた手動手順
 
 ### 1. 本番のバックアップを取得する
 
