@@ -4,6 +4,8 @@
 #   - worker数とPumaWorkerKillerのメモリ上限を環境変数で指定する(Deploymentの
 #     resources.limits.memoryに合わせる。テンプレートは物理サーバー向けの4worker・6442MB)
 #   - activate_control_app を外す(使わないポートを開けない)
+#   - rackupはアプリ側 config.ru ではなく config/k8s.ru(同じディレクトリの k8s.ru。
+#     developmentモードでのHost名の許可。詳細はk8s.ru冒頭)
 root = Dir.getwd
 environment ENV.fetch('RACK_ENV', 'production')
 
@@ -15,7 +17,7 @@ preload_app!
 
 pidfile "#{root}/tmp/puma/pid"
 state_path "#{root}/tmp/puma/state"
-rackup "#{root}/config.ru"
+rackup "#{root}/config/k8s.ru"
 
 before_fork do
   require 'puma_worker_killer'
