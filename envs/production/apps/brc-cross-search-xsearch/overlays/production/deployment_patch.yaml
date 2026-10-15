@@ -1,0 +1,20 @@
+# production固有: 冗長化のため2レプリカ。RACK_ENVはproduction
+# (devはdeployment.yamlでdevelopmentにしている)。
+spec:
+  replicas: 2
+  template:
+    spec:
+      containers:
+        - name: brc-cross-search-xsearch
+          env:
+            - name: RACK_ENV
+              value: production
+      # 2レプリカを別ノードに強制分散し、単一ノード障害時も他方が応答を継続できるようにする
+      # (prod1はworker 7台あり、必須アフィニティにしてもスケジューリングは詰まらない)。
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: brc-cross-search-xsearch
+              topologyKey: kubernetes.io/hostname
