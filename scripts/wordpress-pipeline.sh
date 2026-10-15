@@ -638,6 +638,7 @@ cmd_promote_production() {
     -q "[.[] | select(.headRefName | endswith(\"-${run_id}\"))][0].url // empty")"
   [[ -n "$pr_url" ]] || die "昇格PRが見つかりません(run ${run_id})。"
   echo "PR作成: ${pr_url}"
+  pr_comment_actor "$pr_url"
   echo "CIチェックを待っています..."
   gh pr checks "$pr_url" --watch || echo "警告: CIチェックが失敗、またはタイムアウトしました: ${pr_url}" >&2
   pr_unlock_repo

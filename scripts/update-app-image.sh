@@ -197,6 +197,9 @@ cmd_latest_src_ref() {
     echo "エラー: ${repo}(${branch})の最新コミット取得に失敗しました。" >&2
     echo "$result" >&2
     echo "ghが${repo}への読み取り権限を持つアカウントで認証されているか確認してください(gh auth status)。" >&2
+    echo "Rundeckのパイプライン用マシンユーザーで実行している場合は、そのアカウントが${repo}の" >&2
+    echo "collaborator(Read)になっているか確認する(docs/manual-rundeck.md「実行アカウント」)。" >&2
+    echo "すぐ進めたいときは、取り込むコミットのSHAをジョブのsrc_refに指定すれば、この取得は行わない。" >&2
     exit 1
   fi
 
@@ -361,6 +364,7 @@ cmd_deploy_production() {
   pr_url="$(gh pr list --state open --search "head:promote/dev-to-production-apps-${APP}-${run_id}" --json url -q '.[0].url // empty')"
   [[ -n "$pr_url" ]] || { echo "エラー: 昇格PRが見つかりません(run ${run_id})。" >&2; exit 1; }
   echo "PR作成: ${pr_url}"
+  pr_comment_actor "$pr_url"
   PR_URL="$pr_url"
   echo "CIチェックを待っています..."
   gh pr checks "$pr_url" --watch || echo "警告: CIチェックが失敗、またはタイムアウトしました: ${pr_url}" >&2

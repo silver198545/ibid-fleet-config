@@ -16,7 +16,9 @@
   ([manual-tooling-setup.md](../manual-tooling-setup.md))
 - コマンドはリポジトリのルートで、`main` を最新にしてから実行する: `git checkout main && git pull`
 - 変更はすべて **dev → 確認 → production** の順に流す。本番を直接書き換えない
-- dev だけに触れるPRは CI(validate)が通れば自動でマージされる。**本番に触れるPRは必ず人が差分を見てマージする**
+- dev だけに触れるPRは CI(validate)が通れば自動でマージされる。**本番に触れるPRは必ず人が差分を見てマージする**。
+  Rundeckのパイプラインやpromoteワークフローが作った本番PRは作成者がマシンユーザーなので、
+  Code Owner(`@silver198545`)が **Approve** してからマージする([manual-rundeck.md](../manual-rundeck.md))
 - 名前の規則: サイトは日本語版 `<site>`(例: `web`、`/ja`)と英語版 `<site>-en`(`/en`)。ホスト名は両方とも
   `<site>.dev.ibid.lan` / `<site>.production.ibid.lan`。DNSはワイルドカードなので登録作業は無い。
   devの外部公開ドメインは全サイト共通の `wpdev1.brc.riken.jp`(外部nginxで向き先を切り替える)
