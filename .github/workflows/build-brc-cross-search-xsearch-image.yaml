@@ -1,0 +1,55 @@
+# images/brc-cross-search-xsearch/ 配下の変更がmainにマージされたら、
+# brc-cross-search (Sinatra + Puma, feature/docker-app-modeブランチ)の
+# 「横断検索」(APP_MODE=xsearch)サーバーイメージをビルドしてGHCRへ公開する。
+# タグは images/brc-cross-search-xsearch/TAG の内容、取り込むアプリ側のコミットは
+# images/brc-cross-search-xsearch/SRC_REF の内容。公開後、envs/<env>/apps/brc-cross-search-xsearch/deployment.yaml の
+# image タグを切り替える(docs/manual-apps.md参照)。
+# 同じソースの brc-cross-search-resource は build-brc-cross-search-resource-image.yaml が別途公開する。
+#
+# brc-cross-search(d-usuda/brc-cross-search)は公開リポジトリのため、ソース取得に
+# Deploy Key/PAT等の認証情報は不要(sparqlistと同じ)。
+#
+# 初回のみ: 公開されたパッケージ(ghcr.io上の brc-cross-search-xsearch)の可視性をGitHubの
+# Package設定で public にすること。publicにしておくことで、GHCR pull用SealedSecretも
+# imagePullSecretsも不要になる。
+
+name: build-brc-cross-search-xsearch-image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "images/brc-cross-search-xsearch/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: SRC_REFを読み込む
+        id: src_ref
+        run: echo "ref=$(tr -d '[:space:]' < images/brc-cross-search-xsearch/SRC_REF)" >> "$GITHUB_OUTPUT"
+
+      - name: アプリ本体(公開リポジトリ)をSRC_REF固定で取得
+        uses: actions/checkout@v4
+        with:
+          repository: d-usuda/brc-cross-search
+          ref: ${{ steps.src_ref.outputs.ref }}
+          path: images/brc-cross-search-xsearch/app
+
+      - name: イメージをビルドしてGHCRへpush
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="$(tr -d '[:space:]' < images/brc-cross-search-xsearch/TAG)"
+          IMAGE="ghcr.io/${{ github.repository_owner }}/brc-cross-search-xsearch:$TAG"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker build -t "$IMAGE" images/brc-cross-search-xsearch
+          docker push "$IMAGE"
+          echo "公開しました: $IMAGE"

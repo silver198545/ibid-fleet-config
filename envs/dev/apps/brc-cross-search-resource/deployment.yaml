@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: brc-cross-search-resource
+  namespace: brc-cross-search-resource
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: brc-cross-search-resource
+  template:
+    metadata:
+      labels:
+        app: brc-cross-search-resource
+    spec:
+      containers:
+        - name: brc-cross-search-resource
+          image: ghcr.io/silver198545/brc-cross-search-resource:0.1.0-r0
+          ports:
+            - name: http
+              containerPort: 4043
+          env:
+            # Pumaのworker数と、PumaWorkerKillerがworkerを再起動するメモリ上限(MB)。
+            # 上限はlimits.memoryと揃える(images/brc-cross-search-resource/puma.rb参照)。
+            - name: WEB_CONCURRENCY
+              value: "2"
+            - name: PUMA_WORKER_KILLER_RAM_MB
+              value: "1024"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          # ルートはアプリ側で404固定。ページは /<任意の接頭辞>/<ページ名>/ で
+          # config/page_resource のanimal・dna等の設定を読む。検索フォームのページは外部SPARQLに問い合わせないため、
+          # エンドポイントの障害でPodが落ちないようこれをヘルスチェックに使う。
+          readinessProbe:
+            httpGet:
+              path: /resource/animal/
+              port: 4043
+          livenessProbe:
+            httpGet:
+              path: /resource/animal/
+              port: 4043
+            initialDelaySeconds: 10
