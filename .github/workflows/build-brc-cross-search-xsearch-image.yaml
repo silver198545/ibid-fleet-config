@@ -1,5 +1,5 @@
 # images/brc-cross-search-xsearch/ 配下の変更がmainにマージされたら、
-# brc-cross-search (Sinatra + Puma, feature/docker-app-modeブランチ)の
+# brc-cross-search (Sinatra + Puma, mainブランチ)の
 # 「横断検索」(APP_MODE=xsearch)サーバーイメージをビルドしてGHCRへ公開する。
 # タグは images/brc-cross-search-xsearch/TAG の内容、取り込むアプリ側のコミットは
 # images/brc-cross-search-xsearch/SRC_REF の内容。公開後、envs/<env>/apps/brc-cross-search-xsearch/deployment.yaml の
@@ -48,7 +48,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: d-usuda/brc-cross-search
-          ref: feature/docker-app-mode
+          ref: main
           token: ${{ secrets.BRC_CROSS_SEARCH_ACCESS_TOKEN }}
           persist-credentials: false
           fetch-depth: 0

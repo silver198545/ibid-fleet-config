@@ -484,10 +484,11 @@ devへコピーして本番相当データで確認できる**(`update-app-image
 ## brc-cross-search-xsearch / brc-cross-search-resource 固有のメモ
 
 - ソースは[d-usuda/brc-cross-search](https://github.com/d-usuda/brc-cross-search)の
-  `feature/docker-app-mode`ブランチ(Sinatra + Puma、DBなし。外部のSPARQLエンドポイント
+  `main`ブランチ(Sinatra + Puma、DBなし。外部のSPARQLエンドポイント
   `https://knowledge.brc.riken.jp/sparql`を参照するのみ)。Docker対応(`APP_MODE`・
-  `PAGE_CONFIG_DIR`)がmainにマージされたら、`scripts/update-app-image.sh`の
-  `upstream_branch_for`と両ワークフローのcheckoutの`ref:`をmainに切り替える。
+  `PAGE_CONFIG_DIR`)が入るまでは作業ブランチ`feature/docker-app-mode`を追っていたが、2026-10-15に
+  mainへマージされ(取り込み元PR #3)ブランチが削除されたため、`scripts/update-app-image.sh`の
+  `upstream_branch_for`と両ワークフローのcheckoutの`ref:`をmainに切り替えた。
 - **同じソースを2つのアプリとして展開している**。アプリ側の`docker-compose.yml`の
   profileに対応する:
 
