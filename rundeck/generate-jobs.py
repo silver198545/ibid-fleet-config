@@ -25,11 +25,11 @@ REPO = Path(__file__).resolve().parent.parent
 OUT_DIR = REPO / "rundeck" / "jobs"
 
 # ジョブを実行するRundeckノードと、そこでのクローンのパス。
-# rancherホストのパイプライン専用OSユーザー ibidops(GitHubは専用のマシンユーザーで認証)へ
-# SSHで入るノードに、タグ ibid-ops を付けておく(docs/manual-rundeck.md「実行アカウント」)。
-# 別ホスト・別ユーザーへ持っていく場合はここを変えて再生成する。
-NODE_FILTER = "tags: ibid-ops"
-REPO_PATH = "/home/ibidops/ibid-fleet-config"
+# ノード(rancherホスト、タグ rancher)は username: ${job.username} で、ジョブを実行した人の
+# OSユーザーとしてSSHする。GitHub・kubectlもその人の認証で動く(docs/manual-rundeck.md「実行アカウント」)。
+# クローンは各ユーザーのホームに置く。別ホストへ持っていく場合はここを変えて再生成する。
+NODE_FILTER = "tags: rancher"
+REPO_PATH = '"$HOME/ibid-fleet-config"'
 
 # ジョブのUUIDはグループ・名前から決める(再生成・再取り込みしても同じジョブを更新するため)
 UUID_NS = uuid.UUID("6f1c0d7e-3b51-4f6a-9a51-6f1b8a2c9d40")
@@ -54,7 +54,8 @@ Dumper.add_representer(
 
 def script(body):
     """Rundeckのインラインスクリプトステップ(bashで実行)。リポジトリのルートで動く。
-    PIPELINE_ACTOR(Rundeckでジョブを実行した人)は、スクリプトがPRに書き残す(scripts/lib/pr.sh)。"""
+    PIPELINE_ACTOR(Rundeckでジョブを実行した人)は、スクリプトがPRに書き残す(scripts/lib/pr.sh)。
+    実行者本人のアカウントで動くのでGitHub上も本人の操作になるが、Rundeckからの実行であることを残す。"""
     return Literal("set -euo pipefail\ncd " + REPO_PATH + "\n"
                    "export PIPELINE_ACTOR='@job.username@'\n" + body.strip() + "\n")
 

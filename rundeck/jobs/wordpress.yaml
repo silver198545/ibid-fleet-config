@@ -20,7 +20,7 @@
   multipleExecutions: false
   timeout: 12h
   nodefilters:
-    filter: 'tags: ibid-ops'
+    filter: 'tags: rancher'
   nodesSelectedByDefault: true
   options:
   - name: sites
@@ -81,7 +81,7 @@
     - description: mainを最新化
       script: |
         set -euo pipefail
-        cd /home/ibidops/ibid-fleet-config
+        cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
@@ -97,7 +97,7 @@
     - description: 本番バックアップ → devバックアップ → リストア → URL置換 → 確認
       script: |
         set -euo pipefail
-        cd /home/ibidops/ibid-fleet-config
+        cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
         FRESH_BACKUP=$([ '@option.fresh_backup@' = yes ] && echo 1 || echo 0) scripts/wordpress-pipeline.sh dev-refresh @option.sites@
       scriptInterpreter: /bin/bash
@@ -122,7 +122,7 @@
   multipleExecutions: false
   timeout: 6h
   nodefilters:
-    filter: 'tags: ibid-ops'
+    filter: 'tags: rancher'
   nodesSelectedByDefault: true
   options:
   - name: site
@@ -190,7 +190,7 @@
     - description: mainを最新化
       script: |
         set -euo pipefail
-        cd /home/ibidops/ibid-fleet-config
+        cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
@@ -206,14 +206,14 @@
     - description: リハーサルサイト作成 → 本番データのリストア → 基準の記録
       script: |
         set -euo pipefail
-        cd /home/ibidops/ibid-fleet-config
+        cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
         FRESH_BACKUP=$([ '@option.fresh_backup@' = yes ] && echo 1 || echo 0) scripts/wordpress-pipeline.sh rehearsal-start '@option.site@'
       scriptInterpreter: /bin/bash
     - description: devの構成へ切り替え → 基準と比較(upgrade=yesのとき)
       script: |
         set -euo pipefail
-        cd /home/ibidops/ibid-fleet-config
+        cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
         if [ '@option.upgrade@' = yes ]; then
           scripts/wordpress-pipeline.sh rehearsal-upgrade '@option.site@'
@@ -235,7 +235,7 @@
   multipleExecutions: false
   timeout: 3h
   nodefilters:
-    filter: 'tags: ibid-ops'
+    filter: 'tags: rancher'
   nodesSelectedByDefault: true
   options:
   - name: site
@@ -285,7 +285,7 @@
     - description: mainを最新化
       script: |
         set -euo pipefail
-        cd /home/ibidops/ibid-fleet-config
+        cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
@@ -301,7 +301,7 @@
     - description: devの構成へ切り替え → 基準と比較
       script: |
         set -euo pipefail
-        cd /home/ibidops/ibid-fleet-config
+        cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
         scripts/wordpress-pipeline.sh rehearsal-upgrade '@option.site@'
       scriptInterpreter: /bin/bash
@@ -319,7 +319,7 @@
   multipleExecutions: false
   timeout: 1h
   nodefilters:
-    filter: 'tags: ibid-ops'
+    filter: 'tags: rancher'
   nodesSelectedByDefault: true
   options:
   - name: site
@@ -369,7 +369,7 @@
     - description: mainを最新化
       script: |
         set -euo pipefail
-        cd /home/ibidops/ibid-fleet-config
+        cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
@@ -385,7 +385,7 @@
     - description: Gitから削除 → namespace削除
       script: |
         set -euo pipefail
-        cd /home/ibidops/ibid-fleet-config
+        cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
         scripts/wordpress-pipeline.sh rehearsal-cleanup '@option.site@'
       scriptInterpreter: /bin/bash
@@ -409,7 +409,7 @@
   multipleExecutions: false
   timeout: 10h
   nodefilters:
-    filter: 'tags: ibid-ops'
+    filter: 'tags: rancher'
   nodesSelectedByDefault: true
   options:
   - name: sites
@@ -474,7 +474,7 @@
     - description: mainを最新化
       script: |
         set -euo pipefail
-        cd /home/ibidops/ibid-fleet-config
+        cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
@@ -490,7 +490,7 @@
     - description: 昇格PR作成 → 本番バックアップ → 人のマージ待ち → 反映確認
       script: |
         set -euo pipefail
-        cd /home/ibidops/ibid-fleet-config
+        cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
         MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/wordpress-pipeline.sh promote-production @option.sites@
       scriptInterpreter: /bin/bash
@@ -505,7 +505,7 @@
   multipleExecutions: false
   timeout: 2h
   nodefilters:
-    filter: 'tags: ibid-ops'
+    filter: 'tags: rancher'
   nodesSelectedByDefault: true
   options:
   - name: env
@@ -568,7 +568,7 @@
     - description: mainを最新化
       script: |
         set -euo pipefail
-        cd /home/ibidops/ibid-fleet-config
+        cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
@@ -584,7 +584,7 @@
     - description: バックアップ
       script: |
         set -euo pipefail
-        cd /home/ibidops/ibid-fleet-config
+        cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
         scripts/wordpress-pipeline.sh backup '@option.env@' @option.sites@
       scriptInterpreter: /bin/bash
@@ -599,7 +599,7 @@
   multipleExecutions: false
   timeout: 15m
   nodefilters:
-    filter: 'tags: ibid-ops'
+    filter: 'tags: rancher'
   nodesSelectedByDefault: true
   options:
   - name: env
@@ -662,7 +662,7 @@
     - description: mainを最新化
       script: |
         set -euo pipefail
-        cd /home/ibidops/ibid-fleet-config
+        cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
@@ -678,7 +678,7 @@
     - description: 確認
       script: |
         set -euo pipefail
-        cd /home/ibidops/ibid-fleet-config
+        cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
         scripts/wordpress-pipeline.sh check '@option.env@' @option.sites@
       scriptInterpreter: /bin/bash
