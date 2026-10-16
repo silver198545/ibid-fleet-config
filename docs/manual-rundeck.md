@@ -132,6 +132,15 @@
 
 ### オペレータを追加する
 
+オペレータは担当ごとにFreeIPAのグループで分け、Rundeck・Rancherの権限もグループに付ける。
+
+| 担当 | FreeIPAのグループ | Rundeckで実行できるジョブ | クラスタの権限 |
+|---|---|---|---|
+| 自作アプリ | `publicdb_developer` | `apps/*` だけ | 下記「自作アプリのオペレータ」 |
+| WordPress | `wpadmins` | (未整備。2026-10-16時点で管理者のみ) | (未整備) |
+
+以下は1人ごとの手順(担当によらず共通)。担当ごとの1回だけの設定は、その後の節にある。
+
 `<op>` はオペレータのサーバー上のユーザー名(=Rundeckのログイン名)、`<op-gh>` はそのGitHubアカウント。
 
 1. **GitHub**: `silver198545` で https://github.com/silver198545/ibid-fleet-config/settings/access から `<op-gh>` を招待し、
@@ -145,8 +154,9 @@
    | `d-usuda/brc-cross-search` | 個人(依頼する) | write固定 |
    | `silver198545/metadatabase-v2` | 管理者 | write固定 |
    | `dbcls/sparqlist` | 公開 | 不要 |
-3. **サーバーのユーザー**: FreeIPAのユーザー `<op>` がrancherにログインでき(HBAC)、グループ `wpadmins` に入っていること
-   (`ipa group-add-member wpadmins --users=<op>`。`getent group wpadmins` で確かめる)
+3. **サーバーのユーザー**: FreeIPAのユーザー `<op>` がrancherにログインでき(HBAC)、担当のグループに入っていること
+   (`ipa group-add-member <グループ> --users=<op>`。`getent group <グループ>` で確かめる)。WordPressのリハーサルを
+   実行する人は `wpadmins` にも入れる(比較の基準の置き場所に書くため)
 4. **本人のクローンとGitHub認証**(`<op>` でログインして本人が行う):
    ```bash
    git clone https://github.com/silver198545/ibid-fleet-config.git ~/ibid-fleet-config
@@ -157,10 +167,12 @@
    gh auth setup-git
    gh auth status                                                   # repo・workflow・read:org スコープがあること
    ```
-5. **kubeconfig**: Rancherに本人のユーザーを作り、`dev1`・`prod1` で権限を付ける(パイプラインはPodへのexec、
-   Jobの作成、Secretの読み取り、namespaceの削除まで行うため、現状はCluster Owner相当が要る)。
-   Rancher UIの各クラスタの「Download KubeConfig」を `~<op>/.kube/config`(パーミッション600)にまとめ、
-   コンテキスト名を `dev1`・`prod1` にする([manual-tooling-setup.md](manual-tooling-setup.md))
+5. **kubeconfig**: 本人がRancher(https://192.168.1.149、FreeIPAでログイン)にログインし、クラスタ一覧の `dev1`・`prod1`
+   それぞれの「Download KubeConfig」で取得して、`~<op>/.kube/config`(パーミッション600)に1つにまとめる。
+   コンテキスト名はRancherのクラスタ名(`dev1`・`prod1`)になるので、そのまま使える
+   ([manual-tooling-setup.md](manual-tooling-setup.md))。クラスタで何ができるかは、担当のグループに付けた
+   Rancherの権限で決まる。**トークンの有効期限は30日**(Rancherの `kubeconfig-default-token-ttl-minutes`=43200)
+   なので、切れたら同じ手順で取り直す(ジョブが `Unauthorized` で止まる)
 6. **Rundeck**: ログイン名 `<op>` のユーザーを作り、Rundeck用のSSH鍵を作って公開鍵を `~<op>/.ssh/authorized_keys` に、
    秘密鍵をKey Storageの `keys/users/<op>/<op>_ed25519` に登録する
 7. **(推奨)Rundeckの権限をジョブの実行に絞る**。アドホックコマンド(Commands画面)を使われても本人の権限で
@@ -189,12 +201,78 @@
    (アプリケーション側のACLでプロジェクトの `read` も要る。Rundeckの版によって書式が違うので、
    入れたあとオペレータでログインして確かめる)
 
+### 自作アプリのオペレータ(グループ `publicdb_developer`)の1回だけの設定
+
+`apps/<app>/` のジョブ(dev更新・本番更新・初回昇格・確認)だけを実行できるようにする。2026-10-16時点のメンバーは
+`uchida, kushida, usuda, hoge, manalili, yuki`(最初に追加するオペレータは usuda)。
+
+1. **Rancherに「apps」プロジェクトを作り、アプリのnamespaceを移す**(dev1・prod1 それぞれ)。
+   Rancher UIで クラスタ → **Projects/Namespaces** → Create Project(名前 `apps`)→ 次のnamespaceを
+   「Move」で `apps` へ移す:
+   `brc-advanced-search`、`brc-cross-search-resource`、`brc-cross-search-xsearch`、`metadatabase-v2`、`riken-diips`、`sparqlist`。
+   - 割り当てはRancherがnamespaceに付ける注釈(`field.cattle.io/projectId`)で、Gitでは管理していない
+     (バンドルは `defaultNamespace` でnamespaceを作るだけで、Namespaceのマニフェストを持たないため、Fleetが外すことはない)。
+     **アプリを新しく追加したとき**([runbook/app-new.md](runbook/app-new.md))と、**DR等でnamespaceを作り直したとき**は移し直す
+2. **プロジェクト `apps` のメンバーにFreeIPAのグループ `publicdb_developer` を加える**(Project → Members → Add、
+   グループを検索して選ぶ):
+   | クラスタ | ロール | できること |
+   |---|---|---|
+   | `dev1` | **Project Member** | Podへのexecを含めて、アプリのnamespaceを操作できる |
+   | `prod1` | **Read-only** | 見るだけ(rollout・Podの確認、`9-check`、本番更新パイプラインの最後の確認) |
+
+   prod1がRead-onlyなので、**sparqlistの `1-dev-update` を `sync_prod_data=yes` で実行すると、本番Podへのexecで止まる**
+   (本番データのコピーは管理者が行う)。WordPressのnamespaceやSealed Secretsの鍵には触れられない
+3. **RundeckのACL**(RundeckもFreeIPAでログインするので、グループ名がそのままRundeckのロールになる)。
+   `apps/` 以下のジョブだけを許し、WordPressのジョブとアドホックコマンドは許さない。プロジェクトのACL:
+   ```yaml
+   description: publicdb_developer は自作アプリ(apps/)のジョブの閲覧・実行のみ
+   context:
+     project: Rancher-AppControll
+   for:
+     resource:
+       - equals: { kind: job }
+         allow: [read]
+       - equals: { kind: node }
+         allow: [read]
+       - equals: { kind: event }
+         allow: [read]
+     job:
+       - match: { group: '^apps(/.*)?$' }
+         allow: [read, view, view_history, run]
+     node:
+       - allow: [read, run]
+     adhoc:
+       - deny: [run]
+   by:
+     group: publicdb_developer
+   ```
+   アプリケーションのACL(プロジェクトを見られることと、**自分の**SSH鍵だけを使えること。人を足すたびに `storage` に1行足す):
+   ```yaml
+   description: publicdb_developer のプロジェクト参照と鍵の利用
+   context:
+     application: rundeck
+   for:
+     project:
+       - equals: { name: Rancher-AppControll }
+         allow: [read]
+     storage:
+       - match: { path: '^keys/users/usuda(/.*)?$' }
+         allow: [read]
+   by:
+     group: publicdb_developer
+   ```
+   (`storage` の `read` は、ジョブの中で鍵を使う権限で、秘密鍵の中身を表示できるわけではない。他人の鍵を
+   読めないよう、パスはユーザーごとに書く。Rundeckの版によって書式が違うので、入れたあと本人でログインし、
+   `apps/` のジョブだけが見えること、`wordpress/` とCommands画面が使えないことを確かめる)
+
 ### 確認(オペレータを追加したら)
 
 - `<op>` で `apps/<app>/9-check` と `wordpress/tools/check` が通る(SSH・kubeconfigの確認)
 - `apps/<app>/1-dev-update` を実行すると、PRの作成者が `<op-gh>` になり、auto-mergeされる
 - `2-production-update` / `3-production-promote` の本番PRが、`@silver198545` がApproveしないとマージできない
   (Mergeボタンが「Review required」になる)
+- (自作アプリのオペレータ)本人のkubeconfigで `kubectl --context prod1 -n sparqlist delete pod --dry-run=server -l app=sparqlist`
+  が `forbidden` になり、`kubectl --context dev1 get ns` にWordPressのnamespaceが出ない
 
 ## 取り込み・更新
 

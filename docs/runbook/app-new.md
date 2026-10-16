@@ -51,6 +51,10 @@ git push -u origin HEAD && gh pr create --fill
 
 マージすると、イメージのビルドが走り、devに展開される。
 
+- Rancherで、dev1のnamespace `<app>` をプロジェクト `apps` へ移す(Projects/Namespaces → Move)。
+  自作アプリのオペレータ(`publicdb_developer`)がこのアプリを扱えるようにするため
+  ([manual-rundeck.md](../manual-rundeck.md)「自作アプリのオペレータ」)
+
 - イメージを公開してよい場合は、初回のビルド後に GitHub の Packages → `<app>` → Package settings で **Public** にする
 - 確認:
   ```bash
@@ -76,5 +80,7 @@ scripts/update-app-image.sh promote-production-finish <app>
 git checkout main && git pull
 scripts/update-app-image.sh check-production <app>
 ```
+
+prod1でも、namespace `<app>` をプロジェクト `apps` へ移す(dev1と同じ)。
 
 2回目以降の更新は [app-update.md](app-update.md)。
