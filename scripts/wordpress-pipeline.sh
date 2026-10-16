@@ -43,7 +43,9 @@ NFS_BACKUP_ROOT="${NFS_BACKUP_ROOT:-/mnt/ibid-nfs/backup}"
 FRESH_BACKUP="${FRESH_BACKUP:-1}"
 MERGE_WAIT_MINUTES="${MERGE_WAIT_MINUTES:-240}"
 WP_PATH="/opt/bitnami/wordpress"
-STATE_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/ibid-fleet-config/rehearsal"
+# リハーサルの比較の基準。始めた人と続きを実行する人が違ってもよいよう、ユーザー間で共有する
+# (グループ ibid-ops で書けるsetgidディレクトリ。docs/manual-rundeck.md「実行アカウント」)
+STATE_ROOT="${REHEARSAL_STATE_ROOT:-/var/lib/ibid-fleet-config/rehearsal}"
 
 usage() {
   echo "使い方: $0 <subcommand> [args...]" >&2
@@ -356,6 +358,14 @@ cmd_dev_refresh() {
 
 rh_state_dir() { echo "$STATE_ROOT/$1-rh"; }
 
+# 基準のディレクトリへ書けることを確かめる(他のオペレータも上書きできるよう、グループ書き込み可で作る)
+rh_require_state_root() {
+  [[ -d "$STATE_ROOT" && -w "$STATE_ROOT" ]] || die "リハーサルの基準の置き場所 ${STATE_ROOT} がない、または書き込めません。
+  sudo install -d -m 2775 -g ibid-ops ${STATE_ROOT}   # 実行するユーザーをグループ ibid-ops に入れておく
+(docs/manual-rundeck.md「実行アカウント」)"
+  umask 002
+}
+
 # リハーサルサイトの状態を記録する(<dir>/<name>-info.txt と <name>-pages.txt)。
 # ページの一覧は基準の記録時(before)に作り、以降は同じページを見る。
 rh_snapshot() {
@@ -405,6 +415,7 @@ cmd_rehearsal_start() {
   [[ -d "envs/production/sites/$site" ]] || die "本番に ${site} がありません。"
   rh_require_single "$rh"
   require_nfs
+  rh_require_state_root
 
   pr_lock_repo
   pr_ensure_clean_worktree
@@ -453,6 +464,7 @@ cmd_rehearsal_upgrade() {
   [[ $# -eq 1 ]] || usage
   local site="$1" rh="$1-rh" dir before_rev merged_at job_line job_created job failed=0 secs
   check_site_name "$site"
+  rh_require_state_root
   dir="$(rh_state_dir "$site")"
   [[ -d "envs/dev/sites/$rh" ]] || die "envs/dev/sites/${rh} がありません。先に rehearsal-start ${site} を実行してください。"
   [[ -f "$dir/before-pages.txt" ]] || echo "警告: 比較の基準(${dir}/before-pages.txt)がありません。比較はせず現状だけ表示します。" >&2

@@ -23,9 +23,9 @@ resource state with `kubectl`.
   promotion stays in `update-app-image.sh promote-production` (needs kubeseal). Branch protection and the
   `main` ruleset require 0 approvals + Code Owner review (`/envs/production/`), but because the solo
   maintainer is both PR author and sole Code Owner, GitHub does not require a review on the maintainer's
-  own PRs. PRs created by the Rundeck pipelines and by `promote.yaml` (`PROMOTE_TOKEN`) are authored by a
-  machine user (write collaborator, not a Code Owner, cannot bypass), so those production PRs do need the
-  Code Owner's approval (`docs/manual-rundeck.md` 「実行アカウント」). Either way scripts must never
+  own PRs. Rundeck pipelines run as the operator's own OS user / GitHub account (write collaborator, not a
+  Code Owner, cannot bypass) and `promote.yaml` PRs are authored by the machine user `ibid-ops-bot`
+  (`PROMOTE_TOKEN`), so those production PRs do need the Code Owner's approval (`docs/manual-rundeck.md` 「実行アカウント」). Either way scripts must never
   auto-merge PRs touching `envs/production/`. Do not invent other promotion paths.
 - **What promotes via Git: configuration only** (chart version, values, image digests/tags). DB data and
   wp-content never promote; they move via `docs/manual-wordpress-restore.md`. Secrets are generated

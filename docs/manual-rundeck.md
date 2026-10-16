@@ -24,8 +24,8 @@
   サイトはジョブのオプション(選択肢)で選ぶ
 - **本番に触れるPRはマージしない**。本番のパイプラインはPRを作ったあと**人がGitHubでレビュー
   (Code OwnerのApprove)・マージするのを待ち**(既定240分。オプション `merge_wait_minutes`)、マージを検知したら反映の
-  確認まで続ける。PRの作成者はパイプライン用のマシンユーザーなので、Code Ownerの承認が
-  無いとマージできない(下記「実行アカウント」)。待ち時間を過ぎるとジョブは失敗で終わる(PRは残るので、マージ後に
+  確認まで続ける。オペレータやマシンユーザー(promoteワークフロー)が作った本番PRは、
+  Code Ownerの承認が無いとマージできない(下記「実行アカウント」)。待ち時間を過ぎるとジョブは失敗で終わる(PRは残るので、マージ後に
   `9-check` / `wordpress/tools/check` で確認する)
 - **devだけに触れるPRはauto-merge**する(イメージ更新、リハーサルサイトの追加・削除)
 - **同じクローンを使うジョブは排他する**。gitのブランチを切り替える処理は
@@ -37,11 +37,12 @@
 
 ## 前提
 
-- ジョブは踏み台端末(`rancher`ホスト)の**パイプライン専用OSユーザー `ibidops`** へSSHで実行する
-  (Rundeckノードタグ `ibid-ops`)。GitHubの操作はすべて**パイプライン用のマシンユーザー**
-  (下記「実行アカウント」)で行われ、オペレータ個人や管理者(`silver198545`)のアカウントは使わない
-- `ibidops` で `git`/`gh`/`kubectl`/`kubeseal`/`flock` が使え、`gh auth status` がマシンユーザーで
-  認証済み、`~/.kube/config` に `dev1`/`prod1` があること([manual-tooling-setup.md](manual-tooling-setup.md))
+- ジョブは踏み台端末(`rancher`ホスト、Rundeckノードタグ `rancher`)へ、**ジョブを実行した人のOSユーザー**
+  としてSSHで実行する(ノードの `username` が `${job.username}`。Rundeckのログイン名=サーバーのユーザー名)。
+  GitHub・kubectlの操作もその人自身のアカウントで行われる(下記「実行アカウント」)
+- 各ユーザーのホームに `~/ibid-fleet-config` のクローンがあり、そのユーザーで `git`/`gh`/`kubectl`/
+  `kubeseal`/`flock` が使え、`gh auth status` が本人のGitHubアカウントで認証済み、`~/.kube/config` に
+  `dev1`/`prod1` があること([manual-tooling-setup.md](manual-tooling-setup.md))
 - WordPressのジョブ(dev-refresh・リハーサル)は、バックアップNFSを踏み台端末に**読み取り専用で
   マウント**しておく(`/mnt/ibid-nfs`。[manual-wordpress-restore.md](manual-wordpress-restore.md)
   「日次バックアップ」)。再起動で外れるので、外れていたらジョブが案内を出して止まる:
@@ -50,75 +51,99 @@
   ```
   リストアはwp-contentを踏み台端末の `/tmp` で展開し直すため、最大のサイトのwp-content
   (2026-10時点で圧縮470MB)の数倍の空きが要る
-- クローンのパス(`/home/ibidops/ibid-fleet-config`)とノードフィルタ(`tags: ibid-ops`)は
-  `generate-jobs.py` の `REPO_PATH`・`NODE_FILTER`。別ホスト・別ユーザーへ持っていくときはそこを変えて再生成する
+- リハーサルの比較の基準は `/var/lib/ibid-fleet-config/rehearsal`(グループ `ibid-ops` で共有)に置く。
+  始めた人と続き(`2a-rehearsal-upgrade`・`2b-rehearsal-cleanup`)を実行する人が違ってもよい
+- クローンのパス(`$HOME/ibid-fleet-config`)とノードフィルタ(`tags: rancher`)は `generate-jobs.py` の
+  `REPO_PATH`・`NODE_FILTER`。別ホストへ持っていくときはそこを変えて再生成する
+- ロック(`.git/ibid-pipeline.lock`)はクローンごと。別の人のジョブ同士は排他しないが、同じジョブの
+  同時実行はRundeck(`multipleExecutions: false`)が止める
 - Rundeck本体の設定(プロジェクト・ノード登録・SSH鍵・ACL)はこのリポジトリでは扱わない(下記に必要な設定だけ書く)
 
-## 実行アカウント(マシンユーザー)
+## 実行アカウント
 
-2026-10-16から、Rundeckのジョブは専用のGitHubアカウント(マシンユーザー。以下 `<bot>`。例: `ibid-ops-bot`)で
-動く。それまでは踏み台端末の `uchida` ユーザー=管理者の `silver198545` のトークンで動いており、
-オペレータが実行しても全操作が管理者の操作として記録され、本番PRも「作成者=唯一のCode Owner」なので
-承認なしでマージできた。
+2026-10-16から、Rundeckのジョブは**実行した人自身のOSユーザー・GitHubアカウント・kubeconfig**で動く。
+それまでは誰が実行しても `uchida` ユーザー=管理者 `silver198545` のトークンで動いており、全操作が
+管理者の操作として記録され、本番PRも「作成者=唯一のCode Owner」なので承認なしでマージできた。
 
-マシンユーザーに替えたことで:
+- **オペレータが作った本番PR(`envs/production/` に触れるPR)は、Code Owner(`@silver198545`)の
+  承認(Approve)がないとマージできない**。オペレータはwrite権限のcollaboratorでCode Ownerではなく、
+  ルールセットの管理者バイパスも使えない。本番パイプラインはPRを作ってこの承認・マージを待つ
+  (承認者はPRを開いて **Approve → Merge**)。管理者自身がRundeckで実行したPRは管理者のPRなので、従来どおり承認は不要
+- devだけに触れるPRは、Code Ownerの対象外なので今までどおりauto-mergeする
+- **promoteワークフローが作るPR**(アプリ・サイトの本番昇格)の作成者は、誰が起動しても `PROMOTE_TOKEN` の
+  持ち主になる。管理者のPATだと「作成者=Code Owner」に戻ってしまうため、**マシンユーザー `ibid-ops-bot`**
+  (write権限のcollaborator、CODEOWNERS外)のトークンにする。このため**管理者が起動した昇格PRも、
+  Approveしてからマージする**(作成者がbotなので自分で承認できる)。botはこのトークン以外には使わない
+- PR本文には、Rundeckから実行したことと実行者(`PIPELINE_ACTOR`)も残る
 
-- **botが作った本番PR(`envs/production/` に触れるPR)は、Code Owner(`@silver198545`)の承認(Approve)が
-  ないとマージできない**。botはwrite権限なので、ルールセットの管理者バイパスも使えない。
-  本番パイプラインはPRを作ってこの承認・マージを待つ(承認者はPRを開いて **Approve → Merge**)
-- devだけに触れるPRは、Code Ownerの対象外なので今までどおりbotがauto-mergeする
-- **誰が実行したか**はGitHub上ではbotになるため、パイプラインはRundeckの実行者名
-  (`PIPELINE_ACTOR`。`generate-jobs.py` が `@job.username@` を渡す)をPR本文(promoteワークフローが
-  作るPRはコメント)に書き残す
-- promoteワークフローが作るPRの作成者は `PROMOTE_TOKEN` の持ち主になる。これをbotのトークンに
-  替えたので、**管理者が自分で `gh workflow run promote.yaml` した本番PRも承認が要る**
-  (自分のPRではないのでApproveできる)。管理者が手元で `update-app-image.sh promote-production-finish`
-  等を実行して作ったPRは、従来どおり管理者のPRで承認なしにマージできる
+### 最初に1回だけ(管理者)
 
-### 初回の設定(1回だけ。管理者が行う)
-
-1. **GitHubのマシンユーザーを作る**(個人ごとに1つまで無料。GitHubの規約上、マシンアカウントは
-   作成した人が責任を持つ)。2要素認証を有効にする
-2. **このリポジトリのcollaboratorに招待する**(Settings → Collaborators → Add people、権限 **Write**)。
-   botでログインして招待を承諾する。CODEOWNERSには**入れない**(入れると本番の承認ゲートにならない)
-3. **非公開の取り込み元リポジトリに、botを読み取り(Read)で追加してもらう**。`1-dev-update` が
-   最新コミットを取りに行く(`latest-src-ref`)ため。無いアプリは、ジョブの `src_ref` にSHAを
-   指定すれば動く(取得を飛ばす)
-   | 取り込み元 | 持ち主 |
-   |---|---|
-   | `silver198545/metadatabase-v2` | 管理者(自分で追加できる) |
-   | `PENQEinc/riken_brc_advanced_search`・`PENQEinc/riken-diips` | PENQEinc(依頼する) |
-   | `d-usuda/brc-cross-search` | d-usuda(依頼する) |
-   | `dbcls/sparqlist` | 公開のため不要 |
-4. **踏み台端末に専用OSユーザーを作る**:
+1. **マシンユーザー `ibid-ops-bot`**(2026-10-16作成・collaborator承諾済み)のclassic PATを作る
+   (botでログインし、Settings → Developer settings → Personal access tokens (classic)、スコープ `repo`、
+   期限付き。fine-grained PATは他人の個人アカウントのリポジトリでは使えない)。
+   `gh secret set PROMOTE_TOKEN --repo silver198545/ibid-fleet-config` で登録する。期限が切れる前に作り直す
+2. **共有グループと基準の置き場所を作る**:
    ```bash
-   sudo adduser --disabled-password --gecos 'ibid-fleet-config pipeline' ibidops
-   sudo install -m 755 ~uchida/.local/bin/kubeseal /usr/local/bin/kubeseal   # ibidopsからも使えるように
-   sudo -iu ibidops
+   sudo groupadd ibid-ops
+   sudo usermod -aG ibid-ops uchida
+   sudo install -d -m 2775 -g ibid-ops /var/lib/ibid-fleet-config/rehearsal
+   sudo install -m 755 ~uchida/.local/bin/kubeseal /usr/local/bin/kubeseal   # 全ユーザーで使えるように
+   ```
+3. **Rundeckのノード `rancher` のSSHユーザーを実行者にする**(Rundeckのリソース定義。例):
+   ```yaml
+   rancher:
+     nodename: rancher
+     hostname: rancher.ibid.lan
+     username: ${job.username}
+     tags: rancher
+     osFamily: unix
+     ssh-key-storage-path: keys/users/${job.username}/rundeck_ed25519
+   ```
+   SSH鍵は人ごとにKey Storageの `keys/users/<ユーザー名>/rundeck_ed25519` に置く(下記)。
+   Rundeckのログイン名とサーバーのユーザー名を必ず揃える
+4. **管理者自身(`uchida`)の鍵を置く**: Rundeck用の鍵を作って公開鍵を `~uchida/.ssh/authorized_keys` に足し、
+   秘密鍵をKey Storageの `keys/users/uchida/rundeck_ed25519` に登録する(既存のノード用の鍵をそのパスに置き直してもよい)。
+   Rundeckのログイン名が `uchida` でない場合は揃える
+5. ジョブを取り込み直す(下記「取り込み・更新」)
+
+### オペレータを追加する
+
+`<op>` はオペレータのサーバー上のユーザー名(=Rundeckのログイン名)、`<op-gh>` はそのGitHubアカウント。
+
+1. **GitHub**: `silver198545` で https://github.com/silver198545/ibid-fleet-config/settings/access から `<op-gh>` を招待し、
+   本人が承諾する(個人アカウントのリポジトリなので権限はwrite固定)。2要素認証を有効にしてもらう。
+   **CODEOWNERSには入れない**(入れると、その人の本番PRが承認なしでマージできてしまう)
+2. **非公開の取り込み元**: `1-dev-update` を `src_ref` 空欄(最新を取得)で使うなら、`<op-gh>` に読み取り権限が要る。
+   無ければ `src_ref` にSHAを指定すれば動く(取得を飛ばす)
+   | 取り込み元 | 持ち主 | 付けられる権限 |
+   |---|---|---|
+   | `PENQEinc/riken_brc_advanced_search`・`PENQEinc/riken-diips` | 組織(依頼する) | Readを選べる |
+   | `d-usuda/brc-cross-search` | 個人(依頼する) | write固定 |
+   | `silver198545/metadatabase-v2` | 管理者 | write固定 |
+   | `dbcls/sparqlist` | 公開 | 不要 |
+3. **サーバーのユーザー**(無ければ作る)をグループ `ibid-ops` に入れる:
+   ```bash
+   sudo adduser <op>            # 既にあれば不要
+   sudo usermod -aG ibid-ops <op>
+   ```
+4. **本人のクローンとGitHub認証**(`<op>` でログインして本人が行う):
+   ```bash
    git clone https://github.com/silver198545/ibid-fleet-config.git ~/ibid-fleet-config
    cd ~/ibid-fleet-config
-   git config user.name '<bot>'
-   git config user.email '<botのID>+<bot>@users.noreply.github.com'   # GitHubの設定 → Emails に出る値
-   gh auth login --hostname github.com --git-protocol https --web   # ブラウザでbotとしてログイン
+   git config user.name '<op-gh>'
+   git config user.email '<ID>+<op-gh>@users.noreply.github.com'   # GitHubのSettings → Emails に出る値
+   gh auth login --hostname github.com --git-protocol https --web   # 本人のGitHubアカウントで
    gh auth setup-git
-   gh auth status                                                   # botで、repo・workflow スコープがあること
+   gh auth status                                                   # repo・workflow・read:org スコープがあること
    ```
-   fine-grained PATは他人(個人アカウント)のリポジトリのcollaboratorとしては使えないため、
-   `gh auth login`(またはbotのclassic PAT。スコープ `repo`・`workflow`・`read:org`)を使う
-5. **kubeconfigを置く**: `dev1`/`prod1` のコンテキストを `~ibidops/.kube/config`(パーミッション600)に置く
-   ([manual-tooling-setup.md](manual-tooling-setup.md))。クラスタ側の権限はそのkubeconfigのトークンの
-   持ち主のものになる(Rancherにパイプライン用のユーザーを作って分けるのは今後の課題)
-6. **`PROMOTE_TOKEN` をbotのトークンに替える**(promoteワークフローのPRの作成者をbotにするため):
-   botでclassic PAT(スコープ `repo`・`workflow`、期限付き)を作り、
-   `gh secret set PROMOTE_TOKEN --repo silver198545/ibid-fleet-config` で登録する
-   ([manual-multi-env.md](manual-multi-env.md)「1. GitHub側の初期設定」)。期限が切れる前に作り直す
-7. **Rundeckのノードを追加する**: `rancher.ibid.lan` に `ibidops` でSSHするノード(例: `rancher-ops`、
-   タグ `ibid-ops`)を登録し、その公開鍵を `~ibidops/.ssh/authorized_keys` に置く。既存の `uchida` の
-   ノード(タグ `rancher`)はジョブから使わなくなる
-8. **ジョブを取り込み直す**(下記「取り込み・更新」)。実行先が `ibid-ops` タグのノードに替わる
-9. **オペレータのRundeck権限をジョブの実行だけにする**。アドホックコマンド(Commands画面)を許すと、
-   オペレータが `ibidops` として任意のコマンドを実行でき、botのトークンやkubeconfigを直接使えてしまう。
-   プロジェクトのACLの例(グループ名は実際のものに合わせる):
+5. **kubeconfig**: Rancherに本人のユーザーを作り、`dev1`・`prod1` で権限を付ける(パイプラインはPodへのexec、
+   Jobの作成、Secretの読み取り、namespaceの削除まで行うため、現状はCluster Owner相当が要る)。
+   Rancher UIの各クラスタの「Download KubeConfig」を `~<op>/.kube/config`(パーミッション600)にまとめ、
+   コンテキスト名を `dev1`・`prod1` にする([manual-tooling-setup.md](manual-tooling-setup.md))
+6. **Rundeck**: ログイン名 `<op>` のユーザーを作り、Rundeck用のSSH鍵を作って公開鍵を `~<op>/.ssh/authorized_keys` に、
+   秘密鍵をKey Storageの `keys/users/<op>/rundeck_ed25519` に登録する
+7. **(推奨)Rundeckの権限をジョブの実行に絞る**。アドホックコマンド(Commands画面)を使われても本人の権限で
+   動くだけだが、作業の記録をジョブの実行履歴に揃えるため。プロジェクトのACLの例(グループ名は実際のものに合わせる):
    ```yaml
    description: オペレータはジョブの閲覧・実行のみ
    context:
@@ -141,14 +166,13 @@
      group: ibid-operators
    ```
    (アプリケーション側のACLでプロジェクトの `read` も要る。Rundeckの版によって書式が違うので、
-   入れたあとオペレータでログインしてCommands画面が使えないことを確かめる)
+   入れたあとオペレータでログインして確かめる)
 
-### 確認
+### 確認(オペレータを追加したら)
 
-- `ibidops` で `apps/<app>/9-check` と `wordpress/tools/check` が通る(GitHubを使わない)
-- `apps/<app>/1-dev-update` を実行すると、PRの作成者がbot、本文の最後に「実行者: <Rundeckのユーザー>」が入り、
-  auto-mergeされる
-- `2-production-update` / `3-production-promote` の本番PRが、Approveしないとマージできない
+- `<op>` で `apps/<app>/9-check` と `wordpress/tools/check` が通る(SSH・kubeconfigの確認)
+- `apps/<app>/1-dev-update` を実行すると、PRの作成者が `<op-gh>` になり、auto-mergeされる
+- `2-production-update` / `3-production-promote` の本番PRが、`@silver198545` がApproveしないとマージできない
   (Mergeボタンが「Review required」になる)
 
 ## 取り込み・更新

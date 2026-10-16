@@ -47,8 +47,9 @@ wp-contentの実データは昇格せず、必要な場合は [manual-wordpress-
      (2026-07-08に実際に検証して確認済み)。将来2人目以降のcollaboratorを迎えたら、
      その人のPRにはCODEOWNERS承認が正しく機能する。管理者アカウントは直接push/自己マージで
      バイパスできてしまう点は許容する(ソロ運用の実質的な安全網は`validate`のCIチェック)。
-     2026-10-16からRundeckのパイプラインと `PROMOTE_TOKEN` はマシンユーザー(write権限のcollaborator)で
-     動くため、それらが作る本番PRには、この設定のままCODEOWNERS承認が機能する
+     2026-10-16からRundeckのパイプラインは実行したオペレータ本人のアカウント(write権限のcollaborator)で、
+     `PROMOTE_TOKEN` はマシンユーザー `ibid-ops-bot` で動くため、それらが作る本番PRには、この設定のまま
+     CODEOWNERS承認が機能する
      ([manual-rundeck.md](manual-rundeck.md)「実行アカウント」)
    - **注意**: GitHub Freeの個人アカウントではprivateリポジトリでブランチ保護/rulesetsが
      使えない(GitHub Pro等へのアップグレードが必須)。本リポジトリは2026-07-08に
@@ -64,7 +65,7 @@ wp-contentの実データは昇格せず、必要な場合は [manual-wordpress-
 4. `PROMOTE_TOKEN` をリポジトリSecretsに登録する。【済(2026-07-08)。2026-10-16からマシンユーザーのトークン】
    promoteワークフローのPRの作成者はこのトークンの持ち主になる。管理者のPATだと本番PRが
    「作成者=Code Owner」になって承認なしでマージできてしまうため、Rundeckのパイプライン用の
-   マシンユーザー(collaborator、Write)のclassic PAT(スコープ `repo`・`workflow`)を使う
+   マシンユーザー `ibid-ops-bot`(collaborator、write)のclassic PAT(スコープ `repo`)を使う
    ([manual-rundeck.md](manual-rundeck.md)「実行アカウント」。fine-grained PATは他人の個人アカウントの
    リポジトリでは使えない)。これで管理者が自分で起動した昇格PRも、Approveしてからマージすることになる。
    promote.yaml がデフォルトの `github.token` でPRを作ると `validate` が自動起動しない
