@@ -51,7 +51,7 @@
   ```
   リストアはwp-contentを踏み台端末の `/tmp` で展開し直すため、最大のサイトのwp-content
   (2026-10時点で圧縮470MB)の数倍の空きが要る
-- リハーサルの比較の基準は `/var/lib/ibid-fleet-config/rehearsal`(グループ `ibid-ops` で共有)に置く。
+- リハーサルの比較の基準は `/var/lib/ibid-fleet-config/rehearsal`(FreeIPAのグループ `wpadmins` で共有)に置く。
   始めた人と続き(`2a-rehearsal-upgrade`・`2b-rehearsal-cleanup`)を実行する人が違ってもよい
 - クローンのパス(`$HOME/ibid-fleet-config`)とノードフィルタ(`tags: rancher`)は `generate-jobs.py` の
   `REPO_PATH`・`NODE_FILTER`。別ホストへ持っていくときはそこを変えて再生成する
@@ -82,28 +82,52 @@
    (botでログインし、Settings → Developer settings → Personal access tokens (classic)、スコープ `repo`、
    期限付き。fine-grained PATは他人の個人アカウントのリポジトリでは使えない)。
    `gh secret set PROMOTE_TOKEN --repo silver198545/ibid-fleet-config` で登録する。期限が切れる前に作り直す
-2. **共有グループと基準の置き場所を作る**:
+2. **基準の置き場所を作る**。ユーザーとグループはFreeIPAで管理しており(SSSD経由)、共有グループには
+   FreeIPAのPOSIXグループ `wpadmins` を使う(2026-10-16時点のメンバー: hoge, uchida, iwase, kurihara, namiki, yuhara)。
+   `getent group wpadmins` で見えることを確かめてから:
    ```bash
-   sudo groupadd ibid-ops
-   sudo usermod -aG ibid-ops uchida
-   sudo install -d -m 2775 -g ibid-ops /var/lib/ibid-fleet-config/rehearsal
+   sudo install -d -m 2775 -g wpadmins /var/lib/ibid-fleet-config/rehearsal
    sudo install -m 755 ~uchida/.local/bin/kubeseal /usr/local/bin/kubeseal   # 全ユーザーで使えるように
    ```
-3. **Rundeckのノード `rancher` のSSHユーザーを実行者にする**(Rundeckのリソース定義。例):
+   グループのメンバーはログインした時点で決まるため、追加直後のシェルの `id` には出ない(Rundeckのジョブは
+   毎回新しくログインするので問題ない)。グループが見えないときは、FreeIPAでPOSIXグループになっているか
+   (`ipa group-show wpadmins` に `GID:` があるか)と、SSSDのキャッシュ(`sudo sss_cache -G`)を確かめる
+3. **Rundeckのノード `rancher` のSSHユーザーを実行者にする**。ノード実行はOpenSSHを呼ぶ方式(`ssh-exec`)なので、
+   ノードの `username`・鍵はコマンドラインで渡り、Rundeckサーバー(Rundeckが動くOSユーザー)の
+   `~/.ssh/config` の `User` より優先される。ホスト名と踏み台はsshconfigから、ユーザーと鍵は実行者から取る形にする。
+   リソース定義(2026-10-16時点の実際の値):
    ```yaml
    rancher:
      nodename: rancher
-     hostname: rancher.ibid.lan
+     hostname: rancher
      username: ${job.username}
      tags: rancher
      osFamily: unix
-     ssh-key-storage-path: keys/users/${job.username}/rundeck_ed25519
+     ssh-authentication: privateKey
+     ssh-key-storage-path: keys/users/${job.username}/${job.username}_ed25519
    ```
-   SSH鍵は人ごとにKey Storageの `keys/users/<ユーザー名>/rundeck_ed25519` に置く(下記)。
-   Rundeckのログイン名とサーバーのユーザー名を必ず揃える
-4. **管理者自身(`uchida`)の鍵を置く**: Rundeck用の鍵を作って公開鍵を `~uchida/.ssh/authorized_keys` に足し、
-   秘密鍵をKey Storageの `keys/users/uchida/rundeck_ed25519` に登録する(既存のノード用の鍵をそのパスに置き直してもよい)。
-   Rundeckのログイン名が `uchida` でない場合は揃える
+   Rundeckサーバーの `~/.ssh/config`(`hostname: rancher` に一致させる。**`Host rancher` に `User`・`IdentityFile` を書かない**):
+   ```sshconfig
+   Host Bastion
+       HostName knowledge.brc.riken.jp
+       User uchida
+       IdentityFile ~/.ssh/uchida_ed25519
+       IdentitiesOnly yes
+
+   Host rancher
+       HostName 192.168.1.149
+       ProxyCommand ssh -W %h:%p Bastion
+       IdentitiesOnly yes
+   ```
+   `IdentitiesOnly yes` はssh-agentや既定の鍵を次々に試して `Too many authentication failures` になるのを防ぐ。
+   **踏み台(Bastion)までは全員 `uchida` として転送される**(rancher上の操作は本人の権限。踏み台のログには
+   `uchida` と残る)。分けるなら、踏み台に転送専用のアカウントを作り、`authorized_keys` を
+   `restrict,port-forwarding,permitopen="192.168.1.149:22" ssh-ed25519 ...` にして `Host Bastion` の `User` をそれにする。
+   SSH鍵は人ごとにKey Storageの `keys/users/<ユーザー名>/<ユーザー名>_ed25519` に置き、Rundeckのログイン名と
+   サーバーのユーザー名を必ず揃える
+4. **管理者自身(`uchida`)の鍵を置く**: 公開鍵が `~uchida/.ssh/authorized_keys` にあり、秘密鍵がKey Storageの
+   `keys/users/uchida/uchida_ed25519` にあること。まず `uchida` で `apps/<app>/9-check` を実行し、rancherの
+   `journalctl -u ssh` に `Accepted publickey for uchida` と出ることを確かめる
 5. ジョブを取り込み直す(下記「取り込み・更新」)
 
 ### オペレータを追加する
@@ -121,11 +145,8 @@
    | `d-usuda/brc-cross-search` | 個人(依頼する) | write固定 |
    | `silver198545/metadatabase-v2` | 管理者 | write固定 |
    | `dbcls/sparqlist` | 公開 | 不要 |
-3. **サーバーのユーザー**(無ければ作る)をグループ `ibid-ops` に入れる:
-   ```bash
-   sudo adduser <op>            # 既にあれば不要
-   sudo usermod -aG ibid-ops <op>
-   ```
+3. **サーバーのユーザー**: FreeIPAのユーザー `<op>` がrancherにログインでき(HBAC)、グループ `wpadmins` に入っていること
+   (`ipa group-add-member wpadmins --users=<op>`。`getent group wpadmins` で確かめる)
 4. **本人のクローンとGitHub認証**(`<op>` でログインして本人が行う):
    ```bash
    git clone https://github.com/silver198545/ibid-fleet-config.git ~/ibid-fleet-config
@@ -141,7 +162,7 @@
    Rancher UIの各クラスタの「Download KubeConfig」を `~<op>/.kube/config`(パーミッション600)にまとめ、
    コンテキスト名を `dev1`・`prod1` にする([manual-tooling-setup.md](manual-tooling-setup.md))
 6. **Rundeck**: ログイン名 `<op>` のユーザーを作り、Rundeck用のSSH鍵を作って公開鍵を `~<op>/.ssh/authorized_keys` に、
-   秘密鍵をKey Storageの `keys/users/<op>/rundeck_ed25519` に登録する
+   秘密鍵をKey Storageの `keys/users/<op>/<op>_ed25519` に登録する
 7. **(推奨)Rundeckの権限をジョブの実行に絞る**。アドホックコマンド(Commands画面)を使われても本人の権限で
    動くだけだが、作業の記録をジョブの実行履歴に揃えるため。プロジェクトのACLの例(グループ名は実際のものに合わせる):
    ```yaml
