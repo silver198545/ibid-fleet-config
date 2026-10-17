@@ -1,8 +1,8 @@
 # 自動生成ファイル。直接編集せず rundeck/generate-jobs.py を直して再生成すること。
-# 取り込み: rd jobs load -p <プロジェクト名> -f rundeck/jobs/wordpress.yaml --format yaml
+# 取り込み先のRundeckプロジェクト: WordPressControl
+# 取り込み: rd jobs load -p WordPressControl -f rundeck/jobs/wordpress.yaml --format yaml
 # 説明: docs/manual-rundeck.md
 - name: 1-dev-refresh
-  group: wordpress
   uuid: 94c91d87-8aa7-5401-9238-aeea08a0690a
   description: |
     【開発環境更新パイプライン】本番コンテンツ → devの同名サイト
@@ -102,7 +102,6 @@
         FRESH_BACKUP=$([ '@option.fresh_backup@' = yes ] && echo 1 || echo 0) scripts/wordpress-pipeline.sh dev-refresh @option.sites@
       scriptInterpreter: /bin/bash
 - name: 2-rehearsal
-  group: wordpress
   uuid: c9a8843f-2955-509f-9599-957fc2884643
   description: |
     【本番データのリハーサル】
@@ -222,7 +221,6 @@
         fi
       scriptInterpreter: /bin/bash
 - name: 2a-rehearsal-upgrade
-  group: wordpress
   uuid: 9e736bfa-24ab-5a4b-8027-c16cfd506afd
   description: |
     【本番データのリハーサル: 切り替えのやり直し】
@@ -306,7 +304,6 @@
         scripts/wordpress-pipeline.sh rehearsal-upgrade '@option.site@'
       scriptInterpreter: /bin/bash
 - name: 2b-rehearsal-cleanup
-  group: wordpress
   uuid: 33133a87-31a3-5ba2-81a6-8e80e23a5fc5
   description: |
     【本番データのリハーサル: 後片付け】
@@ -390,7 +387,6 @@
         scripts/wordpress-pipeline.sh rehearsal-cleanup '@option.site@'
       scriptInterpreter: /bin/bash
 - name: 3-production-promote
-  group: wordpress
   uuid: 8f2bcfd1-7e89-5b25-befb-af7ea1f65605
   description: |
     【本番昇格パイプライン】
@@ -495,7 +491,7 @@
         MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/wordpress-pipeline.sh promote-production @option.sites@
       scriptInterpreter: /bin/bash
 - name: backup
-  group: wordpress/tools
+  group: tools
   uuid: 9288616e-4c38-5a04-9530-55774d94a473
   description: |
     日次バックアップのCronJobから今すぐ1つ取る(完了まで待つ)。出力はNFSの backup/<env>/wordpress-<site>/。
@@ -589,7 +585,7 @@
         scripts/wordpress-pipeline.sh backup '@option.env@' @option.sites@
       scriptInterpreter: /bin/bash
 - name: check
-  group: wordpress/tools
+  group: tools
   uuid: 1af6ea62-5b12-5c6e-b7ce-cb687f3f1324
   description: |
     各サイトのHTTPステータス(200か)と、正常でないPodが無いかを確認する(読み取りのみ)。

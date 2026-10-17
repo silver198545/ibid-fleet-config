@@ -4,9 +4,9 @@
 
 更新は「devに入れる → devで確認 → 本番へ昇格」の順。devに入れるところは自動化されている。
 
-Rundeckでは、手順B(リハーサル)がジョブ `wordpress/2-rehearsal`(終わったら `wordpress/2b-rehearsal-cleanup`)、
-手順C(バックアップ → 昇格PR → 人がマージ → 本番の確認)が `wordpress/3-production-promote` で1回ずつになる。
-devのサイトに本番のコンテンツを入れ直したいときは `wordpress/1-dev-refresh`([manual-rundeck.md](../manual-rundeck.md))。
+Rundeck(プロジェクト `WordPressControl`)では、手順B(リハーサル)がジョブ `2-rehearsal`(終わったら `2b-rehearsal-cleanup`)、
+手順C(バックアップ → 昇格PR → 人がマージ → 本番の確認)が `3-production-promote` で1回ずつになる。
+devのサイトに本番のコンテンツを入れ直したいときは `1-dev-refresh`([manual-rundeck.md](../manual-rundeck.md))。
 
 ## A. devへの反映(どれか)
 

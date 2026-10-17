@@ -36,6 +36,12 @@ UUID_NS = uuid.UUID("6f1c0d7e-3b51-4f6a-9a51-6f1b8a2c9d40")
 
 MERGE_WAIT_VALUES = ["60", "120", "240", "480"]
 
+# 出力ファイル → 取り込み先のRundeckプロジェクト(2026-10-17に分けた。docs/manual-rundeck.md)
+PROJECTS = {
+    "rundeck/jobs/apps.yaml": "Rancher-AppControll",
+    "rundeck/jobs/wordpress.yaml": "WordPressControl",
+}
+
 
 class Literal(str):
     """複数行の文字列を | のブロックで書き出すための印"""
@@ -116,11 +122,17 @@ def merge_wait_opt():
                value="240", values=MERGE_WAIT_VALUES, required=True, enforced=True)
 
 
-def job(group, name, description, options, steps, timeout):
-    return {
-        "name": name,
-        "group": group,
-        "uuid": str(uuid.uuid5(UUID_NS, group + "/" + name)),
+def job(path, name, description, options, steps, timeout):
+    """path は「プロジェクト/グループ」(apps/<app>、wordpress、wordpress/tools)。
+    Rundeckのプロジェクトはアプリ・WordPressで分けている(PROJECTS)ので、先頭(プロジェクト分)を除いた
+    残りをRundeck上のグループにする。UUIDは2026-10-16までの定義(1プロジェクトでグループ apps/・wordpress/)
+    と同じ値を保つため path から計算する(取り込み直すと同じジョブが更新される)。"""
+    group = path.partition("/")[2]
+    j = {"name": name}
+    if group:
+        j["group"] = group
+    j.update({
+        "uuid": str(uuid.uuid5(UUID_NS, path + "/" + name)),
         "description": Literal(description.strip() + "\n"),
         "loglevel": "INFO",
         "executionEnabled": True,
@@ -131,7 +143,8 @@ def job(group, name, description, options, steps, timeout):
         "nodesSelectedByDefault": True,
         "options": options,
         "sequence": {"keepgoing": False, "strategy": "node-first", "commands": steps},
-    }
+    })
+    return j
 
 
 def dirs(path):
@@ -373,14 +386,15 @@ DBマイグレーションを伴う更新なら、先に「2-rehearsal」を済�
 
 
 HEADER = """# 自動生成ファイル。直接編集せず rundeck/generate-jobs.py を直して再生成すること。
-# 取り込み: rd jobs load -p <プロジェクト名> -f {path} --format yaml
+# 取り込み先のRundeckプロジェクト: {project}
+# 取り込み: rd jobs load -p {project} -f {path} --format yaml
 # 説明: docs/manual-rundeck.md
 """
 
 
 def render(jobs, path):
     body = yaml.dump(jobs, Dumper=Dumper, allow_unicode=True, sort_keys=False, width=1000)
-    return HEADER.format(path=path) + body
+    return HEADER.format(path=path, project=PROJECTS[path]) + body
 
 
 def main():

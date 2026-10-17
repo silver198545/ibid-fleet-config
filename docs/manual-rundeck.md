@@ -5,13 +5,20 @@
 [rundeck/jobs/wordpress.yaml](../rundeck/jobs/wordpress.yaml) で、どちらも
 [rundeck/generate-jobs.py](../rundeck/generate-jobs.py) が生成する(**直接編集しない**)。
 
+Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)。以下、ジョブは「プロジェクト内のグループ/ジョブ名」で書く。
+
+| Rundeckのプロジェクト | 定義ファイル | 実行する人(FreeIPAのグループ) |
+|---|---|---|
+| `Rancher-AppControll` | `rundeck/jobs/apps.yaml` | `publicdb_developer` |
+| `WordPressControl` | `rundeck/jobs/wordpress.yaml` | `wpadmins`(オペレータは未整備。2026-10-17時点で管理者のみ) |
+
 | パイプライン | Rundeckのジョブ | 中身(手動でも同じことができる) |
 |---|---|---|
-| 自作アプリの開発環境更新 | `apps/<app>/1-dev-update` | `scripts/update-app-image.sh dev-update <app>` |
-| 自作アプリの本番環境更新 | `apps/<app>/2-production-update` | `scripts/update-app-image.sh release-production <app>` |
-| WordPressの開発環境更新(本番コンテンツ → dev) | `wordpress/1-dev-refresh` | `scripts/wordpress-pipeline.sh dev-refresh <site>...` |
-| WordPressの本番データリハーサル | `wordpress/2-rehearsal` | `scripts/wordpress-pipeline.sh rehearsal-start` / `rehearsal-upgrade <site>` |
-| WordPressの本番昇格 | `wordpress/3-production-promote` | `scripts/wordpress-pipeline.sh promote-production <site...\|all>` |
+| 自作アプリの開発環境更新 | `Rancher-AppControll` の `<app>/1-dev-update` | `scripts/update-app-image.sh dev-update <app>` |
+| 自作アプリの本番環境更新 | `Rancher-AppControll` の `<app>/2-production-update` | `scripts/update-app-image.sh release-production <app>` |
+| WordPressの開発環境更新(本番コンテンツ → dev) | `WordPressControl` の `1-dev-refresh` | `scripts/wordpress-pipeline.sh dev-refresh <site>...` |
+| WordPressの本番データリハーサル | `WordPressControl` の `2-rehearsal` | `scripts/wordpress-pipeline.sh rehearsal-start` / `rehearsal-upgrade <site>` |
+| WordPressの本番昇格 | `WordPressControl` の `3-production-promote` | `scripts/wordpress-pipeline.sh promote-production <site...\|all>` |
 
 (2026-10-15に、サブコマンドを1つずつジョブにしていた旧定義 `rundeck/jobs/update-app-image.yaml`
 (グループ `app-image-update`)から作り直した。)
@@ -26,7 +33,7 @@
   (Code OwnerのApprove)・マージするのを待ち**(既定240分。オプション `merge_wait_minutes`)、マージを検知したら反映の
   確認まで続ける。オペレータやマシンユーザー(promoteワークフロー)が作った本番PRは、
   Code Ownerの承認が無いとマージできない(下記「実行アカウント」)。待ち時間を過ぎるとジョブは失敗で終わる(PRは残るので、マージ後に
-  `9-check` / `wordpress/tools/check` で確認する)
+  `<app>/9-check` / `tools/check` で確認する)
 - **devだけに触れるPRはauto-merge**する(イメージ更新、リハーサルサイトの追加・削除)
 - **同じクローンを使うジョブは排他する**。gitのブランチを切り替える処理は
   `.git/ibid-pipeline.lock` のロック(`scripts/lib/pr.sh` の `pr_lock_repo`)を取ってから行う。
@@ -95,7 +102,8 @@
 3. **Rundeckのノード `rancher` のSSHユーザーを実行者にする**。ノード実行はOpenSSHを呼ぶ方式(`ssh-exec`)なので、
    ノードの `username`・鍵はコマンドラインで渡り、Rundeckサーバー(Rundeckが動くOSユーザー)の
    `~/.ssh/config` の `User` より優先される。ホスト名と踏み台はsshconfigから、ユーザーと鍵は実行者から取る形にする。
-   リソース定義(2026-10-16時点の実際の値):
+   **ノードの定義は、プロジェクト(`Rancher-AppControll`・`WordPressControl`)ごとに要る**(Rundeckのノードは
+   プロジェクト単位のため。同じ内容でよい)。リソース定義(2026-10-16時点の実際の値):
    ```yaml
    rancher:
      nodename: rancher
@@ -126,7 +134,7 @@
    SSH鍵は人ごとにKey Storageの `keys/users/<ユーザー名>/<ユーザー名>_ed25519` に置き、Rundeckのログイン名と
    サーバーのユーザー名を必ず揃える
 4. **管理者自身(`uchida`)の鍵を置く**: 公開鍵が `~uchida/.ssh/authorized_keys` にあり、秘密鍵がKey Storageの
-   `keys/users/uchida/uchida_ed25519` にあること。まず `uchida` で `apps/<app>/9-check` を実行し、rancherの
+   `keys/users/uchida/uchida_ed25519` にあること。まず `uchida` で `Rancher-AppControll` の `<app>/9-check` を実行し、rancherの
    `journalctl -u ssh` に `Accepted publickey for uchida` と出ることを確かめる
 5. ジョブを取り込み直す(下記「取り込み・更新」)
 
@@ -136,8 +144,8 @@
 
 | 担当 | FreeIPAのグループ | Rundeckで実行できるジョブ | クラスタの権限 |
 |---|---|---|---|
-| 自作アプリ | `publicdb_developer` | `apps/*` だけ | 下記「自作アプリのオペレータ」 |
-| WordPress | `wpadmins` | (未整備。2026-10-16時点で管理者のみ) | (未整備) |
+| 自作アプリ | `publicdb_developer` | プロジェクト `Rancher-AppControll` のジョブ | 下記「自作アプリのオペレータ」 |
+| WordPress | `wpadmins` | プロジェクト `WordPressControl` のジョブ(未整備。2026-10-17時点で管理者のみ) | (未整備) |
 
 以下は1人ごとの手順(担当によらず共通)。担当ごとの1回だけの設定は、その後の節にある。
 
@@ -175,31 +183,9 @@
    なので、切れたら同じ手順で取り直す(ジョブが `Unauthorized` で止まる)
 6. **Rundeck**: ログイン名 `<op>` のユーザーを作り、Rundeck用のSSH鍵を作って公開鍵を `~<op>/.ssh/authorized_keys` に、
    秘密鍵をKey Storageの `keys/users/<op>/<op>_ed25519` に登録する
-7. **(推奨)Rundeckの権限をジョブの実行に絞る**。アドホックコマンド(Commands画面)を使われても本人の権限で
-   動くだけだが、作業の記録をジョブの実行履歴に揃えるため。プロジェクトのACLの例(グループ名は実際のものに合わせる):
-   ```yaml
-   description: オペレータはジョブの閲覧・実行のみ
-   context:
-     project: Rancher-AppControll
-   for:
-     resource:
-       - equals: { kind: job }
-         allow: [read]
-       - equals: { kind: node }
-         allow: [read]
-       - equals: { kind: event }
-         allow: [read]
-     job:
-       - allow: [read, view, view_history, run]
-     node:
-       - allow: [read, run]
-     adhoc:
-       - deny: [run]
-   by:
-     group: ibid-operators
-   ```
-   (アプリケーション側のACLでプロジェクトの `read` も要る。Rundeckの版によって書式が違うので、
-   入れたあとオペレータでログインして確かめる)
+7. **Rundeckの権限**: 担当のプロジェクトのジョブだけを実行できるようにする(ACLは担当ごとの節に書く)。
+   アドホックコマンド(Commands画面)は許さない。使われても本人の権限で動くだけだが、作業の記録をジョブの
+   実行履歴に揃えるため。鍵は本人のもの(`keys/users/<op>/...`)だけを使えるようにする
 
 ### 自作アプリのオペレータ(グループ `publicdb_developer`)の1回だけの設定
 
@@ -223,9 +209,11 @@
    prod1がRead-onlyなので、**sparqlistの `1-dev-update` を `sync_prod_data=yes` で実行すると、本番Podへのexecで止まる**
    (本番データのコピーは管理者が行う)。WordPressのnamespaceやSealed Secretsの鍵には触れられない
 3. **RundeckのACL**(RundeckもFreeIPAでログインするので、グループ名がそのままRundeckのロールになる)。
-   `apps/` 以下のジョブだけを許し、WordPressのジョブとアドホックコマンドは許さない。プロジェクトのACL:
+   プロジェクトを分けてあるので、`Rancher-AppControll` のジョブをすべて許し、アドホックコマンドは許さない。
+   `WordPressControl` には何も許さない(プロジェクトごと見えない)。プロジェクトのACL
+   (`Rancher-AppControll` のプロジェクト設定 → Access Control):
    ```yaml
-   description: publicdb_developer は自作アプリ(apps/)のジョブの閲覧・実行のみ
+   description: publicdb_developer は自作アプリのジョブの閲覧・実行のみ
    context:
      project: Rancher-AppControll
    for:
@@ -237,8 +225,7 @@
        - equals: { kind: event }
          allow: [read]
      job:
-       - match: { group: '^apps(/.*)?$' }
-         allow: [read, view, view_history, run]
+       - allow: [read, view, view_history, run]
      node:
        - allow: [read, run]
      adhoc:
@@ -246,7 +233,8 @@
    by:
      group: publicdb_developer
    ```
-   アプリケーションのACL(プロジェクトを見られることと、**自分の**SSH鍵だけを使えること。人を足すたびに `storage` に1行足す):
+   アプリケーションのACL(プロジェクト `Rancher-AppControll` だけを見られることと、**自分の**SSH鍵だけを使えること。
+   人を足すたびに `storage` に1行足す):
    ```yaml
    description: publicdb_developer のプロジェクト参照と鍵の利用
    context:
@@ -263,12 +251,12 @@
    ```
    (`storage` の `read` は、ジョブの中で鍵を使う権限で、秘密鍵の中身を表示できるわけではない。他人の鍵を
    読めないよう、パスはユーザーごとに書く。Rundeckの版によって書式が違うので、入れたあと本人でログインし、
-   `apps/` のジョブだけが見えること、`wordpress/` とCommands画面が使えないことを確かめる)
+   プロジェクト一覧に `Rancher-AppControll` だけが出ること、Commands画面が使えないことを確かめる)
 
 ### 確認(オペレータを追加したら)
 
-- `<op>` で `apps/<app>/9-check` と `wordpress/tools/check` が通る(SSH・kubeconfigの確認)
-- `apps/<app>/1-dev-update` を実行すると、PRの作成者が `<op-gh>` になり、auto-mergeされる
+- `<op>` で担当のプロジェクトの確認ジョブ(`<app>/9-check`、WordPressは `tools/check`)が通る(SSH・kubeconfigの確認)
+- (自作アプリ)`<app>/1-dev-update` を実行すると、PRの作成者が `<op-gh>` になり、auto-mergeされる
 - `2-production-update` / `3-production-promote` の本番PRが、`@silver198545` がApproveしないとマージできない
   (Mergeボタンが「Review required」になる)
 - (自作アプリのオペレータ)本人のkubeconfigで `kubectl --context prod1 -n sparqlist delete pod --dry-run=server -l app=sparqlist`
@@ -278,11 +266,15 @@
 
 ```bash
 python3 rundeck/generate-jobs.py        # 定義を作り直す(アプリ・サイトの追加・削除のあと)
-rd jobs load -p <プロジェクト名> -f rundeck/jobs/apps.yaml --format yaml
-rd jobs load -p <プロジェクト名> -f rundeck/jobs/wordpress.yaml --format yaml
+rd jobs load -p Rancher-AppControll -f rundeck/jobs/apps.yaml --format yaml
+rd jobs load -p WordPressControl -f rundeck/jobs/wordpress.yaml --format yaml
 ```
 
-- ジョブのUUIDはグループ・名前から決まるので、取り込み直すと同じジョブが更新される
+- **取り込み先を間違えない**(各ファイルの先頭のコメントにも書いてある)。RundeckのジョブUUIDはサーバー全体で一意なので、
+  別のプロジェクトへ取り込むと失敗するか、既存のジョブが移ってしまう
+- ジョブのUUIDはグループ・名前から決まるので、取り込み直すと同じジョブが更新される。2026-10-17にグループ名から
+  先頭の `apps/`・`wordpress/` を外したが、UUIDは外す前と同じ値のまま(`generate-jobs.py` の `job()`)なので、
+  取り込み直すと既存のジョブのグループ名が変わるだけで、重複はしない
 - `rd jobs load` は定義から消えたジョブを削除しない。旧定義のグループ `app-image-update` と、
   消したアプリのグループは、Rundeck UIで手動で削除する
 - 生成内容は `envs/dev/apps`・`envs/dev/sites`(`-rh`を除く)と `update-app-image.sh` の
@@ -291,7 +283,7 @@ rd jobs load -p <プロジェクト名> -f rundeck/jobs/wordpress.yaml --format 
   (`scripts/new-wordpress-site.sh dev <site>` は自動で再生成する)。本番への昇格では変わらない
 - rancherホストには `rd` CLIが無い。Rundeck UIの「ジョブのアップロード」(YAML)か、`rd` のある端末で取り込む
 
-## 自作アプリ(`apps/<app>/`)
+## 自作アプリ(プロジェクト `Rancher-AppControll`、グループ `<app>/`)
 
 ### 1-dev-update(開発環境更新パイプライン)
 
@@ -333,7 +325,7 @@ rd jobs load -p <プロジェクト名> -f rundeck/jobs/wordpress.yaml --format 
 
 devまたは本番のrollout状況とWEB疎通を確認する(読み取りのみ)。
 
-## WordPress(`wordpress/`)
+## WordPress(プロジェクト `WordPressControl`)
 
 ### 1-dev-refresh(開発環境更新パイプライン: 本番コンテンツ → dev)
 
@@ -392,7 +384,7 @@ devと本番の構成に差分が無ければ、3.は何もせず終わる。HTT
    [operations-flow.md](operations-flow.md))、取得したファイル名をPRにコメントする
 4. **人がPRのdiffを見てマージするのを待つ**(diffが devで確認した `helm.version`・`plugins` の
    `version` 等だけであること)。バックアップから長く時間が空いた場合は、マージの前に
-   `wordpress/tools/backup` で取り直す
+   `tools/backup` で取り直す
 5. mainを取り込み、各サイトのHelmリビジョンが上がってrolloutが終わるのを待つ
 6. 本番のHTTP 200・Pod・MariaDBのアップグレード状況(`mariadb_upgrade_info`)を確認する
 
