@@ -3,8 +3,8 @@
 対象: `envs/<env>/apps/` のアプリ(brc-advanced-search、riken-diips、sparqlist、metadatabase-v2)
 詳しい説明: [manual-apps.md](../manual-apps.md)、Rundeckから実行する場合: [manual-rundeck.md](../manual-rundeck.md)
 
-Rundeckでは、手順1〜2がジョブ `apps/<app>/1-dev-update`(`src_ref` は空欄で最新)、手順3〜4が
-`apps/<app>/2-production-update`(PRを作って人のマージを待ち、マージ後に本番を確認する)で1回ずつになる。
+Rundeck(プロジェクト `Rancher-AppControll`)では、手順1〜2がジョブ `<app>/1-dev-update`(`src_ref` は空欄で最新)、手順3〜4が
+`<app>/2-production-update`(PRを作って人のマージを待ち、マージ後に本番を確認する)で1回ずつになる。
 
 ## 1. 新しいソースをdevに入れる
 

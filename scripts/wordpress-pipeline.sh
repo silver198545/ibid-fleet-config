@@ -671,7 +671,7 @@ cmd_promote_production() {
 本番バックアップを取得しました(\`scripts/wordpress-pipeline.sh promote-production\`、$(date '+%Y-%m-%d %H:%M'))。
 
 ${summary}
-このあと長く時間が空いてからマージする場合は、Rundeckの \`wordpress/tools/backup\` で取り直してください。
+このあと長く時間が空いてからマージする場合は、Rundeck(WordPressControl)の \`tools/backup\` で取り直してください。
 マージ後の反映確認はパイプラインが続けて行います。
 EOF
 )" >/dev/null
