@@ -51,7 +51,7 @@ helm:
       - name: intuitive-custom-post-order
         version: "3.2.0"
       - name: permalink-manager
-        version: "2.6.0"
+        version: "2.6.1"
       - name: wp-seopress
         version: "10.3"
       - name: timed-content
