@@ -6,14 +6,17 @@
 # 外部ページに埋め込まれたdna-cross-search.jsが https://knowledge.brc.riken.jp/xsearch/<辞書>.json を
 # 直接読むため、deployment.yaml が public/xsearch にマウントし、アプリの静的ファイル配信で
 # 既存と同じURLのまま返す。
+# **devとproductionで同じディレクトリ(brc-cross-search/shared/)を参照する**(2026-10-20〜。
+# 更新者がコピー先を1か所にでき、環境間で内容がずれないため)。dev側のPodは読み取り専用で
+# マウントするため本番のファイルを壊さない。書き込むのはproductionのsitemap CronJobと辞書生成ルーチンだけ。
 # ディレクトリは事前作成が必要(docs/manual-apps.md「brc-cross-search-xsearch /
-# brc-cross-search-resource 固有のメモ」)。productionは overlays/production/ の同名ファイルで
-# 丸ごと置き換える(subDirだけが違う)。
+# brc-cross-search-resource 固有のメモ」)。PVの参照先は作成後に変えられないため、
+# 参照先を変えるときはPV/PVCの名前ごと変える。
 # reclaimPolicy: Retain必須(PVC削除で中身ごと消えないようにする)。
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: brc-cross-search-xsearch-public
+  name: brc-cross-search-xsearch-shared
 spec:
   capacity:
     storage: 1Gi
@@ -25,23 +28,23 @@ spec:
     - nfsvers=4.1
   csi:
     driver: nfs.csi.k8s.io
-    volumeHandle: brc-cross-search-xsearch-public
+    volumeHandle: brc-cross-search-xsearch-shared
     volumeAttributes:
       server: "192.168.1.1"
       share: "/data/nfs"
-      subDir: "brc-cross-search/dev/xsearch"
+      subDir: "brc-cross-search/shared/xsearch"
       mountPermissions: "0777"
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: brc-cross-search-xsearch-public
+  name: brc-cross-search-xsearch-shared
   namespace: brc-cross-search-xsearch
 spec:
   accessModes:
     - ReadWriteMany
   storageClassName: ""
-  volumeName: brc-cross-search-xsearch-public
+  volumeName: brc-cross-search-xsearch-shared
   resources:
     requests:
       storage: 1Gi
