@@ -73,4 +73,4 @@ spec:
       volumes:
         - name: public
           persistentVolumeClaim:
-            claimName: brc-cross-search-resource-public
+            claimName: brc-cross-search-resource-shared
