@@ -45,6 +45,13 @@ spec:
               memory: 256Mi
             limits:
               memory: 1Gi
+          # アプリの外で更新される公開ファイル(pv-nfs-public.yaml参照)。イメージの public/ には
+          # 無いパスにマウントし、アプリの静的ファイル配信で既存と同じURL
+          # (/xsearch/<辞書>.json)のまま返す。
+          volumeMounts:
+            - name: public
+              mountPath: /app/public/xsearch
+              readOnly: true
           # ルートはアプリ側で404固定。ページは /<任意の接頭辞>/<ページ名>/ で
           # config/page_xsearch のcatalogの設定を読む。検索フォームのページは外部SPARQLに問い合わせないため、
           # エンドポイントの障害でPodが落ちないようこれをヘルスチェックに使う。
@@ -57,3 +64,7 @@ spec:
               path: /xsearch/catalog/
               port: 4042
             initialDelaySeconds: 10
+      volumes:
+        - name: public
+          persistentVolumeClaim:
+            claimName: brc-cross-search-xsearch-public
