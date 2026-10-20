@@ -257,7 +257,8 @@ cmd_check() {
   for s in "${SITES[@]}"; do
     url="$(site_url "$env" "$s")"
     code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 20 "$url" || echo 000)"
-    bad="$(kc "$env" -n "wordpress-$s" get pods --no-headers 2>/dev/null | grep -v -E 'Running|Completed' || true)"
+    # Terminating は入れ替え直後の古いPodの終了処理中で、異常ではない
+    bad="$(kc "$env" -n "wordpress-$s" get pods --no-headers 2>/dev/null | grep -v -E 'Running|Completed|Terminating' || true)"
     printf '%-14s %s  %s\n' "$s" "$code" "$url"
     if [[ "$code" != "200" ]]; then
       failed=1
@@ -270,6 +271,24 @@ cmd_check() {
   done
   [[ $failed -eq 0 ]] || { echo "200以外、または正常でないPodがあります(docs/runbook/troubleshooting.md)。" >&2; return 1; }
   echo "全サイト正常です。"
+}
+
+# cmd_check を、通るまで何回か間を空けてやり直す。Podの入れ替え直後は、古いPodの終了処理中に
+# Ingress(Traefik)が一時的に502を返すことがあるため(2026-10-20、jmcの本番昇格で発生)。
+# 引数: <env> <site...>
+check_with_retry() {
+  local env="$1" i tries="${CHECK_RETRIES:-6}"
+  shift
+  for ((i = 1; i <= tries; i++)); do
+    if cmd_check "$env" "$@"; then
+      return 0
+    fi
+    if (( i < tries )); then
+      echo "(入れ替え直後の一時的な応答の可能性があるため、30秒後にもう一度確認します: ${i}/${tries})"
+      sleep 30
+    fi
+  done
+  return 1
 }
 
 # リストアしたDBに残る本番のURL(DBのhome)を、このサイトのURL(wp-config.phpのWP_HOME)へ置換する。
@@ -375,7 +394,7 @@ cmd_dev_refresh() {
       failed+=("$s")
       continue
     fi
-    if cmd_check dev "$s"; then
+    if check_with_retry dev "$s"; then
       kc dev -n "wordpress-$s" exec "deploy/wordpress-$s" -c wordpress -- rm -rf /bitnami/wordpress/wp-content.orig
     else
       echo "警告: dev/${s} の確認に失敗しました。wp-content.orig(上書き前のwp-content)は残してあります。" >&2
@@ -752,7 +771,7 @@ EOF
   echo ""
   echo "=== 本番の確認 ==="
   local failed=0
-  cmd_check production "${changed[@]}" || failed=1
+  check_with_retry production "${changed[@]}" || failed=1
   echo ""
   echo "MariaDBのアップグレード状況(イメージを更新したときは、全サイトがイメージの版と同じになっていればよい):"
   for s in "${changed[@]}"; do
