@@ -10,6 +10,11 @@
 # 取得に失敗した(HTTPエラー・空)場合は前回のsitemapを残して失敗終了する
 # (一時ファイルへ取得してから同じディレクトリ内でrenameするため、配信中のファイルが壊れない)。
 # 成否は監視(BrcCrossSearchSitemapStale)で見る。
+#
+# 書き込み先はdevとproductionで共有(pv-nfs-public.yaml)のため、**devでは止めておき**
+# (suspend: true)、productionだけ overlays/production/cronjob-sitemap_patch.yaml で動かす
+# (devのsparqlistで試し中のSPARQLetの結果が本番のsitemapを上書きしないようにする)。
+# devで動作確認したいときは書き込み先が本番と同じであることに注意して手動実行する。
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -17,6 +22,7 @@ metadata:
   namespace: brc-cross-search-resource
 spec:
   schedule: "0 20 * * *"
+  suspend: true
   timeZone: Asia/Tokyo
   concurrencyPolicy: Forbid
   startingDeadlineSeconds: 1800
@@ -69,4 +75,4 @@ spec:
           volumes:
             - name: public
               persistentVolumeClaim:
-                claimName: brc-cross-search-resource-public
+                claimName: brc-cross-search-resource-shared
