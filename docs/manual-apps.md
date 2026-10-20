@@ -600,8 +600,9 @@ devへコピーして本番相当データで確認できる**(`update-app-image
     ```
   - **導入の経緯**: 2026-10-20に環境別ディレクトリ(`brc-cross-search/dev/`・`production/`、
     PV `<app>-public`)で導入し(#320〜#322)、同日中に共有ディレクトリへ切り替えた。PVの参照先は
-    作成後に変えられないため、切替はPV/PVCの名前ごと変えて行った(旧PVはRetainでReleasedのまま
-    残るので`kubectl delete pv <app>-public`で消す。NFS上の旧ディレクトリは手動で消す)。
+    作成後に変えられないため、切替はPV/PVCの名前ごと変えて行った(旧PV/PVCはバンドルから消えたため
+    Helmが削除する。静的PVなのでNFS上のデータは消えず、旧ディレクトリは手動で消す。旧PVCを使う
+    完了済みJobのPodが残っているとPVCがTerminatingで止まるので、そのJobを消す)。
     ディレクトリは`install -d -m 0777`で作る(CronJob(uid 1000)とusudaの両方が書き込むため)。
   - **外部nginx(`knowledge.brc.riken.jp`)をk8sへ切り替えた後で**、xsearch01のRundeckジョブ
     「BRC Cross Search(Resource) Sitemap UPDATE Script」を無効化し、旧サーバーへの辞書転送もやめる

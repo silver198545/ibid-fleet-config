@@ -51,15 +51,16 @@ spec:
       rules:
         # brc-cross-search-resourceのsitemap更新CronJob(JST 20:00)が26時間以上成功していない。
         # Googlebotの巡回(およそ21時)に古いsitemapが出続ける(envs/<env>/apps/brc-cross-search-resource/cronjob-sitemap.yaml)。
+        # 書き込み先をdevと共有しているためdevではCronJobを止めており(suspend)、止めている間は対象外にする。
         - alert: BrcCrossSearchSitemapStale
-          expr: time() - kube_cronjob_status_last_successful_time{namespace="brc-cross-search-resource", cronjob="brc-cross-search-resource-sitemap"} > 26 * 60 * 60
+          expr: (time() - kube_cronjob_status_last_successful_time{namespace="brc-cross-search-resource", cronjob="brc-cross-search-resource-sitemap"} > 26 * 60 * 60) unless on(namespace, cronjob) kube_cronjob_spec_suspend == 1
           for: 30m
           labels:
             severity: warning
           annotations:
             summary: 'brc-cross-search-resourceのsitemap更新が26時間以上成功していません'
         - alert: BrcCrossSearchSitemapNeverSucceeded
-          expr: (time() - kube_cronjob_created{namespace="brc-cross-search-resource", cronjob="brc-cross-search-resource-sitemap"} > 26 * 60 * 60) unless on(namespace, cronjob) kube_cronjob_status_last_successful_time
+          expr: (time() - kube_cronjob_created{namespace="brc-cross-search-resource", cronjob="brc-cross-search-resource-sitemap"} > 26 * 60 * 60) unless on(namespace, cronjob) kube_cronjob_status_last_successful_time unless on(namespace, cronjob) kube_cronjob_spec_suspend == 1
           for: 30m
           labels:
             severity: warning
