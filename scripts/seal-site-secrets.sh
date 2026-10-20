@@ -21,6 +21,11 @@
 #   例: scripts/seal-site-secrets.sh dev web
 #   環境→kubectlコンテキストの対応は既定(dev1/prod1)。
 #   異なる場合は KUBE_CONTEXT=<コンテキスト名> で上書きする。
+#   SEALED_SECRETS_CERT=<pemファイル> で、コントローラから証明書を取らずにそのファイルで封印する
+#   (kube-systemのServiceにアクセスできないオペレータ用。公開証明書なので秘密ではない。
+#   docs/manual-rundeck.md「WordPressのオペレータ」)。
+#   NAMESPACE_PROJECT_ID=<クラスタID>:<プロジェクトID> で、出力するNamespaceにRancherのプロジェクトの
+#   注釈を付ける(リハーサルサイトを元のサイトと同じプロジェクトに置き、オペレータが触れるようにする)。
 #   SEAL_HIDE_PASSWORDS=1 で、新規生成したパスワードを表示しない(Rundeck等ログが残る場所から
 #   実行するとき。値は復号後のSecretから kubectl get secret で読める)。
 set -euo pipefail
@@ -124,6 +129,13 @@ else
   exit 1
 fi
 
+if [[ -n "${SEALED_SECRETS_CERT:-}" ]]; then
+  [[ -r "$SEALED_SECRETS_CERT" ]] || { echo "エラー: SEALED_SECRETS_CERT が読めません: $SEALED_SECRETS_CERT" >&2; exit 1; }
+  KUBESEAL_SOURCE=(--cert "$SEALED_SECRETS_CERT")
+else
+  KUBESEAL_SOURCE=(--context "$CONTEXT")
+fi
+
 mkdir -p "$OUT_DIR"
 cat >"$OUT_FILE" <<EOF
 # サイト $SITE ($ENV_NAME環境)の認証情報SealedSecret。
@@ -139,11 +151,20 @@ kind: Namespace
 metadata:
   name: $NAMESPACE
 EOF
+if [[ -n "${NAMESPACE_PROJECT_ID:-}" ]]; then
+  [[ "$NAMESPACE_PROJECT_ID" =~ ^[a-z0-9-]+:p-[a-z0-9]+$ ]] || { echo "エラー: NAMESPACE_PROJECT_ID の形式が不正です: $NAMESPACE_PROJECT_ID" >&2; exit 1; }
+  cat >>"$OUT_FILE" <<EOF
+  annotations:
+    # Rancherのプロジェクト(このnamespaceを操作できるオペレータの範囲)。環境ごとのIDなので、
+    # このファイル(環境ごとに生成し直す)にだけ書く
+    field.cattle.io/projectId: $NAMESPACE_PROJECT_ID
+EOF
+fi
 for s in "$CREDENTIALS_SECRET" "$MARIADB_SECRET" "$MARIADB_UPGRADE_SECRET"; do
   # kubesealの出力は先頭に"---"を含むことがあるため、除去してから
   # こちらで区切りを1つだけ付ける(重複すると空ドキュメントが混入する)
   echo "---" >>"$OUT_FILE"
-  kubeseal --context "$CONTEXT" --format yaml <"$WORKDIR/$s.json" \
+  kubeseal "${KUBESEAL_SOURCE[@]}" --format yaml <"$WORKDIR/$s.json" \
     | sed '1{/^---$/d}' >>"$OUT_FILE"
 done
 
