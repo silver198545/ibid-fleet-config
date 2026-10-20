@@ -5,6 +5,20 @@ dev → production の2つのRKE2クラスタ(Harvester上、Rancher管理)で
 
 ## 全体像
 
+**仕組みを図で見るなら [docs/architecture.md](docs/architecture.md)(IBID基盤の仕組み)**:
+全体構成、2つの環境、GitOps、変更の流れ、WordPressの中身とデータ、自作アプリのイメージ、秘密情報、監視、人と権限。
+
+```mermaid
+flowchart LR
+  OP["管理者・オペレータ<br>(Rundeck)"] -->|PR| GH["GitHub<br>ibid-fleet-config"]
+  GH -->|"dev: CIが通れば自動マージ<br>本番: 承認してマージ"| FLEET["Rancher + Fleet"]
+  FLEET --> DEV["dev1<br>WordPress 34 / アプリ 6"]
+  FLEET --> PROD["prod1<br>WordPress 34 / アプリ 6"]
+  DEV --- NFS["NFS<br>wp-content・バックアップ"]
+  PROD --- NFS
+  NGINX["RIKEN側 nginx<br>公開ドメイン"] --> PROD
+```
+
 - **単一mainブランチ + 環境別ディレクトリ**(`envs/dev|production`)。
   環境ごとのGitRepo([fleet-bootstrap/](fleet-bootstrap/))が自分の環境のディレクトリ
   だけを監視し、`env=<環境名>` ラベルのクラスタへ適用する。
@@ -18,13 +32,13 @@ dev → production の2つのRKE2クラスタ(Harvester上、Rancher管理)で
 - 本番データでの確認は、dev1上の一時的なリハーサルサイト`<site>-rh`で行う
   (staging環境は2026-10-08に廃止)。
 
-## 現在の構成(2026-10-13時点)
+## 現在の構成(2026-10-20時点)
 
 | | dev1(`env=dev`) | prod1(`env=production`) |
 |---|---|---|
 | ノード | control-plane 3台(SSD) + worker 5台 | control-plane 3台(SSD) + worker 7台 |
 | WordPressサイト | 34(17サイト × `/ja`の`<site>`・`/en`の`<site>-en`。公開は`wpdev1.brc.riken.jp`、[6b.](docs/manual-wordpress-restore.md)) | 34(devと同じ構成。公開は旧サイトと同じ`<site>.brc.riken.jp`) |
-| 自作アプリ | 6(brc-advanced-search、riken-diips、sparqlist、metadatabase-v2、brc-cross-search-xsearch、brc-cross-search-resource) | 4(brc-cross-search-xsearch・brc-cross-search-resourceはdevのみ) |
+| 自作アプリ | 6(brc-advanced-search、riken-diips、sparqlist、metadatabase-v2、brc-cross-search-xsearch、brc-cross-search-resource) | 6(devと同じ) |
 | TraefikのLB IP(IPPool) | `192.168.1.33`(pool1 `.30-.49`) | `192.168.1.99`(pool3 `.90-.100`) |
 | ホスト名(DNS) | `<site>.dev.ibid.lan`(`*.dev`のワイルドカード) | `<site>.production.ibid.lan`(`*.production`のワイルドカード) |
 
@@ -50,6 +64,7 @@ WordPressの新規サイト作成・更新、自作アプリの新規展開・�
 
 | 文書 | 内容 |
 |---|---|
+| [docs/architecture.md](docs/architecture.md) | **IBID基盤の仕組み(図による解説)**。初めての人はここから |
 | [docs/operations-flow.md](docs/operations-flow.md) | 日常の変更の流れ(dev → リハーサル → production)、環境差分の書き方、本番反映前のバックアップ |
 | [docs/manual-multi-env.md](docs/manual-multi-env.md) | GitHub設定、**クラスタの新規作成チェックリスト**(2.)、日常運用・定期メンテナンス、バックアップ、封印鍵、break-glass、DR |
 | [docs/roadmap.md](docs/roadmap.md) | 決定事項の記録と、残っている課題(優先度つき) |
@@ -88,7 +103,8 @@ WordPressの新規サイト作成・更新、自作アプリの新規展開・�
   mainマージで `release-chart.yaml` がGHCRへ公開し、各サイトの `helm.version` を上げて取り込む
 - `images/<app>/`: 自作アプリのビルド定義(アプリ本体は別リポジトリ。`SRC_REF`で固定)
 - `fleet-bootstrap/`: 環境別GitRepo定義(Rancher localクラスタへ手動適用する控え)
-- `rundeck/jobs/`: `update-app-image.sh`用のRundeckジョブ定義
+- `rundeck/`: Rundeckのジョブ定義(`generate-jobs.py` が `envs/dev/` から生成。自作アプリは
+  プロジェクト `Rancher-AppControll`、WordPressは `WordPressControl`)。[docs/manual-rundeck.md](docs/manual-rundeck.md)
 - `.github/workflows/`:
   - `validate`: PR検証(YAML構文、fleet.yamlの必須キー、helm lint/template)
   - `promote`: dev→productionの昇格PR生成(手動起動。`kind`に`sites`/`apps`、`name`に名前か`all`)
@@ -106,7 +122,8 @@ WordPressの新規サイト作成・更新、自作アプリの新規展開・�
 | `scripts/restore-wordpress.sh <site> <dir> [ts]` | `yyyymmdd_hhmm.tar.lzo`/`.dump.lzo`のバックアップをサイトへリストア |
 | `scripts/bump-chart.sh [--update-images] "<種類>: <説明>"` | ラッパーチャートの変更(WordPress/MariaDBのdigest更新を含む)を公開し、devの全サイトへ反映するまでを一括実行 |
 | `scripts/bump-plugins.sh [--dry-run]` | devの全サイトのプラグインをWordPress.orgの最新版へ上げるPRを作成・マージ |
-| `scripts/update-app-image.sh <subcommand>` | 自作アプリのイメージ更新(`set-image`でdev反映まで一括)〜dev→production昇格PR |
+| `scripts/update-app-image.sh <subcommand>` | 自作アプリのイメージ更新(`set-image`でdev反映まで一括)〜dev→production昇格PR。Rundeck用に `dev-update`・`release-production` |
+| `scripts/wordpress-pipeline.sh <subcommand>` | WordPressのパイプライン(本番コンテンツ→dev、リハーサル、本番昇格、バックアップ・確認)。Rundeckの `WordPressControl` から呼ぶ |
 | `scripts/seal-monitoring-secret.sh <env>` | アラート通知用Slack Webhook URLのSealedSecret |
 | `scripts/seal-sparqlist-secret.sh <env>` | sparqlistのADMIN_PASSWORDのSealedSecret |
 | `scripts/deploy-wordpress.sh <env> <site>` | **緊急用(break-glass)**の手動デプロイ。通常はPRマージ→Fleet適用 |
