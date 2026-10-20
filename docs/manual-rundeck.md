@@ -145,7 +145,7 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
 | 担当 | FreeIPAのグループ | Rundeckで実行できるジョブ | クラスタの権限 |
 |---|---|---|---|
 | 自作アプリ | `publicdb_developer` | プロジェクト `Rancher-AppControll` のジョブ | 下記「自作アプリのオペレータ」 |
-| WordPress | `wpadmins` | プロジェクト `WordPressControl` のジョブ(未整備。2026-10-17時点で管理者のみ) | (未整備) |
+| WordPress | `wpadmins` | プロジェクト `WordPressControl` のジョブ | 下記「WordPressのオペレータ」 |
 
 以下は1人ごとの手順(担当によらず共通)。担当ごとの1回だけの設定は、その後の節にある。
 
@@ -175,7 +175,7 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
    gh auth setup-git
    gh auth status                                                   # repo・workflow・read:org スコープがあること
    ```
-5. **kubeconfig**: 本人がRancher(https://192.168.1.149、FreeIPAでログイン)にログインし、クラスタ一覧の `dev1`・`prod1`
+5. **kubeconfig**: 本人がRancher(https://rancher.brc.riken.jp/ 、FreeIPAでログイン)にログインし、クラスタ一覧の `dev1`・`prod1`
    それぞれの「Download KubeConfig」で取得して、`~<op>/.kube/config`(パーミッション600)に1つにまとめる。
    コンテキスト名はRancherのクラスタ名(`dev1`・`prod1`)になるので、そのまま使える
    ([manual-tooling-setup.md](manual-tooling-setup.md))。クラスタで何ができるかは、担当のグループに付けた
@@ -192,14 +192,14 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
 `apps/<app>/` のジョブ(dev更新・本番更新・初回昇格・確認)だけを実行できるようにする。2026-10-16時点のメンバーは
 `uchida, kushida, usuda, hoge, manalili, yuki`(最初に追加するオペレータは usuda)。
 
-1. **Rancherに「apps」プロジェクトを作り、アプリのnamespaceを移す**(dev1・prod1 それぞれ)。
-   Rancher UIで クラスタ → **Projects/Namespaces** → Create Project(名前 `apps`)→ 次のnamespaceを
-   「Move」で `apps` へ移す:
+1. **Rancherに `APPs` プロジェクトを作り、アプリのnamespaceを移す**(dev1・prod1 それぞれ。2026-10-17に作成済み)。
+   Rancher UIで クラスタ → **Projects/Namespaces** → Create Project(名前 `APPs`)→ 次のnamespaceを
+   「Move」で `APPs` へ移す:
    `brc-advanced-search`、`brc-cross-search-resource`、`brc-cross-search-xsearch`、`metadatabase-v2`、`riken-diips`、`sparqlist`。
    - 割り当てはRancherがnamespaceに付ける注釈(`field.cattle.io/projectId`)で、Gitでは管理していない
      (バンドルは `defaultNamespace` でnamespaceを作るだけで、Namespaceのマニフェストを持たないため、Fleetが外すことはない)。
      **アプリを新しく追加したとき**([runbook/app-new.md](runbook/app-new.md))と、**DR等でnamespaceを作り直したとき**は移し直す
-2. **プロジェクト `apps` のメンバーにFreeIPAのグループ `publicdb_developer` を加える**(Project → Members → Add、
+2. **プロジェクト `APPs` のメンバーにFreeIPAのグループ `publicdb_developer` を加える**(Project → Members → Add、
    グループを検索して選ぶ):
    | クラスタ | ロール | できること |
    |---|---|---|
@@ -252,6 +252,45 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
    (`storage` の `read` は、ジョブの中で鍵を使う権限で、秘密鍵の中身を表示できるわけではない。他人の鍵を
    読めないよう、パスはユーザーごとに書く。Rundeckの版によって書式が違うので、入れたあと本人でログインし、
    プロジェクト一覧に `Rancher-AppControll` だけが出ること、Commands画面が使えないことを確かめる)
+
+### WordPressのオペレータ(グループ `wpadmins`)の1回だけの設定
+
+プロジェクト `WordPressControl` のジョブ(本番コンテンツ→dev、リハーサル、本番昇格、バックアップ・確認)を
+実行できるようにする。2026-10-16時点のメンバーは `hoge, uchida, iwase, kurihara, namiki, yuhara`。
+
+1. **Rancherの `Wordpress` プロジェクト**(dev1・prod1 それぞれ。2026-10-17に作成済みで、全34サイトの
+   `wordpress-<site>` が入っている)のメンバーに `wpadmins` を加える:
+   | クラスタ | ロール | できること |
+   |---|---|---|
+   | `dev1` | **Project Member** | サイトのnamespaceのSecret・exec・Job、プロジェクト内のnamespaceの削除 |
+   | `prod1` | **Read-only** | 見るだけ(Secret・exec・Jobの作成はできない) |
+
+   新しいサイトを作ったとき(`new-wordpress-site.sh`)とDRのときは、namespaceを `Wordpress` へ移す。
+   リハーサルサイト `wordpress-<site>-rh` は、パイプラインが元のサイトと同じプロジェクトの注釈を付けて作るので、移す必要はない
+2. **dev1のSealed Secretsの公開証明書を置く**(リハーサルサイトのSecretを封印するため。オペレータは
+   kube-systemのSealed Secretsのコントローラに届かない)。公開証明書なので秘密ではない:
+   ```bash
+   kubeseal --context dev1 --fetch-cert | sudo tee /var/lib/ibid-fleet-config/sealed-secrets-dev1.pem >/dev/null
+   sudo chmod 644 /var/lib/ibid-fleet-config/sealed-secrets-dev1.pem
+   ```
+   コントローラの鍵は30日ごとに追加されるが、古い鍵でも復号できるので、作り直しはdev1を作り直したとき
+   (鍵が変わったとき)だけでよい
+3. **RundeckのACL**(`WordPressControl` のプロジェクト設定 → Access Control)。中身は自作アプリの節と同じで、
+   `context.project` を `WordPressControl`、`by.group` を `wpadmins` にする。アプリケーションのACLも同じ形で、
+   `project` を `WordPressControl`、`storage` を各人の鍵のパスにする
+4. 実行する人を `wpadmins` に入れる(リハーサルの比較の基準 `/var/lib/ibid-fleet-config/rehearsal` を書けるようにするためでもある)
+
+**prod1がRead-onlyなので、オペレータが実行すると次のように動く**(`scripts/wordpress-pipeline.sh` が権限を
+`kubectl auth can-i` で確かめて切り替える):
+
+| ジョブ | 管理者が実行したとき | オペレータが実行したとき |
+|---|---|---|
+| `1-dev-refresh`・`2-rehearsal`(`fresh_backup=yes`) | 本番のバックアップを今すぐ取って使う | 最新の日次バックアップ(JST 3:00)を使う |
+| `3-production-promote` | PRができたら本番のバックアップを取り、PRにコメントする | バックアップは取らず、「承認する管理者がマージ直前に `tools/backup`(`env=production`)で取る」とPRにコメントする |
+| `3-production-promote` のマージ後 | Helmのリビジョンが上がるのを待ってrolloutを確認 | 180秒待ってからrolloutを確認(Helmの履歴を読めないため) |
+| `tools/backup`(`env=production`) | 取れる | 権限が無いと表示して止まる |
+
+本番PRを承認するときは、PRのコメントを見て、未取得なら**マージの直前に** `tools/backup` を実行してから Approve・マージする。
 
 ### 確認(オペレータを追加したら)
 

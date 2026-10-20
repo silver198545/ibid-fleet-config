@@ -28,6 +28,14 @@
 #   FRESH_BACKUP=0            dev-refresh/rehearsal-start で本番のバックアップを新たに取らず、
 #                             最新の日次バックアップ(JST 3:00)を使う
 #   MERGE_WAIT_MINUTES=<分>   promote-production で人のマージを待つ時間(既定240)
+#   SEALED_SECRETS_CERT_DEV=<pem> rehearsal-start で、dev1のSealed Secretsの証明書を取りに行けないとき
+#                             に使う公開証明書(既定 /var/lib/ibid-fleet-config/sealed-secrets-dev1.pem)
+#
+# 実行する人の権限が足りないときの動き(Rundeckのオペレータ。docs/manual-rundeck.md「WordPressのオペレータ」):
+#   - 本番でJobを作れない(prod1がRead-only): 今すぐのバックアップは取らず、dev-refresh・rehearsal-start は
+#     最新の日次バックアップを使う。promote-production は「マージ前に管理者がバックアップを取る」とPRに書いて待つ
+#   - 本番のSecret(Helmの履歴)を読めない: 反映はHelmのリビジョンでなく、一定時間待ってからrolloutで確かめる
+#   - kube-systemのSealed Secretsに届かない: SEALED_SECRETS_CERT_DEV の証明書で封印する
 #
 # 前提: gh CLIが認証済み、kubectl/kubesealのコンテキスト dev1/prod1 が ~/.kube/config にあること
 # (docs/manual-tooling-setup.md)。
@@ -46,6 +54,7 @@ WP_PATH="/opt/bitnami/wordpress"
 # リハーサルの比較の基準。始めた人と続きを実行する人が違ってもよいよう、ユーザー間で共有する
 # (FreeIPAのグループ wpadmins で書けるsetgidディレクトリ。docs/manual-rundeck.md「実行アカウント」)
 STATE_ROOT="${REHEARSAL_STATE_ROOT:-/var/lib/ibid-fleet-config/rehearsal}"
+SEALED_SECRETS_CERT_DEV="${SEALED_SECRETS_CERT_DEV:-/var/lib/ibid-fleet-config/sealed-secrets-dev1.pem}"
 
 usage() {
   echo "使い方: $0 <subcommand> [args...]" >&2
@@ -148,6 +157,22 @@ wait_job() {
   return 1
 }
 
+# 実行している人がその操作をできるか(kubectl auth can-i)。引数: <env> <kubectl auth can-i の引数...>
+can_i() {
+  local env="$1"
+  shift
+  kc "$env" auth can-i "$@" >/dev/null 2>&1
+}
+
+# 本番で今すぐのバックアップ(CronJobからJobを作る)ができるか。対象サイトのnamespaceで確かめる
+can_take_backups() {
+  local env="$1" s
+  shift
+  for s in "$@"; do
+    can_i "$env" create jobs.batch -n "wordpress-$s" || return 1
+  done
+}
+
 # 日次バックアップのCronJobから今すぐ1つ取る(SITES全部を並行して)。
 # 取れたバックアップの時刻を BACKUP_TS[<site>] に入れる。
 declare -A BACKUP_TS=()
@@ -193,6 +218,15 @@ helm_revision() {
 wait_site_applied() {
   local env="$1" site="$2" before="${3:-}" ns="wordpress-$2" i rev=""
   echo "Fleetによる ${env}/${site} の適用を待っています..."
+  if ! can_i "$env" get secrets -n "$ns"; then
+    # Helmの履歴(Secret)を読めない(本番がRead-onlyのオペレータ)。Fleetが拾って適用し始めるまでの
+    # 時間を待ってから、rolloutの完了で確かめる(リビジョンの比較より粗い)
+    echo "(Helmの履歴を読む権限が無いため、${FLEET_APPLY_WAIT:-180}秒待ってからrolloutで確かめます)"
+    sleep "${FLEET_APPLY_WAIT:-180}"
+    kc "$env" -n "$ns" rollout status "statefulset/wordpress-$site-mariadb" --timeout=20m
+    kc "$env" -n "$ns" rollout status "deploy/wordpress-$site" --timeout=20m
+    return
+  fi
   for ((i = 0; i < 120; i++)); do
     rev="$(helm_revision "$env" "$site")"
     if [[ -n "$rev" ]] && { [[ -z "$before" ]] || (( rev > before )); }; then
@@ -292,6 +326,10 @@ restore_from_production() {
 # 本番データのバックアップの時刻をサイトごとに決める(FRESH_BACKUP=1なら今すぐ取る)
 prepare_production_backups() {
   local s
+  if [[ "$FRESH_BACKUP" == "1" ]] && ! can_take_backups production "$@"; then
+    echo "注意: 本番でバックアップのJobを作る権限が無いため、今すぐのバックアップは取らず、最新の日次バックアップを使います。"
+    FRESH_BACKUP=0
+  fi
   if [[ "$FRESH_BACKUP" == "1" ]]; then
     take_backups production "$@"
   else
@@ -426,7 +464,17 @@ cmd_rehearsal_start() {
 
   git checkout -b "rehearsal/${rh}-start-$(date +%Y%m%d%H%M%S)"
   "$SCRIPT_DIR/rehearsal-site.sh" "$site" production
-  SEAL_HIDE_PASSWORDS=1 "$SCRIPT_DIR/seal-site-secrets.sh" dev "$rh"
+  # リハーサルサイトのnamespaceを元のサイトと同じRancherのプロジェクトに置く(オペレータが触れるように)
+  local project_id
+  project_id="$(kc dev get namespace "wordpress-$site" -o jsonpath='{.metadata.annotations.field\.cattle\.io/projectId}' 2>/dev/null || true)"
+  [[ -n "$project_id" ]] || echo "警告: dev/${site} のnamespaceがRancherのプロジェクトに属していません。${rh} もプロジェクトの外に作られます。" >&2
+  local -a seal_env=(SEAL_HIDE_PASSWORDS=1 NAMESPACE_PROJECT_ID="$project_id")
+  if ! can_i dev get services/proxy -n kube-system; then
+    [[ -r "$SEALED_SECRETS_CERT_DEV" ]] || die "dev1のSealed Secretsの証明書を取りに行く権限が無く、証明書ファイル ${SEALED_SECRETS_CERT_DEV} もありません。
+管理者に置いてもらってください: kubeseal --context dev1 --fetch-cert | sudo tee ${SEALED_SECRETS_CERT_DEV}"
+    seal_env+=(SEALED_SECRETS_CERT="$SEALED_SECRETS_CERT_DEV")
+  fi
+  env "${seal_env[@]}" "$SCRIPT_DIR/seal-site-secrets.sh" dev "$rh"
   git add "envs/dev/sites/$rh" "envs/dev/secrets/$rh.yaml"
   pr_commit_push_create \
     "chore: 本番データリハーサル用に${rh}をdevへ追加" \
@@ -662,12 +710,13 @@ cmd_promote_production() {
   if [[ ${#existing[@]} -gt 0 ]]; then
     echo ""
     echo "=== 本番のバックアップ(マージ前) ==="
-    take_backups production "${existing[@]}"
-    for s in "${existing[@]}"; do
-      before_rev[$s]="$(helm_revision production "$s")"
-      summary+="- ${s}: \`backup/production/wordpress-${s}/${BACKUP_TS[$s]}\`"$'\n'
-    done
-    gh pr comment "$pr_url" --body "$(cat <<EOF
+    for s in "${existing[@]}"; do before_rev[$s]="$(helm_revision production "$s")"; done
+    if can_take_backups production "${existing[@]}"; then
+      take_backups production "${existing[@]}"
+      for s in "${existing[@]}"; do
+        summary+="- ${s}: \`backup/production/wordpress-${s}/${BACKUP_TS[$s]}\`"$'\n'
+      done
+      gh pr comment "$pr_url" --body "$(cat <<EOF
 本番バックアップを取得しました(\`scripts/wordpress-pipeline.sh promote-production\`、$(date '+%Y-%m-%d %H:%M'))。
 
 ${summary}
@@ -675,6 +724,19 @@ ${summary}
 マージ後の反映確認はパイプラインが続けて行います。
 EOF
 )" >/dev/null
+    else
+      # 本番がRead-onlyのオペレータ。バックアップは承認する管理者がマージの直前に取る
+      echo "本番でバックアップのJobを作る権限が無いため、バックアップは取りません。"
+      echo "承認する管理者が、マージの直前に本番のバックアップを取る必要があります(PRにコメントしました)。"
+      gh pr comment "$pr_url" --body "$(cat <<EOF
+**本番バックアップは未取得です**(実行者に本番でJobを作る権限が無いため)。
+
+承認する方は、**マージの直前に**次のサイトの本番バックアップを取ってから Approve・マージしてください
+(Rundeck(WordPressControl)の \`tools/backup\`、\`env=production\`、サイト: ${existing[*]})。
+マージ後の反映確認はパイプラインが続けて行います。
+EOF
+)" >/dev/null
+    fi
   fi
 
   echo ""
@@ -717,6 +779,8 @@ case "$SUBCOMMAND" in
     env_name="$1"
     shift
     resolve_sites "$env_name" "$@"
+    can_take_backups "$env_name" "${SITES[@]}" \
+      || die "${env_name}でバックアップのJobを作る権限がありません(本番は管理者が実行してください)。"
     take_backups "$env_name" "${SITES[@]}"
     ;;
   check)

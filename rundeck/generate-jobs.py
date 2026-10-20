@@ -268,7 +268,7 @@ def wordpress_jobs(dev_sites):
                    required=True, enforced=True, multivalued=multi)
 
     fresh = yes_no("fresh_backup",
-                   "yes: 本番のバックアップを今すぐ取ってそれを使う / no: 最新の日次バックアップ(JST 3:00)を使う",
+                   "yes: 本番のバックアップを今すぐ取ってそれを使う(本番の権限が無いオペレータは自動でnoと同じになる) / no: 最新の日次バックアップ(JST 3:00)を使う",
                    "yes")
     fresh_env = "FRESH_BACKUP=$([ '@option.fresh_backup@' = yes ] && echo 1 || echo 0)"
 
@@ -346,7 +346,8 @@ namespace(本番データのコピー)を削除する。harvesterのPVがRelease
 【本番昇格パイプライン】
 
 devと本番で差分のあるサイトの昇格PRを promote ワークフローで作り、CI通過後に対象サイトの
-本番バックアップを取って(結果はPRにコメントする)、**人がPRをレビュー・マージするのを待つ
+本番バックアップを取って(結果はPRにコメントする。本番の権限が無いオペレータが実行した場合は取らず、
+「承認する管理者がマージ直前に tools/backup で取る」とPRにコメントする)、**人がPRをレビュー・マージするのを待つ
 (このジョブはマージしない)**。マージされたらFleetの適用(Helmリビジョンの更新とrollout)を待ち、
 本番のHTTP 200・Pod・MariaDBのアップグレード状況を確認する。差分が無ければ確認だけ行う。
 

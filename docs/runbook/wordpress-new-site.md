@@ -38,6 +38,10 @@ PRのCIが通ったらマージする。
 
 ## 2. devで確認する(5〜10分後)
 
+Rancherで、dev1の `wordpress-$SITE`・`wordpress-$SITE-en` をプロジェクト `Wordpress` へ移す
+(Projects/Namespaces → Move。WordPressのオペレータ(`wpadmins`)がこのサイトを扱えるようにするため。
+[manual-rundeck.md](../manual-rundeck.md)「WordPressのオペレータ」)。
+
 ```bash
 for s in $SITE $SITE-en; do
   kubectl --context dev1 -n wordpress-$s get pods            # 全部 Running / READY 1/1
@@ -78,7 +82,7 @@ gh workflow run promote.yaml -f kind=sites -f name="$SITE $SITE-en"
 
 ## 4. 本番で確認する
 
-手順2と同じことを `--context prod1`・`$SITE.production.ibid.lan` で行う。
+手順2と同じことを `--context prod1`・`$SITE.production.ibid.lan` で行う(prod1のnamespaceも `Wordpress` へ移す)。
 本番はWordPressのPodが2つ(READY 1/1 が2行)になる。
 
 - 何サイトも続けて作るときは、**前のサイトが全部 Running になってから次をマージする**(同時に作るとDBの初期化が遅くなり失敗することがある)
