@@ -560,3 +560,57 @@ devへコピーして本番相当データで確認できる**(`update-app-image
   3. DNSは`*.dev`のワイルドカードで引けるため登録不要
   4. `scripts/update-app-image.sh check-dev brc-cross-search-xsearch`・
      `check-dev brc-cross-search-resource`で200を確認する
+- **アプリの外で更新される公開ファイル**(2026-10-20〜)。旧サーバー(xsearch01 = 192.168.1.210)では
+  `public/`配下のファイルを外から直接書き換えていたが、コンテナ内のファイルはPod再作成で消え、
+  2レプリカでは食い違うため、NFS上のディレクトリ(静的PV `<app>-public`、
+  `pv-nfs-public.yaml`)に置いてDeploymentへ読み取り専用でマウントしている。
+  マウント先はイメージの`public/`に無いパスにし、アプリの静的ファイル配信で既存と同じURLのまま返す
+  (イメージ内の`public/animal`・`public/dict`は`/animal/`・`/dict/`でしか返らない古い版)。
+
+  | ファイル | URL | NFS(`192.168.1.1:/data/nfs/`配下) | 更新者 |
+  |---|---|---|---|
+  | resourceのsitemap | `/resource/animal/sitemap.xml` | `brc-cross-search/<env>/resource/animal/` | CronJob `brc-cross-search-resource-sitemap`(毎日JST 20:00) |
+  | resourceの辞書(4ファイル) | `/resource/dict/dna/<辞書>.json` | `brc-cross-search/<env>/resource/dict/dna/` | Virtuoso01の辞書生成ルーチン(usuda) |
+  | xsearchの辞書(3ファイル) | `/xsearch/<辞書>.json` | `brc-cross-search/<env>/xsearch/` | Virtuoso01の辞書生成ルーチン(usuda) |
+
+  - **sitemap**は同じクラスタのsparqlist(SPARQLet `brcmouse_sitemap`)をServiceで直接呼んで
+    書き込む。Googlebotの巡回(およそ21時)前に更新する(Redmine #1610)。出力はXMLではなく
+    IDを1行に1つ並べたテキスト(旧サーバーと同じ内容)。取得失敗時は前回分を残して失敗終了し、
+    26時間成功が無いと`BrcCrossSearchSitemapStale`で通知される。手動実行:
+    `kubectl -n brc-cross-search-resource create job --from=cronjob/brc-cross-search-resource-sitemap sitemap-manual-$(date +%s)`
+  - **辞書**はVirtuoso01(NFSをマウント済み)上の`/home/usuda/routine/autocomplete`の生成物を、
+    usudaの転送スクリプトがdev・production両方のディレクトリへ直接コピーする
+    (devは動作確認用。旧サーバーへのssh/scpは不要になる)。
+    xsearchの辞書は外部ページに埋め込まれた`dna-cross-search.js`が直接読むためURLを変えないこと。
+  - **導入時の手動手順**(PRのマージ前に行う。ディレクトリが無いとPodがマウントできず起動しない):
+    1. Virtuoso01でディレクトリを作り、旧サーバーから現在のファイルを両環境へコピーする
+       (`N`はVirtuoso01での`192.168.1.1:/data/nfs`のマウント先):
+       ```bash
+       N=<NFSのマウント先>
+       for env in dev production; do
+         d=$N/brc-cross-search/$env
+         install -d -m 0777 $d/resource/animal $d/resource/dict/dna $d/xsearch
+         scp usuda@192.168.1.210:/home/resource/resource/public/animal/sitemap.xml $d/resource/animal/
+         scp 'usuda@192.168.1.210:/home/resource/resource/public/dict/dna/*_dict.json' $d/resource/dict/dna/
+         scp 'usuda@192.168.1.210:/home/xsrch/xsearch/public/*_dict.json' $d/xsearch/
+       done
+       ```
+       (`0777`はCronJob(uid 1000)とusudaの両方が書き込むため)
+    2. usudaの2本の転送スクリプト(xsearch用・dnabank用)を、ssh/scpの代わりに両環境の
+       ディレクトリへコピーするよう変更してもらう。既存ファイルの退避(xsearchは`old/`、
+       dnabankは`<辞書>.old`)はそのまま残してよい。例(dnabank用):
+       ```bash
+       for env in dev production; do
+         dest=$N/brc-cross-search/$env/resource/dict/dna   # xsearch用は $N/brc-cross-search/$env/xsearch
+         for file in "${files[@]}"; do
+           f=$(basename "$file")
+           [ -f "$dest/$f" ] && cp -p "$dest/$f" "$dest/$f.old"
+           cp "$file" "$dest/.$f.tmp" && mv -f "$dest/.$f.tmp" "$dest/$f"
+         done
+       done
+       ```
+    3. PRをマージしてdevで`/resource/animal/sitemap.xml`・`/resource/dict/dna/gene_dict.json`・
+       `/xsearch/gene_dict.json`が200を返すことを確認し、CronJobを手動実行して成功を見る。
+       productionへは通常どおり昇格する(監視ルールはinfraのため`envs/production/infra/monitoring-config/`へ別途反映)
+    4. 外部nginx(`knowledge.brc.riken.jp`)をk8sへ切り替えた後で、xsearch01のRundeckジョブ
+       「BRC Cross Search(Resource) Sitemap UPDATE Script」を無効化する
