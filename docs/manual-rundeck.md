@@ -5,6 +5,11 @@
 [rundeck/jobs/wordpress.yaml](../rundeck/jobs/wordpress.yaml) で、どちらも
 [rundeck/generate-jobs.py](../rundeck/generate-jobs.py) が生成する(**直接編集しない**)。
 
+オペレータ向けの手順書(ジョブの使い方だけ。Redmine用のTextile版もある):
+[runbook/rundeck-app-operator.md](runbook/rundeck-app-operator.md)(自作アプリ)、
+[runbook/rundeck-wordpress-operator.md](runbook/rundeck-wordpress-operator.md)(WordPress)。
+ジョブやスクリプトの動きを変えたら、これらも直す。
+
 Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)。以下、ジョブは「プロジェクト内のグループ/ジョブ名」で書く。
 
 | Rundeckのプロジェクト | 定義ファイル | 実行する人(FreeIPAのグループ) |
