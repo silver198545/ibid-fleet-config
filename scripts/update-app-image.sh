@@ -156,6 +156,16 @@ ghcr_secret_needed_for() {
 # sync-dev-dataサブコマンドが production→dev のコピー元/先として使う
 # (brc-advanced-search/riken-diipsのようにPVCを持たないアプリは対象外。
 # docs/manual-apps.md「devでの本番データ確認」参照)。
+# WEBアクセス確認(check-dev/check-production)に使うパスを、readinessProbeのpathの代わりに指定するアプリ。
+# probeはHTTP 200〜399を成功とみなすが、確認は200だけを正常とするため、probeのpathがリダイレクトを
+# 返すアプリはここで200を返すパスを指定する(例: riken-diipsの / は /en// への307)。
+check_path_override_for() {
+  case "$1" in
+    riken-diips) echo "/ja" ;;
+    *) echo "" ;;
+  esac
+}
+
 persistent_data_dir_for() {
   case "$1" in
     sparqlist) echo "/app/repository" ;;
@@ -412,7 +422,7 @@ cmd_release_production() {
 
 cmd_check() {
   local env="$1"
-  local ctx host code path dep_file
+  local ctx host code path probe_path dep_file
   ctx="$(context_for_env "$env")"
   host="$(hostname_for_env "$env")"
 
@@ -428,15 +438,16 @@ cmd_check() {
   # そのまま使う(なければ/にフォールバック)。
   dep_file="envs/${env}/apps/${APP}/deployment.yaml"
   [[ -f "$dep_file" ]] || { echo "エラー: ${dep_file} が見つかりません。git pullでmainを最新化してから再実行してください。" >&2; exit 1; }
-  path="$(awk '/readinessProbe:/{f=1} f && /path:/{print $2; exit}' "$dep_file")"
+  probe_path="$(awk '/readinessProbe:/{f=1} f && /path:/{print $2; exit}' "$dep_file")"
   # productionでパスを変えているアプリ(例: metadatabase-v2の/bioresource)はパッチ側を優先する。
   local patch_file="envs/${env}/apps/${APP}/overlays/production/deployment_patch.yaml"
   if [[ "$env" == "production" && -f "$patch_file" ]]; then
     local patch_path
     patch_path="$(awk '/readinessProbe:/{f=1} f && /path:/{print $2; exit}' "$patch_file")"
-    path="${patch_path:-$path}"
+    probe_path="${patch_path:-$probe_path}"
   fi
-  path="${path:-/}"
+  path="$(check_path_override_for "$APP")"
+  [[ -n "$path" ]] || path="${probe_path:-/}"
 
   echo ""
   echo "== WEBアクセス確認: https://${host}${path} =="
