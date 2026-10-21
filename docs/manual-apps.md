@@ -313,9 +313,9 @@ devとproductionで同じNFSディレクトリを共有しているためコピ�
   - 非rootコンテナ(`USER node`、uid/gid 1000)からの書き込みを許可するため、Pod
     `securityContext.fsGroup`を設定している(bitnamiチャートの`podSecurityContext.fsGroup`と
     同じ考え方。ベースイメージのUID/GIDを調べる必要がない)。
-  - 以前は環境ごとのLonghorn RWX(`longhorn-r1`、`pvc.yaml`)に置いていたが、share-manager経由の
-    マウントで`Remote I/O error`が断続的に出ていた(2026-10-13)。移行手順は下記
-    「`repository/`のNFS共有ディレクトリへの移行」。
+  - 以前は環境ごとのLonghorn RWX(`longhorn-r1`、PVC `sparqlist-repository`)に置いていたが、
+    share-manager経由のマウントで`Remote I/O error`が断続的に出ていた(2026-10-13)。2026-10-21に
+    下記「`repository/`のNFS共有ディレクトリへの移行」で移し、旧PVCは同日両環境とも削除した。
   - バックアップはNFSサーバー側(組織のBaculaによる二次コピー。本リポジトリの管理外)だけになり、
     ゲストLonghornの日次バックアップの対象からは外れる。
 - **管理API(SPARQLetの作成・編集)は`ADMIN_PASSWORD`環境変数で保護される**
@@ -366,10 +366,11 @@ devとproductionで同じNFSディレクトリを共有しているためコピ�
      手順2より後に本番で編集してしまった場合は、マージ前に手順2をやり直す。マージ後、
      `https://sparqlist.production.ibid.lan/sparqlist/-api/sparqlets`の件数と、管理画面で
      SPARQLetを1件保存できること(本番は書き込み可)を確かめる。ここで編集の停止を解除する
-  5. 数日問題が無ければ、旧Longhorn PVC(`pvc.yaml`)をバンドルから消すPRをdev→productionの順に出す
-     (Helmが`sparqlist-repository`を削除し、Longhornボリュームも消える。それまでは切り戻し用。
+  5. 旧Longhorn PVC(`pvc.yaml`)をバンドルから消すPRをdev→productionの順に出す
+     (Helmが`sparqlist-repository`を削除し、Longhornボリュームも消える。それまでは切り戻し用で、
      切り戻すときは`deployment.yaml`の`claimName`を`sparqlist-repository`に戻す)。
-     手元の`sparqlist-repository-prod.tgz`は確認後に削除する
+     手元の`sparqlist-repository-prod.tgz`は確認後に削除する。
+     2026-10-21の移行では、手順1〜5を同日中に両環境で終えた
 - **既存運用からの`repository/`データの投入**: DBが無いためWordPressのような
   DBダンプ復元は不要で、`repository/`ディレクトリのファイルを共有NFSディレクトリへ置くだけでよい
   (上記の移行手順2と同じ要領。tarballを直接`$N/sparqlist/shared/repository`へ展開し、
