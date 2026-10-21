@@ -40,11 +40,11 @@ spec:
             # 既定値(開発: https://knowledge.brc.riken.jp/sparql2)を使う。
             - name: SITE_ENV
               value: "development"
-            # 外部nginx(wpdev2.brc.riken.jp)がTraefikへプロキシする際、Harvester LBの
+            # 外部nginx(devknw.brc.riken.jp)がTraefikへプロキシする際、Harvester LBの
             # SNATでTraefikには実IPが届かずX-Forwarded-Hostも上書きされてしまうため、
             # isSameOriginのホスト一致チェックをバイパスする許可リストとして追加(#172)。
             - name: TRUSTED_ORIGINS
-              value: "https://wpdev2.brc.riken.jp"
+              value: "https://devknw.brc.riken.jp"
             - name: ADMIN_INITIAL_LOGIN_ID
               value: "admin"
             - name: ADMIN_UPLOAD_MAX_BYTES
