@@ -48,7 +48,8 @@ WordPressのデータの置き場所:
 |---|---|---|---|
 | wp-content | `nfs-external` | NFS `192.168.1.1:/data/nfs/wordpress/<env>/` | サイトのCronJob(日次、14日分、NFS `/data/nfs/backup/<env>/`) |
 | MariaDB | `harvester` | Harvester側のボリューム | 同上(DBダンプ) |
-| (参考)Prometheus、sparqlist等 | `longhorn`/`longhorn-r1` | ゲストLonghorn | Longhornの日次バックアップ(NFS `/data/nfs/longhorn/<env>`) |
+| (参考)Prometheus等 | `longhorn`/`longhorn-r1` | ゲストLonghorn | Longhornの日次バックアップ(NFS `/data/nfs/longhorn/<env>`) |
+| (参考)sparqlistの`repository/` | 静的PV(NFS) | NFS `192.168.1.1:/data/nfs/sparqlist/shared/repository`(dev/production共有) | NFSサーバー側の二次コピーのみ |
 
 WordPressのバックアップCronJobはチャート0.6.0から(2026-10-09に両環境へ導入)。NFSサーバー上のデータの二次コピーは、組織のBaculaのバックアップで取られている(本リポジトリの管理外)。
 ([docs/roadmap.md](docs/roadmap.md)の項目5)。戻し方は

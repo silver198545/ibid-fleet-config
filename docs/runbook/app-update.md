@@ -32,8 +32,8 @@ scripts/update-app-image.sh set-image $APP <SHA>
 
 ブラウザで `https://<app>.dev.ibid.lan/` を開いて動作を見る。
 
-- sparqlist のように永続データを持つアプリで、本番と同じデータで確かめたいとき:
-  `scripts/update-app-image.sh sync-dev-data $APP`(**devのデータは本番のデータで上書きされる**)
+- sparqlist の SPARQLet(`repository/`)は dev と本番で同じものを共有しているので、dev でも本番と同じデータで確かめられる
+  (dev では読むだけ。SPARQLet の作成・編集は本番の管理画面で行う)
 
 ## 3. 本番へ昇格する
 

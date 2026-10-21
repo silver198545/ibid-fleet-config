@@ -211,7 +211,7 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
    | `dev1` | **Project Member** | Podへのexecを含めて、アプリのnamespaceを操作できる |
    | `prod1` | **Read-only** | 見るだけ(rollout・Podの確認、`9-check`、本番更新パイプラインの最後の確認) |
 
-   prod1がRead-onlyなので、**sparqlistの `1-dev-update` を `sync_prod_data=yes` で実行すると、本番Podへのexecで止まる**
+   prod1がRead-onlyなので、`sync_prod_data=yes` のような本番Podへのexecを伴う操作はできない
    (本番データのコピーは管理者が行う)。WordPressのnamespaceやSealed Secretsの鍵には触れられない
 3. **RundeckのACL**(RundeckもFreeIPAでログインするので、グループ名がそのままRundeckのロールになる)。
    プロジェクトを分けてあるので、`Rancher-AppControll` のジョブをすべて許し、アドホックコマンドは許さない。
@@ -336,9 +336,9 @@ rd jobs load -p WordPressControl -f rundeck/jobs/wordpress.yaml --format yaml
    イメージは更新せず、devの確認だけ行って終わる
 3. 違えば `set-image`: イメージPR → auto-merge → ビルド完了待ち → devの `deployment.yaml` を更新するPR →
    auto-merge → devのrollout・WEB疎通(readinessProbeのpathで200か)の確認
-4. (sparqlistのみ。`sync_prod_data=yes` のとき)本番の永続データ(`repository/`)をdevへコピー。
-   **devの内容は上書きされる**。対象は `persistent_data_dir_for` に登録したアプリで、
-   登録すると次の再生成でこのオプションが付く
+4. (`persistent_data_dir_for` に登録したアプリのみ。`sync_prod_data=yes` のとき)本番の永続データをdevへコピー。
+   **devの内容は上書きされる**。登録すると次の再生成でこのオプションが付く。現状は登録なし
+   (sparqlistは2026-10-21から `repository/` をdevと本番で共有しているため外した)
 
 | オプション | 既定 | 説明 |
 |---|---|---|

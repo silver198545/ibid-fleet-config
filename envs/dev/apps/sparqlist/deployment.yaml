@@ -13,8 +13,8 @@ spec:
       labels:
         app: sparqlist
     spec:
-      # sparqlist-repository(PVC)への書き込みは非root実行のコンテナから行うため、
-      # fsGroupでボリュームのグループ所有権を付与する(bitnamiチャートの
+      # repository/(NFS、pv-nfs-shared.yaml)への書き込み(productionのみ)は非root実行の
+      # コンテナから行うため、fsGroupでボリュームのグループ所有権を付与する(bitnamiチャートの
       # podSecurityContext.fsGroupと同じ考え方。ベースイメージのUID/GIDに依存しない)。
       securityContext:
         fsGroup: 1000
@@ -33,8 +33,12 @@ spec:
                   name: sparqlist-admin-password
                   key: admin-password
           volumeMounts:
+            # devとproductionで同じNFSディレクトリを共有するため、devは読み取り専用にする
+            # (SPARQLetの編集はproductionでだけ行う。overlays/production/deployment_patch.yaml で
+            # productionだけ書き込み可にしている。pv-nfs-shared.yaml参照)。
             - name: repository
               mountPath: /app/repository
+              readOnly: true
           resources:
             requests:
               cpu: 50m
@@ -56,4 +60,4 @@ spec:
       volumes:
         - name: repository
           persistentVolumeClaim:
-            claimName: sparqlist-repository
+            claimName: sparqlist-repository-shared
