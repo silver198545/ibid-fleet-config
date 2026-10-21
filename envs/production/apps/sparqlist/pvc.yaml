@@ -1,7 +1,8 @@
-# SPARQListが保存するSPARQLet(Markdown設定ファイル)の永続化用ボリューム。
-# WordPressのwp-contentと同じくRWX(longhorn-r1)にしておくことで、将来replicasを
-# 2以上に増やしても複数Podから同じディレクトリを共有できる(容量は小さいテキスト
-# ファイルのみのため2Giで十分な想定。不足時はここを増やす)。
+# 【移行中・未使用】以前SPARQLetの保存先に使っていたLonghorn RWXボリューム(longhorn-r1)。
+# 2026-10-21からrepository/はdev/production共有のNFS(pv-nfs-shared.yaml)に移した。
+# このファイルをバンドルから消すとHelmがPVCを削除し、Longhornボリュームも中身ごと消える。
+# productionの切替後にNFS側のデータを確認するまでは、切り戻し用に残しておく
+# (確認後にこのファイルを消すPRをdev→productionの順に出す。docs/manual-apps.md「sparqlist 固有のメモ」)。
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

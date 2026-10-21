@@ -1,3 +1,14 @@
-# production固有: 冗長化のため2レプリカ。
+# production固有: 冗長化のため2レプリカ。repository/(devと共有のNFS)はproductionだけ書き込み可にする
+# (SPARQLetの作成・編集は本番でだけ行う。pv-nfs-shared.yaml参照)。
+# Deploymentへのパッチはstrategic merge patchとして適用される(containersはname、
+# volumeMountsはmountPathをキーにマージされる)。
 spec:
   replicas: 2
+  template:
+    spec:
+      containers:
+        - name: sparqlist
+          volumeMounts:
+            - name: repository
+              mountPath: /app/repository
+              readOnly: false
