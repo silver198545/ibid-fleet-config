@@ -13,7 +13,8 @@ NitroのSSRサーバー(`node .output/server/index.mjs`)を常駐実行する)�
 
 [sparqlist](https://github.com/dbcls/sparqlist)(Express製、DBなし)は保存した
 SPARQLet(`repository/`配下のMarkdown設定ファイル)の永続化が必要な点が上記2つと異なる。
-PVC(`envs/<env>/apps/sparqlist/pvc.yaml`)を持つ以外は同じ`apps/`パターンに乗せている
+dev/production共有のNFSディレクトリ(`envs/<env>/apps/sparqlist/pv-nfs-shared.yaml`)を
+マウントする以外は同じ`apps/`パターンに乗せている
 (詳細は下記「sparqlist 固有のメモ」参照)。
 
 [metadatabase-v2](https://github.com/silver198545/metadatabase-v2)(Next.js 15製、
@@ -138,9 +139,10 @@ WordPressサイトと同じサイクル([operations-flow.md](operations-flow.md)
 DBを持たないアプリの場合はWordPressより単純で、devで動作確認できればそのまま
 productionへ昇格してよい(本番データのリハーサルは基本不要)。
 
-ただし**PVCで永続データを持つアプリ(sparqlistの`repository/`等)は、本番の永続データを
-devへコピーして本番相当データで確認できる**(`update-app-image.sh sync-dev-data <app>`。
-**devの内容は上書きされる**。「sparqlist 固有のメモ」参照)。
+PVCで永続データを持つアプリは、`update-app-image.sh`の`persistent_data_dir_for`に登録すれば
+本番の永続データをdevへコピーして本番相当データで確認できる(`update-app-image.sh sync-dev-data <app>`。
+**devの内容は上書きされる**)。現状は登録なし(sparqlistの`repository/`は2026-10-21から
+devとproductionで同じNFSディレクトリを共有しているためコピー不要。「sparqlist 固有のメモ」参照)。
 
 ## brc-advanced-search 固有のメモ
 
@@ -298,12 +300,24 @@ devへコピーして本番相当データで確認できる**(`update-app-image
   焼き込むことで値のズレを防いでいる(値を変える場合はDockerfileを書き換えて
   イメージを作り直すこと)。Ingress側も`ingress.yaml`の`path: /sparqlist`と揃えてある。
 - **`repository/`配下(保存したSPARQLetのMarkdown設定)の永続化が必要**な点が
-  brc-advanced-search/riken-diipsと異なる唯一の点。`envs/<env>/apps/sparqlist/pvc.yaml`で
-  Longhorn RWX(`longhorn-r1`。WordPressのwp-contentが以前使っていたもの)のPVCを持ち、
+  brc-advanced-search/riken-diipsと異なる唯一の点。**devとproductionは同じNFSディレクトリ
+  (`192.168.1.1:/data/nfs/sparqlist/shared/repository`)を参照する**(2026-10-21〜。
+  静的PV/PVC `sparqlist-repository-shared`、`envs/<env>/apps/sparqlist/pv-nfs-shared.yaml`)。
   `deployment.yaml`で`/app/repository`(`REPOSITORY_PATH`のデフォルト値`./repository`が
-  WORKDIR `/app`からの相対パスで解決される)にマウントしている。非rootコンテナからの
-  書き込みを許可するため、Pod `securityContext.fsGroup`を設定している(bitnamiチャートの
-  `podSecurityContext.fsGroup`と同じ考え方。ベースイメージのUID/GIDを調べる必要がない)。
+  WORKDIR `/app`からの相対パスで解決される)にマウントしている。
+  - **SPARQLetの作成・編集はproductionの管理画面でだけ行う**。devは読み取り専用でマウントしており
+    (productionだけ`overlays/production/deployment_patch.yaml`で書き込み可)、devの画面から保存しても
+    失敗する(Express 5のため500/404が返るだけでPodは落ちない)。代わりに「新しいSPARQLetをdevだけで
+    先に試す」ことはできない。sparqlistはリクエストのたびにファイルを読み直すので、本番で保存した
+    内容はdevにもすぐ見える(以前の本番→devのコピー`sync-dev-data`は不要になったので廃止した)。
+  - 非rootコンテナ(`USER node`、uid/gid 1000)からの書き込みを許可するため、Pod
+    `securityContext.fsGroup`を設定している(bitnamiチャートの`podSecurityContext.fsGroup`と
+    同じ考え方。ベースイメージのUID/GIDを調べる必要がない)。
+  - 以前は環境ごとのLonghorn RWX(`longhorn-r1`、`pvc.yaml`)に置いていたが、share-manager経由の
+    マウントで`Remote I/O error`が断続的に出ていた(2026-10-13)。移行手順は下記
+    「`repository/`のNFS共有ディレクトリへの移行」。
+  - バックアップはNFSサーバー側(組織のBaculaによる二次コピー。本リポジトリの管理外)だけになり、
+    ゲストLonghornの日次バックアップの対象からは外れる。
 - **管理API(SPARQLetの作成・編集)は`ADMIN_PASSWORD`環境変数で保護される**
   (空にすると管理機能自体が無効化される仕様)。パスワードをGit管理下に置かないため、
   `scripts/seal-sparqlist-secret.sh <env>`でSealedSecretとして
@@ -327,84 +341,43 @@ devへコピーして本番相当データで確認できる**(`update-app-image
      (`docs/manual-cert-manager-freeipa-acme.md`参照)
   4. `https://sparqlist.dev.ibid.lan/sparqlist/`で200を確認
      (`scripts/update-app-image.sh check-dev sparqlist`でも可)
-- **既存運用からの`repository/`データの投入(移行)**: DBが無いためWordPressのような
-  DBダンプ復元は不要で、`repository/`ディレクトリのファイルをPVCへコピーするだけでよい。
-  対象環境(通常は本番データを実際に使う環境。まずdevでファイル一式が壊れていないか
-  確認してからでもよい)のPodに対して行う:
-  ```bash
-  # ローカルで既存運用のrepository/配下だけを固める
-  tar czf sparqlist-repository.tar.gz -C <既存運用のsparqlistディレクトリ> repository
+- **`repository/`のNFS共有ディレクトリへの移行(2026-10-21〜)**: 環境ごとのLonghorn PVC
+  (`sparqlist-repository`)から共有NFS(`sparqlist-repository-shared`)へ移す。productionの内容を
+  正とし、devの内容は捨てる。本番Podへの操作・NFSへの書き込みは管理者が行う:
+  1. 移行が終わるまで(手順4まで)、本番の管理画面でのSPARQLetの編集を止めてもらう
+  2. productionの`repository/`を取り出し、NFSをマウントしたホスト(`N`は
+     `192.168.1.1:/data/nfs`のマウント先)で共有ディレクトリに展開する。
+     Podのuid/gid(1000)の所有にしておく(productionのPodが既存ファイルを上書きできるように):
+     ```bash
+     kubectl --context prod1 -n sparqlist exec deploy/sparqlist -- \
+       tar czf - -C /app/repository --exclude=./lost+found . > sparqlist-repository-prod.tgz
+     tar tzf sparqlist-repository-prod.tgz | grep -c '\.md$'   # 件数を控える
 
-  kubectl --context <対象envのコンテキスト> -n sparqlist get pods -l app=sparqlist
-
-  # 起動時にイメージへ焼き込まれているサンプルSPARQLet(adjacent_prefectures.md等)を
-  # 退避してから展開する
-  kubectl --context <対象envのコンテキスト> -n sparqlist exec <sparqlist-pod> -- \
-    mv /app/repository /app/repository.orig
-  kubectl --context <対象envのコンテキスト> -n sparqlist cp sparqlist-repository.tar.gz \
-    <sparqlist-pod>:/tmp/sparqlist-repository.tar.gz
-  kubectl --context <対象envのコンテキスト> -n sparqlist exec <sparqlist-pod> -- \
-    tar xzf /tmp/sparqlist-repository.tar.gz -C /app -m --no-same-permissions
-  kubectl --context <対象envのコンテキスト> -n sparqlist exec <sparqlist-pod> -- \
-    rm /tmp/sparqlist-repository.tar.gz
-  ```
-  `repository`はReadWriteManyの共有ボリュームなので、1つのPodに反映すれば他のreplicaにも
-  即座に反映される。動作確認後、退避した`repository.orig`は削除してよい
-  (`kubectl ... exec <sparqlist-pod> -- rm -rf /app/repository.orig`)。
-  `kubectl exec`/`cp`はコンテナ内プロセス(`USER node`)権限で実行されるため、
-  fsGroupにより書き込み自体は通るが、念のため反映後に一覧APIやWeb UIで
-  想定件数のSPARQLetが見えることを確認すること。
-  **実際に踏んだ問題**: `mv /app/repository /app/repository.orig`は
-  `Permission denied`で失敗する(`/app`自体がroot所有で、非rootの`node`ユーザーには
-  親ディレクトリへの書き込み権限が無くrenameできないため。無害なので無視してよい)。
-  また`-m --no-same-permissions`を付けずに`tar xzf`を実行すると、既存の(マウント
-  ポイントである)`repository/`自体のmtime/mode復元に失敗し終了コードが非0になる
-  (ファイル本体の展開自体は成功する)。上記コマンドのようにこの2オプションを
-  付けることでその失敗ごと回避できる。展開後にファイル数
-  (`ls /app/repository | wc -l`)が想定件数(元tarballのファイル数+既存の
-  `lost+found`)と一致していれば問題ない。
-- **devでの本番データ確認**:
-  WordPressの本番データリハーサル([operations-flow.md](operations-flow.md)参照)と同じく、
-  イメージ更新を本番の`repository/`データで確認したい場合は、
-  ローカルにアップロードしたtarballではなく**稼働中のproduction Podから直接**
-  取得してdevへ流し込める(DBが無いためmysqldump相当の準備は不要、
-  ファイルコピーのみで完結する)。**devの`repository/`は上書きされる**(devで作った
-  SPARQLetが消えるので、残したいものがあれば先に退避する)。`scripts/update-app-image.sh`の
-  `sync-dev-data`サブコマンドでこの一連の操作を実行できる
-  (`persistent_data_dir_for`に登録済みのアプリのみ対応。現状sparqlist限定):
-  ```bash
-  scripts/update-app-image.sh sync-dev-data sparqlist
-  ```
-  中身は次のコマンド相当(手動で行いたい場合や、他のPVC付きアプリを
-  `persistent_data_dir_for`にまだ登録していない場合はこちらを使う):
-  ```bash
-  PROD_POD=$(kubectl --context prod1 -n sparqlist get pods -l app=sparqlist -o jsonpath='{.items[0].metadata.name}')
-  DEV_POD=$(kubectl --context dev1 -n sparqlist get pods -l app=sparqlist -o jsonpath='{.items[0].metadata.name}')
-
-  # productionの/app/repositoryを固めてローカルへ取得
-  kubectl --context prod1 -n sparqlist exec "$PROD_POD" -- \
-    tar czf /tmp/sparqlist-repository.tar.gz -C /app repository
-  kubectl --context prod1 -n sparqlist cp "$PROD_POD":/tmp/sparqlist-repository.tar.gz \
-    ./sparqlist-repository-prod.tar.gz
-  kubectl --context prod1 -n sparqlist exec "$PROD_POD" -- rm /tmp/sparqlist-repository.tar.gz
-
-  # devへ展開(既存データへの上書きになる点は「repository/データの投入」と同じ)
-  kubectl --context dev1 -n sparqlist cp ./sparqlist-repository-prod.tar.gz \
-    "$DEV_POD":/tmp/sparqlist-repository.tar.gz
-  # -m --no-same-permissions を付けないと、マウントポイントであるrepository自体の
-  # 属性復元にtarが失敗し終了コードが非0になる(「実際に踏んだ問題」参照。
-  # ファイル本体の展開自体はこのオプション無しでも成功する)。
-  kubectl --context dev1 -n sparqlist exec "$DEV_POD" -- \
-    tar xzf /tmp/sparqlist-repository.tar.gz -C /app -m --no-same-permissions
-  kubectl --context dev1 -n sparqlist exec "$DEV_POD" -- rm /tmp/sparqlist-repository.tar.gz
-  ```
-  手元に残した`./sparqlist-repository-prod.tar.gz`(本番データ)は確認後に削除する。
-  (2026-10-08以前はstagingへ流し込み、テスト後にstagingごと削除していた。
-  staging廃止に伴いdevへの上書きに変更)
-  **production反映前のバックアップ**については、`repository`PVC
-  (`envs/<env>/apps/sparqlist/pvc.yaml`)はLonghornの`envs/<env>/infra/longhorn-jobs/`
-  (`groups: [default]`)の対象に自動的に含まれるため、WordPressのような手動バックアップ
-  取得は不要(6時間毎スナップショット・日次バックアップが既にかかっている)。
+     # NFSをマウントしたホストで
+     install -d -m 0777 $N/sparqlist/shared/repository
+     tar xzf sparqlist-repository-prod.tgz -C $N/sparqlist/shared/repository --no-same-owner
+     chown -R 1000:1000 $N/sparqlist/shared/repository
+     ls $N/sparqlist/shared/repository | grep -c '\.md$'      # 上の件数と一致すること
+     ```
+  3. devの切替(`pv-nfs-shared.yaml`を追加したPR)をマージし、devの一覧API
+     `https://sparqlist.dev.ibid.lan/sparqlist/-api/sparqlets`(`data`配列)の件数が手順2と
+     一致することを確かめる
+  4. productionへ昇格する(`scripts/update-app-image.sh deploy-production sparqlist`)。
+     手順2より後に本番で編集してしまった場合は、マージ前に手順2をやり直す。マージ後、
+     `https://sparqlist.production.ibid.lan/sparqlist/-api/sparqlets`の件数と、管理画面で
+     SPARQLetを1件保存できること(本番は書き込み可)を確かめる。ここで編集の停止を解除する
+  5. 数日問題が無ければ、旧Longhorn PVC(`pvc.yaml`)をバンドルから消すPRをdev→productionの順に出す
+     (Helmが`sparqlist-repository`を削除し、Longhornボリュームも消える。それまでは切り戻し用。
+     切り戻すときは`deployment.yaml`の`claimName`を`sparqlist-repository`に戻す)。
+     手元の`sparqlist-repository-prod.tgz`は確認後に削除する
+- **既存運用からの`repository/`データの投入**: DBが無いためWordPressのような
+  DBダンプ復元は不要で、`repository/`ディレクトリのファイルを共有NFSディレクトリへ置くだけでよい
+  (上記の移行手順2と同じ要領。tarballを直接`$N/sparqlist/shared/repository`へ展開し、
+  uid/gid 1000の所有にする)。devとproductionの両方に即座に反映される。
+  (2026-10-13に既存運用の129件をdev1/prod1それぞれのLonghorn PVCへ`kubectl cp`で投入したのが
+  最初の移行。その際に踏んだ問題: `/app`がroot所有のため`mv /app/repository ...`は
+  `Permission denied`になる、マウントポイントに`tar xzf`すると`-m --no-same-permissions`無しでは
+  ディレクトリ自体の属性復元に失敗して終了コードが非0になる)
 
 ## metadatabase-v2 固有のメモ
 

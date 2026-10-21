@@ -135,7 +135,6 @@ OK: sparqlist.dev.ibid.lan/sparqlist/ は200を返しました。
 |---|---|---|---|
 | `1-dev-update` | `src_ref` | 空欄 | 取り込むコミットの SHA。**空欄なら取り込み元の最新**。特定のコミットを入れたいときだけ指定 |
 | `1-dev-update` | `tag` | 空欄 | 新しいイメージのタグ。空欄なら自動で採番(例: `2.0.0-r7` → `2.0.0-r8`) |
-| `1-dev-update`(sparqlist のみ) | `sync_prod_data` | `no` | 本番のデータを dev にコピーする。**オペレータは使えません**(本番が見るだけのため。`no` のまま) |
 | `2-production-update` | `merge_wait_minutes` | `240` | 本番 PR の承認・マージを待つ時間(分) |
 | `9-check` | `env` | `dev` | 確認する環境(`dev` / `production`) |
 
@@ -212,7 +211,7 @@ Rundeck のジョブの実行画面(Log Output)に、すべての出力が残り
 * `merge_wait_minutes` を過ぎてもマージされないと、ジョブは失敗で終わります。PR は残るので、マージ後に `9-check` を `env=production` で実行して確認してください。
 * 同じジョブは同時に1つしか動きません(実行中は待たされます)。
 * rancher の `~/ibid-fleet-config` を手で編集しないでください。未コミットの変更が残っていると、すべてのジョブが最初で止まります。
-* 本番(prod1)は見るだけです。sparqlist の `sync_prod_data` は `no` のまま使ってください。
+* 本番(prod1)は見るだけです。
 * kubeconfig は 30 日で期限が切れます。
 * 非公開の取り込み元(PENQEinc など)に自分の GitHub アカウントの読み取り権限が無いと、`src_ref` 空欄では動きません。その場合は、取り込むコミットの SHA を `src_ref` に入れてください。
 

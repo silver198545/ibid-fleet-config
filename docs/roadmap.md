@@ -233,7 +233,8 @@
     (`c-mk1hng`、バックアップではない)しか無い
   - wp-content: `nfs-external`(NFSサーバー`192.168.1.1`の`/data/nfs/wordpress/<env>/`)。
     Longhornを通らないので、Longhornのバックアップの対象外
-  - ゲストLonghornの`backup-daily`が今守っているのは、Prometheus・sparqlist等だけ
+  - ゲストLonghornの`backup-daily`が今守っているのは、Prometheus等だけ(sparqlistの`repository/`も
+    2026-10-21にdev/production共有のNFSへ移した)
   - 項目3でDBを`harvester`へ、その後wp-contentを`nfs-external`へ移した結果、
     気づかないうちにバックアップの対象から外れていた
 - **さらに**: 全環境のバックアップ(と、今はwp-contentの実体も)がNFSサーバー`192.168.1.1`

@@ -1,0 +1,47 @@
+# 保存したSPARQLet(repository/配下のMarkdown設定ファイル)を置くNFS上のディレクトリの静的PV/PVC。
+# **devとproductionで同じディレクトリ(sparqlist/shared/repository)を参照する**(2026-10-21〜。
+# brc-cross-searchの辞書と同じ考え方で、本番→devのコピー(旧sync-dev-data)をしなくても
+# devが常に本番と同じSPARQLetで動き、環境間で内容がずれないため)。
+# SPARQLetの作成・編集はproductionの管理画面でだけ行う。dev側のPodは読み取り専用でマウントするので
+# (deployment.yaml。productionだけ overlays/production/deployment_patch.yaml で書き込み可にする)、
+# devの画面から保存しようとしても失敗し、本番のファイルは壊れない。
+# 以前のLonghorn RWX(pvc.yaml、longhorn-r1)ではshare-manager経由のマウントで
+# Remote I/O errorが断続的に出ていたが、WordPressのwp-contentと同じ外部NFSに載せることで回避する。
+# ディレクトリと初期データは事前の手動作業が必要(docs/manual-apps.md「sparqlist 固有のメモ」)。
+# PVの参照先は作成後に変えられないため、参照先を変えるときはPV/PVCの名前ごと変える。
+# reclaimPolicy: Retain必須(PVC削除で中身ごと消えないようにする)。
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: sparqlist-repository-shared
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  mountOptions:
+    - nfsvers=4.1
+  csi:
+    driver: nfs.csi.k8s.io
+    volumeHandle: sparqlist-repository-shared
+    volumeAttributes:
+      server: "192.168.1.1"
+      share: "/data/nfs"
+      subDir: "sparqlist/shared/repository"
+      mountPermissions: "0777"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sparqlist-repository-shared
+  namespace: sparqlist
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""
+  volumeName: sparqlist-repository-shared
+  resources:
+    requests:
+      storage: 2Gi

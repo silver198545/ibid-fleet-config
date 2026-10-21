@@ -1143,15 +1143,6 @@
   - name: tag
     description: 新しいイメージタグ。空欄なら現在のTAG(<version>-r<N>)から自動採番
     regex: ^([0-9A-Za-z._-]+)?$
-  - name: sync_prod_data
-    description: 最後に本番の永続データをdevへコピーし、本番相当データで確認できるようにする(**devの内容は上書きされる**)
-    required: true
-    value: 'no'
-    values:
-    - 'yes'
-    - 'no'
-    valuesListDelimiter: ','
-    enforced: true
   sequence:
     keepgoing: false
     strategy: node-first
@@ -1178,17 +1169,6 @@
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh dev-update sparqlist '@option.src_ref@' '@option.tag@'
-      scriptInterpreter: /bin/bash
-    - description: 本番の永続データをdevへコピー(sync_prod_data=yesのとき)
-      script: |
-        set -euo pipefail
-        cd "$HOME/ibid-fleet-config"
-        export PIPELINE_ACTOR='@job.username@'
-        if [ '@option.sync_prod_data@' = yes ]; then
-          scripts/update-app-image.sh sync-dev-data sparqlist
-        else
-          echo 'sync_prod_data=no のためスキップします。'
-        fi
       scriptInterpreter: /bin/bash
 - name: 2-production-update
   group: sparqlist

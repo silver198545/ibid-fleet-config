@@ -35,7 +35,7 @@
 #                                       check-devまで行う(通常はset-imageから自動で呼ばれる)。
 #   check-dev <app>                    devのrollout状況とWEBアクセス(readinessProbeのpathで200か)を確認。
 #   sync-dev-data <app>                PVCで永続データを持つアプリ限定(persistent_data_dir_forに
-#                                       登録済みのアプリのみ。現状sparqlistのみ)。productionの
+#                                       登録済みのアプリのみ。現状は登録なし)。productionの
 #                                       永続データ(例: repository/)をdevへコピーし、本番相当
 #                                       データでの確認を可能にする(WordPressの本番データリハーサル相当。
 #                                       docs/manual-apps.md「devでの本番データ確認」参照)。
@@ -152,10 +152,6 @@ ghcr_secret_needed_for() {
   esac
 }
 
-# PVCで永続データを持つアプリの、コンテナ内でのデータディレクトリ絶対パス。
-# sync-dev-dataサブコマンドが production→dev のコピー元/先として使う
-# (brc-advanced-search/riken-diipsのようにPVCを持たないアプリは対象外。
-# docs/manual-apps.md「devでの本番データ確認」参照)。
 # WEBアクセス確認(check-dev/check-production)に使うパスを、readinessProbeのpathの代わりに指定するアプリ。
 # probeはHTTP 200〜399を成功とみなすが、確認は200だけを正常とするため、probeのpathがリダイレクトを
 # 返すアプリはここで200を返すパスを指定する(例: riken-diipsの / は /en// への307)。
@@ -166,9 +162,13 @@ check_path_override_for() {
   esac
 }
 
+# PVCで永続データを持つアプリの、コンテナ内でのデータディレクトリ絶対パス。
+# sync-dev-dataサブコマンドが production→dev のコピー元/先として使う
+# (brc-advanced-search/riken-diipsのようにPVCを持たないアプリは対象外。
+# docs/manual-apps.md「本番反映のサイクル」参照)。sparqlistは2026-10-21から
+# repository/をdevとproductionで同じNFSディレクトリを共有するようにしたため外した(コピー不要)。
 persistent_data_dir_for() {
   case "$1" in
-    sparqlist) echo "/app/repository" ;;
     *) echo "エラー: ${1} は永続データの同期に対応していません(このスクリプトの persistent_data_dir_for に追記してください。PVCを持たないアプリはそもそも対象外です)。" >&2; exit 1 ;;
   esac
 }
