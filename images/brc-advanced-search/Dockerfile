@@ -34,7 +34,7 @@
 #      image タグを切り替え、dev確認後にstaging/productionへ手動で反映する
 #      (promoteワークフローは envs/<env>/sites/ のみが対象のため、apps/ は
 #      docs/manual-apps.md の手順に従い手動でコピーする)
-FROM node:20-bullseye AS build
+FROM node:26-bullseye AS build
 
 WORKDIR /app
 COPY app/ .
@@ -49,7 +49,7 @@ RUN npm run build
 # nuxt自体はdependencies側なので残る。
 RUN npm prune --omit=dev
 
-FROM node:20-bullseye-slim
+FROM node:26-bullseye-slim
 WORKDIR /app
 ENV NODE_ENV=production
 # nuxt startが待ち受けるホスト/ポート。Service/Deploymentからの到達性のため明示する。
