@@ -50,14 +50,14 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: SRC_REFを読み込む
         id: src_ref
         run: echo "ref=$(tr -d '[:space:]' < images/metadatabase-v2/SRC_REF)" >> "$GITHUB_OUTPUT"
 
       - name: アプリ本体(プライベートリポジトリ)をmainブランチで取得
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: silver198545/metadatabase-v2
           ref: main

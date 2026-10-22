@@ -30,14 +30,14 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: SRC_REFを読み込む
         id: src_ref
         run: echo "ref=$(tr -d '[:space:]' < images/sparqlist/SRC_REF)" >> "$GITHUB_OUTPUT"
 
       - name: アプリ本体(公開リポジトリ)をSRC_REF固定で取得
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: dbcls/sparqlist
           ref: ${{ steps.src_ref.outputs.ref }}
