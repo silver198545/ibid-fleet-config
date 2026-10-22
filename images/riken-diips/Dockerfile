@@ -16,7 +16,7 @@
 #   3. PR→マージでイメージが公開されたら、envs/dev/apps/riken-diips/deployment.yaml の
 #      image タグを切り替え、dev確認後にstaging/productionへ手動で反映する
 #      (docs/manual-apps.md参照)
-FROM node:20-bullseye AS build
+FROM node:26.12.1-bookworm AS build
 
 WORKDIR /app
 COPY app/ .
@@ -25,7 +25,7 @@ RUN npm run build
 # 実行時に不要なdevDependencies(eslint/jest/typescript等)を落とす。
 RUN npm prune --omit=dev
 
-FROM node:20-bullseye-slim
+FROM node:26.12.1-bookworm-slim
 WORKDIR /app
 ENV NODE_ENV=production
 # next startが待ち受けるポート。Service/Deploymentからの到達性のため明示する。
