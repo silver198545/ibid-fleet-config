@@ -324,7 +324,7 @@ devとproductionで同じNFSディレクトリを共有しているためコピ�
   `envs/<env>/secrets/sparqlist.yaml`に封印する(brc-advanced-search/riken-diipsの
   同名ファイルはGHCR pull用Secretだが、sparqlistでは用途が異なる。`update-app-image.sh`の
   `promote-production`もこの違いを認識し、GHCR pull用の代わりに
-  このコマンドの実行を促す)。デフォルトは環境ごとにランダム生成(CLAUDE.mdの方針どおり
+  このコマンドの実行を促す)。デフォルトは環境ごとにランダム生成(AGENTS.mdの方針どおり
   使い回さない)だが、既存運用からの移行等で特定の値を使いたい場合は
   `ADMIN_PASSWORD='...' scripts/seal-sparqlist-secret.sh <env>`のように環境変数で指定できる
   (argvではなく環境変数で渡すのはシェル履歴に残さないため)。
@@ -394,7 +394,7 @@ devとproductionで同じNFSディレクトリを共有しているためコピ�
   阻まれる問題は起きないため、classic PAT方式(`METADATABASE_V2_ACCESS_TOKEN`、
   `repo`スコープ)でソース取得している。ただし同一アカウント所有だからといって
   既存の広いスコープのPAT(このリポジトリの運用に使っているgh CLIのトークン等)を
-  流用しないこと(CLAUDE.mdの秘密情報使い回し禁止方針と同じ理由。専用に新規発行した
+  流用しないこと(AGENTS.mdの秘密情報使い回し禁止方針と同じ理由。専用に新規発行した
   トークンを使う)。riken-diipsと同じ理由([riken-diips 固有のメモ]参照)で、
   ワークフローは生SHA指定ではなく`main`ブランチ名でfetchしてからローカルで
   `git checkout <SRC_REF>`する構成にしてある。
