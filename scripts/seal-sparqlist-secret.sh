@@ -6,7 +6,7 @@
 # sparqlistはGHCRイメージを公開設定にしているためpull用Secretは不要(docs/manual-apps.md参照)。
 # 代わりにここではDeploymentのADMIN_PASSWORD環境変数(secretKeyRef)用のSecretを封印する。
 #
-# このリポジトリの方針(CLAUDE.md)では、パスワードは環境ごとに新規生成し
+# このリポジトリの方針(AGENTS.md)では、パスワードは環境ごとに新規生成し
 # 他環境からのコピーや使い回しをしないことが基本だが、既存運用からの移行等で
 # 特定の値を使いたい場合は環境変数 ADMIN_PASSWORD で明示指定できる(argvでは
 # 受け取らない=シェル履歴に残さない)。未指定ならランダム生成する。
