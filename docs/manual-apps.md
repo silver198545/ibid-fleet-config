@@ -486,6 +486,10 @@ devとproductionで同じNFSディレクトリを共有しているためコピ�
   ページ内の相対リンク(`../../../animal/card/...`等)が既存運用(`knowledge.brc.riken.jp`)の
   階層を前提にしているため、既存と同じ`/xsearch/...`・`/resource/...`で開く。Ingressは
   ホスト名ごとに`/`をそのまま転送するだけで、パスの書き換えはしない。
+  **外部nginxも接頭辞を外さずに転送する**(`location /xsearch/ { proxy_pass https://brc-cross-search-xsearch.<env>.ibid.lan; }`
+  のように`proxy_pass`の末尾に`/`を付けない)。旧サーバー(xsearch01)は辞書を`public/`直下に置き、
+  nginxが`/xsearch`を外して転送していたため、同じ書き方のままk8sへ向けるとページは表示されるが
+  辞書(`/xsearch/<辞書>.json`)が404になりサジェストが出ない(2026-10-23に本番で発生)。
 - **ヘルスチェック**は検索フォームのページ(`/xsearch/catalog/`・`/resource/animal/`)。
   ページ設定のJSONを読んで描画するだけで外部SPARQLには問い合わせないため、
   エンドポイント側の障害でPodが再起動されることはない。一覧・カード表示は
@@ -575,8 +579,9 @@ devとproductionで同じNFSディレクトリを共有しているためコピ�
   - **導入の経緯**: 2026-10-20に環境別ディレクトリ(`brc-cross-search/dev/`・`production/`、
     PV `<app>-public`)で導入し(#320〜#322)、同日中に共有ディレクトリへ切り替えた。PVの参照先は
     作成後に変えられないため、切替はPV/PVCの名前ごと変えて行った(旧PV/PVCはバンドルから消えたため
-    Helmが削除する。静的PVなのでNFS上のデータは消えず、旧ディレクトリは手動で消す。旧PVCを使う
-    完了済みJobのPodが残っているとPVCがTerminatingで止まるので、そのJobを消す)。
+    Helmが削除する。静的PVなのでNFS上のデータは消えず、旧ディレクトリは手動で消す(2026-10-23に削除済み)。
+    旧PVCを使う完了済みJobのPodが残っているとPVCがTerminatingで止まるので、そのJobを消す)。
     ディレクトリは`install -d -m 0777`で作る(CronJob(uid 1000)とusudaの両方が書き込むため)。
-  - **外部nginx(`knowledge.brc.riken.jp`)をk8sへ切り替えた後で**、xsearch01のRundeckジョブ
-    「BRC Cross Search(Resource) Sitemap UPDATE Script」を無効化し、旧サーバーへの辞書転送もやめる
+  - **旧サーバーからの移行は完了済み**(2026-10-23)。外部nginx(`knowledge.brc.riken.jp`)をk8sへ
+    切り替えた後、xsearch01のRundeckジョブ「BRC Cross Search(Resource) Sitemap UPDATE Script」を
+    無効化し、旧サーバーへの辞書転送もやめた。sitemap・辞書の更新はk8s側(上の表)だけで行う。
