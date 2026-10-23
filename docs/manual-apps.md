@@ -26,6 +26,10 @@ DBなし。外部のSPARQLエンドポイントを参照するのみ)はriken-di
 「個別アプリ」(`brc-cross-search-resource`)の2つのアプリとして展開している。
 詳細は下記「brc-cross-search-xsearch / brc-cross-search-resource 固有のメモ」参照。
 
+[member-gateway](https://github.com/silver198545/member-gateway)(Fastify製、DB・PVCなし)は、
+入力されたメールアドレスをkintoneに照会して会員状態を判定するAPIサーバー。kintoneのAPIトークンを
+環境ごとのSealedSecretで渡す点以外はmetadatabase-v2と同じ構成。詳細は下記「member-gateway 固有のメモ」参照。
+
 ## 構成
 
 - `images/<app>/`: アプリのビルド定義。アプリ本体は別リポジトリにあるため、
@@ -585,3 +589,45 @@ devとproductionで同じNFSディレクトリを共有しているためコピ�
   - **旧サーバーからの移行は完了済み**(2026-10-23)。外部nginx(`knowledge.brc.riken.jp`)をk8sへ
     切り替えた後、xsearch01のRundeckジョブ「BRC Cross Search(Resource) Sitemap UPDATE Script」を
     無効化し、旧サーバーへの辞書転送もやめた。sitemap・辞書の更新はk8s側(上の表)だけで行う。
+
+## member-gateway 固有のメモ
+
+- ソースは[silver198545/member-gateway](https://github.com/silver198545/member-gateway)の
+  `main`ブランチ(Node.js 22 / TypeScript / Fastify)。入力ページ(`GET /`)と照会API
+  (`POST /api/member-lookup`)を持ち、kintone(アプリ360)を照会して「新規会員」「既存会員」
+  「要問い合わせ」に応じた遷移先URLを返す。DB・PVCは持たない。
+- **ソースリポジトリはsilver198545アカウント所有のプライベートリポジトリ**。metadatabase-v2と
+  同じclassic PAT方式(`MEMBER_GATEWAY_ACCESS_TOKEN`、`repo`スコープ、専用に新規発行)で
+  ソースを取得し、`main`ブランチ名でfetchしてからローカルで`git checkout <SRC_REF>`する。
+  `images/member-gateway/Dockerfile`はアプリ本家のDockerfileのCOPY元を`app/`に変えたもの。
+- ソースが非公開のため、GHCRイメージも非公開のまま運用する。pullには
+  GHCR pull用SealedSecret(`envs/<env>/secrets/member-gateway.yaml`、`ghcr-member-gateway`)が必要
+  (`ghcr_secret_needed_for`に`yes`として登録済み)。
+- **kintoneのURLとAPIトークンは環境ごとのSealedSecret**(`envs/<env>/secrets/member-gateway-kintone.yaml`、
+  Secret名`member-gateway-kintone`、キー`base-url`・`api-token`)から注入する。トークンには
+  アプリ360の「レコード閲覧」権限だけを付ける。devと本番は別のトークンを発行することを推奨
+  (片方を失効させても他方に影響しない)。作成例(devの場合):
+  ```bash
+  read -rsp 'kintone APIトークン: ' TOKEN; echo
+  kubectl create secret generic member-gateway-kintone -n member-gateway \
+    --from-literal=base-url='https://<サブドメイン>.cybozu.com' \
+    --from-literal=api-token="$TOKEN" \
+    --dry-run=client -o json \
+  | kubeseal --context dev1 --format yaml > envs/dev/secrets/member-gateway-kintone.yaml
+  unset TOKEN
+  ```
+  本番用のコマンドは`update-app-image.sh promote-production member-gateway`が表示し、
+  `promote-production-finish`はこのファイルが無いと止まる。
+- 遷移先URL(`NEW_MEMBER_URL`・`INQUIRY_URL`・`INQUIRY_CATEGORY`・`MYPAGE_ALLOWED_HOSTS`)は
+  秘密情報ではないため`deployment.yaml`の`env`に直接書く。現在の値はアプリの`.env.example`にある
+  検証用の値。本番だけ変えるときは`overlays/production/deployment_patch.yaml`に書く。
+- **1レプリカで運用する(本番も)**。照会回数の制限(クライアントIPごと、既定1分30回)は
+  プロセスのメモリ上で数えるため、複数レプリカにするとレプリカごとに別々に数えられて上限が緩む。
+  アプリ側が共有ストア(Redis等)に対応するまでは増やさない。
+- `TRUST_PROXY=true`(Traefikの背後のため)。ただしTraefikが見る送信元は外部nginx
+  (公開時)またはノードのIPになるため、現状は**利用者全体で上限を共有する**
+  (アプリのREADMEにある「多くの利用者が同じIPから接続する環境」と同じ状態)。正規の利用者が
+  制限にかかるようなら`RATE_LIMIT_MAX`を上げるか、Traefikの`forwardedHeaders.trustedIPs`
+  (外部nginxのIP)と外部nginxの`X-Forwarded-For`設定で実際のクライアントIPを渡す。
+- 本家の`compose.yaml`と同じく、読み取り専用のルートファイルシステム・非root(`node`)で動かす
+  (`readOnlyRootFilesystem: true`)。probeは`GET /`(入力ページ。照会回数の制限の対象外)。

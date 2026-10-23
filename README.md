@@ -38,7 +38,7 @@ flowchart LR
 |---|---|---|
 | ノード | control-plane 3台(SSD) + worker 5台 | control-plane 3台(SSD) + worker 7台 |
 | WordPressサイト | 34(17サイト × `/ja`の`<site>`・`/en`の`<site>-en`。公開は`wpdev1.brc.riken.jp`、[6b.](docs/manual-wordpress-restore.md)) | 34(devと同じ構成。公開は旧サイトと同じ`<site>.brc.riken.jp`) |
-| 自作アプリ | 6(brc-advanced-search、riken-diips、sparqlist、metadatabase-v2、brc-cross-search-xsearch、brc-cross-search-resource) | 6(devと同じ) |
+| 自作アプリ | 7(brc-advanced-search、riken-diips、sparqlist、metadatabase-v2、brc-cross-search-xsearch、brc-cross-search-resource、member-gateway) | 6(member-gateway以外。devと同じ) |
 | TraefikのLB IP(IPPool) | `192.168.1.33`(pool1 `.30-.49`) | `192.168.1.99`(pool3 `.90-.100`) |
 | ホスト名(DNS) | `<site>.dev.ibid.lan`(`*.dev`のワイルドカード) | `<site>.production.ibid.lan`(`*.production`のワイルドカード) |
 
@@ -111,7 +111,7 @@ WordPressの新規サイト作成・更新、自作アプリの新規展開・�
   - `promote`: dev→productionの昇格PR生成(手動起動。`kind`に`sites`/`apps`、`name`に名前か`all`)
   - `release-chart`: チャート公開
   - `auto-update`: 毎週月曜、WordPress/MariaDBイメージとプラグインの更新をdevへ自動反映(`bump-chart.sh`・`bump-plugins.sh`)
-  - `build-<app>-image`: 自作アプリのイメージ公開(brc-advanced-search、riken-diips、sparqlist、metadatabase-v2、brc-cross-search-xsearch、brc-cross-search-resource)
+  - `build-<app>-image`: 自作アプリのイメージ公開(brc-advanced-search、riken-diips、sparqlist、metadatabase-v2、brc-cross-search-xsearch、brc-cross-search-resource、member-gateway)
 
 ## スクリプト
 

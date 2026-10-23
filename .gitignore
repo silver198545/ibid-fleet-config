@@ -19,3 +19,7 @@
 # (d-usuda/brc-cross-search)のソースを展開する場所。同上の理由で無視する。
 /images/brc-cross-search-xsearch/app/
 /images/brc-cross-search-resource/app/
+
+# CI(build-member-gateway-image.yaml)がプライベートリポジトリ
+# (silver198545/member-gateway)のソースを展開する場所。同上の理由で無視する。
+/images/member-gateway/app/

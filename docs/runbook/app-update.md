@@ -1,6 +1,6 @@
 # 自作アプリを更新する
 
-対象: `envs/<env>/apps/` のアプリ(brc-advanced-search、riken-diips、sparqlist、metadatabase-v2)
+対象: `envs/<env>/apps/` のアプリ(brc-advanced-search、riken-diips、sparqlist、metadatabase-v2、brc-cross-search-xsearch、brc-cross-search-resource、member-gateway)
 詳しい説明: [manual-apps.md](../manual-apps.md)、Rundeckから実行する場合: [manual-rundeck.md](../manual-rundeck.md)
 
 Rundeck(プロジェクト `Rancher-AppControll`)では、手順1〜2がジョブ `<app>/1-dev-update`(`src_ref` は空欄で最新)、手順3〜4が

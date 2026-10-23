@@ -124,6 +124,7 @@ upstream_repo_for() {
     sparqlist) echo "dbcls/sparqlist" ;;
     metadatabase-v2) echo "silver198545/metadatabase-v2" ;;
     brc-cross-search-xsearch|brc-cross-search-resource) echo "d-usuda/brc-cross-search" ;;
+    member-gateway) echo "silver198545/member-gateway" ;;
     *) echo "エラー: ${1} の取り込み元リポジトリが未登録です(このスクリプトの upstream_repo_for/upstream_branch_for に追記してください)。" >&2; exit 1 ;;
   esac
 }
@@ -137,6 +138,7 @@ upstream_branch_for() {
     # Docker対応(APP_MODE)の作業ブランチ feature/docker-app-mode を追っていたが、
     # 2026-10-15にmainへマージされ(取り込み元PR #3)ブランチが削除されたためmainに切り替えた。
     brc-cross-search-xsearch|brc-cross-search-resource) echo "main" ;;
+    member-gateway) echo "main" ;;
     *) echo "エラー: ${1} の取り込み元ブランチが未登録です。" >&2; exit 1 ;;
   esac
 }
@@ -146,7 +148,7 @@ upstream_branch_for() {
 # 新規アプリ追加時は必ずどちらかに登録すること。
 ghcr_secret_needed_for() {
   case "$1" in
-    brc-advanced-search|riken-diips|metadatabase-v2|brc-cross-search-xsearch|brc-cross-search-resource) echo yes ;;
+    brc-advanced-search|riken-diips|metadatabase-v2|brc-cross-search-xsearch|brc-cross-search-resource|member-gateway) echo yes ;;
     sparqlist) echo no ;;
     *) echo "エラー: ${1} のGHCR pull secret要否が未登録です(このスクリプトの ghcr_secret_needed_for に追記してください)。" >&2; exit 1 ;;
   esac
@@ -561,6 +563,19 @@ kubectl create secret generic metadatabase-v2-admin \\
 | kubeseal --context ${to_ctx} --format yaml > envs/${to_env}/secrets/${APP}-admin.yaml
 EOF
     fi
+    if [[ "$APP" == "member-gateway" ]]; then
+      echo ""
+      echo "=== kintone用SealedSecret(member-gateway-kintone)も${to_env}向けに作成してください ==="
+      echo "APIトークンはアプリ360の「レコード閲覧」権限だけを付けたもの(devとは別に発行することを推奨):"
+      cat <<EOF
+kubectl create secret generic member-gateway-kintone \\
+  -n ${APP} \\
+  --from-literal=base-url='https://<サブドメイン>.cybozu.com' \\
+  --from-literal=api-token='<APIトークン>' \\
+  --dry-run=client -o json \\
+| kubeseal --context ${to_ctx} --format yaml > envs/${to_env}/secrets/${APP}-kintone.yaml
+EOF
+    fi
   else
     echo "${APP}のGHCRイメージは公開設定のため、pull用SealedSecretは不要です。"
     if [[ "$APP" == "sparqlist" ]]; then
@@ -594,6 +609,10 @@ cmd_promote_finish() {
 
   if [[ "$APP" == "metadatabase-v2" && ! -f "envs/${to_env}/secrets/${APP}-admin.yaml" ]]; then
     echo "エラー: envs/${to_env}/secrets/${APP}-admin.yaml がありません。promote-${to_env}の表示どおり作成してください。" >&2
+    exit 1
+  fi
+  if [[ "$APP" == "member-gateway" && ! -f "envs/${to_env}/secrets/${APP}-kintone.yaml" ]]; then
+    echo "エラー: envs/${to_env}/secrets/${APP}-kintone.yaml がありません。promote-${to_env}の表示どおり作成してください。" >&2
     exit 1
   fi
 
