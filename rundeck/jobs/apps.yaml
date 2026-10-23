@@ -672,6 +672,229 @@
         scripts/update-app-image.sh check-@option.env@ brc-cross-search-xsearch
       scriptInterpreter: /bin/bash
 - name: 1-dev-update
+  group: member-gateway
+  uuid: ef9fbe7b-da38-5f7c-ae6b-9cfdd9ff61a3
+  description: |
+    【開発環境更新パイプライン】member-gateway
+
+    取り込み元の最新コミット(または指定したsrc_ref)でイメージを作り直し、devへ反映して確認する。
+    イメージPR → auto-merge → ビルド完了待ち → devのdeployment.yamlを更新するPR → auto-merge →
+    devのrollout・WEB疎通確認、までを1回で行う(devだけのPRなので承認なしでマージされる)。
+
+    devでブラウザ確認したら「2-production-update」で本番へ。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 90m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: src_ref
+    description: 取り込み元のコミットSHA。空欄なら取り込み元ブランチの最新を使う(現在のimages/member-gateway/SRC_REFと同じなら、イメージは更新せずdevの確認だけ行う)
+    regex: ^([0-9a-f]{7,40})?$
+  - name: tag
+    description: 新しいイメージタグ。空欄なら現在のTAG(<version>-r<N>)から自動採番
+    regex: ^([0-9A-Za-z._-]+)?$
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: イメージ更新 → ビルド → devへ反映 → devの確認
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        scripts/update-app-image.sh dev-update member-gateway '@option.src_ref@' '@option.tag@'
+      scriptInterpreter: /bin/bash
+- name: 2-production-update
+  group: member-gateway
+  uuid: 38a7bd6d-d3c7-5448-b1a5-1da4e8904d4d
+  description: |
+    【本番環境更新パイプライン】member-gateway
+
+    envs/production/apps/member-gateway を dev と同じ内容にする昇格PRを promote ワークフローで作り、
+    **人がPRをレビュー・マージするのを待つ(このジョブはマージしない)**。マージされたら
+    mainを取り込み、Fleetの適用を待って本番のrollout・WEB疎通を確認する。
+    devと本番に差分が無ければPRは作らず、確認だけ行う。
+
+    PRのdiffはイメージタグに限らずdevに入っている変更すべて。内容を見てからマージすること。
+    マージ待ちの間、クローンのロックは手放すので他のジョブは動ける。
+    本番にまだ無いアプリはエラーになる(初回は「3-first-promote-prepare」)。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 10h
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: merge_wait_minutes
+    description: 本番PRのレビュー・マージを待つ時間(分)。過ぎたらジョブは失敗で終わる(PRはそのまま残る)
+    required: true
+    value: '240'
+    values:
+    - '60'
+    - '120'
+    - '240'
+    - '480'
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: 昇格PR作成 → 人のマージ待ち → 本番の確認
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/update-app-image.sh release-production member-gateway
+      scriptInterpreter: /bin/bash
+- name: 3-first-promote-prepare
+  group: member-gateway
+  uuid: bd04c785-f794-5aef-bf88-a28b014bc5d8
+  description: |
+    【本番への初回昇格 1/2】member-gateway(本番にまだ無いときだけ。既にあれば「2-production-update」を使う)
+
+    envs/dev/apps/member-gateway を envs/production/apps/member-gateway へコピーするブランチを作る(コミットはしない)。
+    出力に表示されるkubesealコマンド(PATを扱うためジョブ化しない)を踏み台端末で人が実行し、
+    envs/production/secrets/member-gateway.yaml を作ってから「4-first-promote-finish」を実行する。
+
+    **finishまでの間、クローンは未コミットのまま残る**。他のジョブは「mainを最新化」で止まる。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 30m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options: []
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: productionへのコピー(コミットしない)
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        scripts/update-app-image.sh promote-production member-gateway
+      scriptInterpreter: /bin/bash
+- name: 4-first-promote-finish
+  group: member-gateway
+  uuid: c5df3396-5672-598b-848d-140cc8e0b4e8
+  description: |
+    【本番への初回昇格 2/2】member-gateway
+
+    kubesealでSealedSecretを作った後に実行。コミット・PR作成まで行う。
+    マージはレビューのうえ人が行い、マージ後に「9-check」(env=production)で確認する。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 30m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options: []
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: コミット・PR作成
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        scripts/update-app-image.sh promote-production-finish member-gateway
+      scriptInterpreter: /bin/bash
+- name: 9-check
+  group: member-gateway
+  uuid: 64f26aac-62fb-5a40-9d31-2f9803437eb9
+  description: |
+    member-gateway のrollout状況とWEB疎通(readinessProbeのpathで200か)を確認する(読み取りのみ)。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 10m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: env
+    description: 確認する環境
+    required: true
+    value: dev
+    values:
+    - dev
+    - production
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: 確認
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        scripts/update-app-image.sh check-@option.env@ member-gateway
+      scriptInterpreter: /bin/bash
+- name: 1-dev-update
   group: metadatabase-v2
   uuid: 2c55435b-9e9c-590d-b4a4-94e3953c95d2
   description: |
