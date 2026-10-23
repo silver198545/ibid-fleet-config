@@ -108,17 +108,23 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
    ノードの `username`・鍵はコマンドラインで渡り、Rundeckサーバー(Rundeckが動くOSユーザー)の
    `~/.ssh/config` の `User` より優先される。ホスト名と踏み台はsshconfigから、ユーザーと鍵は実行者から取る形にする。
    **ノードの定義は、プロジェクト(`Rancher-AppControll`・`WordPressControl`)ごとに要る**(Rundeckのノードは
-   プロジェクト単位のため。同じ内容でよい)。リソース定義(2026-10-16時点の実際の値):
+   プロジェクト単位のため。同じ内容でよい)。リソース定義(2026-10-23時点の実際の値):
    ```yaml
    rancher:
      nodename: rancher
      hostname: rancher
+     ssh-key-storage-path: keys/users/${job.username}/${job.username}_ed25519
+     osFamily: unix
+     osArch: amd64
+     osName: Linux
+     description: RancherServer
+     ssh-authentication: privateKey
      username: ${job.username}
      tags: rancher
-     osFamily: unix
-     ssh-authentication: privateKey
-     ssh-key-storage-path: keys/users/${job.username}/${job.username}_ed25519
    ```
+   **ログインユーザーごとの変数 `${job.username}`** を `username` と `ssh-key-storage-path` に入れるのが要点。
+   ジョブを実行したRundeckのログイン名がそのまま入るので、SSHのユーザーも使う鍵も実行者のものになる
+   (ノードを人ごとに作らなくてよい)。鍵を他人に使わせないのは、Key Storageの個人ACL(下記「オペレータを追加する」の7)で行う
    Rundeckサーバーの `~/.ssh/config`(`hostname: rancher` に一致させる。**`Host rancher` に `User`・`IdentityFile` を書かない**):
    ```sshconfig
    Host Bastion
@@ -188,9 +194,38 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
    なので、切れたら同じ手順で取り直す(ジョブが `Unauthorized` で止まる)
 6. **Rundeck**: ログイン名 `<op>` のユーザーを作り、Rundeck用のSSH鍵を作って公開鍵を `~<op>/.ssh/authorized_keys` に、
    秘密鍵をKey Storageの `keys/users/<op>/<op>_ed25519` に登録する
-7. **Rundeckの権限**: 担当のプロジェクトのジョブだけを実行できるようにする(ACLは担当ごとの節に書く)。
-   アドホックコマンド(Commands画面)は許さない。使われても本人の権限で動くだけだが、作業の記録をジョブの
-   実行履歴に揃えるため。鍵は本人のもの(`keys/users/<op>/...`)だけを使えるようにする
+7. **Rundeckの権限**: 担当のプロジェクトのジョブだけを実行できるようにする(プロジェクトのACLとシステム側のACLは
+   グループ単位で、担当ごとの節に書く。人を足すだけなら触らない)。アドホックコマンド(Commands画面)は許さない。
+   使われても本人の権限で動くだけだが、作業の記録をジョブの実行履歴に揃えるため。
+   **鍵は本人のもの(`keys/users/<op>/...`)だけを使えるようにする**: 人ごとに、システム側(アプリケーション)の
+   ACLを1つ作る(System → Access Control、ファイル名は例えば `<op>-keys.aclpolicy`。`by` が `username` なので
+   グループに足しただけでは鍵を使えない)。usudaの実際の値:
+   ```yaml
+   description: usuda - read own keys
+   context:
+     application: 'rundeck'
+   for:
+     storage:
+       - match:
+           path: 'keys/users/usuda/.*'
+         allow: [read]
+       - equals:
+           path: 'keys/users/usuda'
+         allow: [read]
+       - equals:
+           path: 'keys/users'
+         allow: [read]
+       - equals:
+           path: 'keys'
+         allow: [read]
+   by:
+     username: usuda
+   ```
+   - `keys/users/<op>/.*` が鍵そのもの(ノードの `ssh-key-storage-path` が `${job.username}` で指す先)。
+     `keys/users/<op>`・`keys/users`・`keys` は親のディレクトリで、Key Storageの画面で自分の鍵まで辿るためのもの
+     (`equals` なので、親を読めても他人の鍵 `keys/users/<他人>/...` は読めない)
+   - `storage` の `read` は、ジョブの中で鍵を使う権限で、秘密鍵の中身を表示できるわけではない
+   - 担当(自作アプリ・WordPress)によらず同じ形。`usuda` の4か所を `<op>` に置き換える
 
 ### 自作アプリのオペレータ(グループ `publicdb_developer`)の1回だけの設定
 
@@ -214,49 +249,54 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
    prod1がRead-onlyなので、`sync_prod_data=yes` のような本番Podへのexecを伴う操作はできない
    (本番データのコピーは管理者が行う)。WordPressのnamespaceやSealed Secretsの鍵には触れられない
 3. **RundeckのACL**(RundeckもFreeIPAでログインするので、グループ名がそのままRundeckのロールになる)。
-   プロジェクトを分けてあるので、`Rancher-AppControll` のジョブをすべて許し、アドホックコマンドは許さない。
-   `WordPressControl` には何も許さない(プロジェクトごと見えない)。プロジェクトのACL
-   (`Rancher-AppControll` のプロジェクト設定 → Access Control):
+   プロジェクトを分けてあるので、`Rancher-AppControll` のジョブをすべて許し、アドホックコマンドは許さない
+   (`adhoc` を書かなければ既定で拒否される)。`WordPressControl` には何も許さない(プロジェクトごと見えない)。
+   ACLは3種類あり、グループ単位の2つはここで1回だけ作る(人ごとの鍵のACLは上記「オペレータを追加する」の7)。
+   | ACL | 置き場所 | 単位 | 中身 |
+   |---|---|---|---|
+   | プロジェクトのACL | `Rancher-AppControll` のプロジェクト設定 → Access Control | グループ | ジョブ・ノードの閲覧と実行 |
+   | システム側のACL | System → Access Control(`context.application: rundeck`) | グループ | プロジェクトが見えること |
+   | 個人のKey Storage用ACL | System → Access Control(`context.application: rundeck`) | ユーザー | 自分のSSH鍵だけ読めること |
+
+   プロジェクトのACL(2026-10-23時点の実際の値。プロジェクト設定から入れるので `context` は書かない):
    ```yaml
-   description: publicdb_developer は自作アプリのジョブの閲覧・実行のみ
-   context:
-     project: Rancher-AppControll
+   description: publicdb_developer - run jobs in Rancher-AppControll
    for:
      resource:
-       - equals: { kind: job }
+       - equals:
+           kind: job
          allow: [read]
-       - equals: { kind: node }
-         allow: [read]
-       - equals: { kind: event }
+       - equals:
+           kind: node
+         allow: [read, refresh]
+       - equals:
+           kind: event
          allow: [read]
      job:
-       - allow: [read, view, view_history, run]
+       - allow: [read, view, run]
      node:
        - allow: [read, run]
-     adhoc:
-       - deny: [run]
    by:
      group: publicdb_developer
    ```
-   アプリケーションのACL(プロジェクト `Rancher-AppControll` だけを見られることと、**自分の**SSH鍵だけを使えること。
-   人を足すたびに `storage` に1行足す):
+   (`node` の `refresh` はノード一覧の再読み込み。`node` の `run` が無いと、ジョブがノード `rancher` で動かない)
+
+   システム側のACL(見られるプロジェクトの一覧。`publicdb_developer` は `Rancher-AppControll` のほかに、
+   このリポジトリの管理外の `DatabaseJobs`・`LocalNetworkSevers` も見られる):
    ```yaml
-   description: publicdb_developer のプロジェクト参照と鍵の利用
+   description: Allow publicdb_developper to see their projects
    context:
-     application: rundeck
+     application: 'rundeck'
    for:
      project:
-       - equals: { name: Rancher-AppControll }
-         allow: [read]
-     storage:
-       - match: { path: '^keys/users/usuda(/.*)?$' }
+       - match:
+           name: '^(Rancher-AppControll|DatabaseJobs|LocalNetworkSevers)$'
          allow: [read]
    by:
      group: publicdb_developer
    ```
-   (`storage` の `read` は、ジョブの中で鍵を使う権限で、秘密鍵の中身を表示できるわけではない。他人の鍵を
-   読めないよう、パスはユーザーごとに書く。Rundeckの版によって書式が違うので、入れたあと本人でログインし、
-   プロジェクト一覧に `Rancher-AppControll` だけが出ること、Commands画面が使えないことを確かめる)
+   入れたあと本人でログインし、プロジェクト一覧に上の3つだけが出る(`WordPressControl` が出ない)こと、
+   Commands画面が使えないこと、`<app>/9-check` が通る(=自分の鍵でSSHできる)ことを確かめる
 
 ### WordPressのオペレータ(グループ `wpadmins`)の1回だけの設定
 
@@ -280,9 +320,10 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
    ```
    コントローラの鍵は30日ごとに追加されるが、古い鍵でも復号できるので、作り直しはdev1を作り直したとき
    (鍵が変わったとき)だけでよい
-3. **RundeckのACL**(`WordPressControl` のプロジェクト設定 → Access Control)。中身は自作アプリの節と同じで、
-   `context.project` を `WordPressControl`、`by.group` を `wpadmins` にする。アプリケーションのACLも同じ形で、
-   `project` を `WordPressControl`、`storage` を各人の鍵のパスにする
+3. **RundeckのACL**。自作アプリの節と同じ形で作る:
+   - プロジェクトのACL(`WordPressControl` のプロジェクト設定 → Access Control): `description` を変え、`by.group` を `wpadmins` にする
+   - システム側のACL: `project` の `name` を `'^WordPressControl$'`(ほかに見せるプロジェクトがあれば足す)、`by.group` を `wpadmins` にする
+   - 個人のKey Storage用ACL: 上記「オペレータを追加する」の7のとおり人ごと(両方の担当の人も1つでよい)
 4. 実行する人を `wpadmins` に入れる(リハーサルの比較の基準 `/var/lib/ibid-fleet-config/rehearsal` を書けるようにするためでもある)
 
 **prod1がRead-onlyなので、オペレータが実行すると次のように動く**(`scripts/wordpress-pipeline.sh` が権限を
