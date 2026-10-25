@@ -321,6 +321,12 @@
 
 ## 🟡 優先度・低: 小さいが効く宿題
 
+- **Sealed Secrets鍵の月次バックアップの自動化** — 現状は毎月1日に手動で全環境の鍵を取り出し、オフラインに保管している
+  ([manual-multi-env.md](manual-multi-env.md) 6.)。rancherホストのcronはkubeconfigのトークンが30日で切れるうえ、
+  平文の鍵がディスクに残るため不採用。案: 各クラスタにCronJobのinfraバンドルを置き、鍵をGPGの公開鍵で暗号化して
+  NFSの `backup/<env>/sealed-secrets-key/` に書く(復号用の秘密鍵はオフライン保管、失敗はPrometheusのアラートで検知、
+  Baculaで二次コピー)。2026-10-25に検討、後日対応
+
 - **リポジトリのprivate化 → publicへ差し戻し** 【2026-07-08 に revert】: 一度Private化した
   (GitRepo認証をGitHub fine-grained PATで設定、`fleet-default`の`auth-55znx`を3環境で共有)。
   その後 PROMOTE_TOKEN 登録の確認作業で、**GitHub Freeの個人アカウントではprivateリポジトリで

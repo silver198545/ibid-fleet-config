@@ -583,7 +583,7 @@ Git管理外の作業(実施したら[x]にする):
   残っていると新しいstaging1に届かない(2026-10-25に発覚・削除)
 - [x] cert-managerのDNS-01確認をFreeIPAのDNSだけに問い合わせる(staging #360・dev #364・production #365)。
   ノードの上流DNSにFreeIPAと外部のDNS(134.160.64.241/242)が混在し、`_acme-challenge` のTXTが残る原因だった
-- [ ] staging1のSealed Secrets鍵をオフラインにバックアップする(上記「6.」)
+- [x] staging1のSealed Secrets鍵をオフラインにバックアップする(上記「6.」。2026-10-25)
 - [x] Rundeckに `rundeck/jobs/apps.yaml`・`wordpress.yaml` を取り込み直し、旧ジョブ(各アプリの `2-production-update`・
   `3-first-promote-prepare`・`4-first-promote-finish`、WordPressの `2-rehearsal`・`2a-rehearsal-upgrade`・
   `2b-rehearsal-cleanup`)を削除する(2026-10-25、Rundeck UI。[manual-rundeck.md](manual-rundeck.md))
