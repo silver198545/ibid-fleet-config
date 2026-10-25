@@ -548,7 +548,7 @@ Git側(`envs/staging/`、`fleet-bootstrap/gitrepo-staging.yaml`、promoteワー�
   rancherホストには`rd` CLIが無いため、Rundeck UIまたは`rd`のある端末で行う)
 - [x] 作業端末の `~/.kube/config` から `staging1` コンテキストを削除する(2026-10-08実施。
   `kubectl config delete-context staging1` / `delete-cluster staging1`。ユーザー`rancher`は他と共用のため残す)
-- [ ] Slackアラート等で `cluster=staging` を前提にした設定が残っていないか確認する
+- [x] ~~Slackアラート等で `cluster=staging` を前提にした設定が残っていないか確認する~~(2026-10-25のstaging再導入で不要。`cluster=staging` は再び使っている)
 
 なお、Rancher localの `fleet-default` に残る `fleet-agent-staging1` バンドルはRancherが
 クラスタごとに自動生成するエージェント用のもので、本リポジトリのGitRepoとは無関係。
@@ -592,8 +592,8 @@ Git管理外の作業(実施したら[x]にする):
   `Wordpress`(`wpadmins` Project Member)を作り、`STAGING_PROJECT_ID` に設定する(2026-10-25)
 - [x] WordPressのオペレータ用に、staging1の公開証明書
   `/var/lib/ibid-fleet-config/sealed-secrets-staging1.pem` を用意する(2026-10-25)([manual-rundeck.md](manual-rundeck.md)「WordPressのオペレータ」)
-- [ ] dev1のリハーサルサイトの残り: NFSの `backup/dev/wordpress-jmc-rh/`(本番データのコピー、`nfs-backup`はRetain)と、
-  `Released` のまま残ったjmc-rhのPVを片付ける
+- [x] dev1のリハーサルサイトの残り: NFSの `backup/dev/wordpress-jmc-rh/`(本番データのコピー)と、
+  `Released` のまま残ったjmc-rhのPVを片付ける(2026-10-25。削除済みサイトmcdのデータもあわせて削除)
 
 ## 補足: 将来の拡張
 
