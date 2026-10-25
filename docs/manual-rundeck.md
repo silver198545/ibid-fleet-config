@@ -501,8 +501,8 @@ devとstagingの構成に差分が無ければ、3.は何もせず終わる。HT
 本番へ昇格したら(または昇格をやめたら)**必ず実行する**。`<site>` をstagingのGitから消すPR(auto-merge)→
 マージ後にstaging1の `wordpress-<site>` namespaceを削除する(本番データのコピーが消える。
 stagingのStorageClassは`Delete`なので、NFS上のwp-content・バックアップも消える)。
-stagingの構成が本番へまだ昇格していなければ注意を出す。harvesterのPVが `Released` のまま残ったら
-警告が出るので [roadmap.md](roadmap.md) 項目8の手順で片付ける
+stagingの構成が本番へまだ昇格していなければ注意を出す。PVが消えるのを最大3分待ち、残ったら警告を出す
+([runbook/troubleshooting.md](runbook/troubleshooting.md)「PV が Released のまま残る」)
 
 ### tools/backup・tools/check
 

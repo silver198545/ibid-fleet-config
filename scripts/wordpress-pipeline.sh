@@ -723,10 +723,15 @@ cmd_staging_cleanup() {
     echo "namespace wordpress-${site} を削除します(PVCも削除されます)..."
     kc staging delete namespace "wordpress-$site" --wait=true --timeout=15m
   fi
-  local released
-  released="$(kc staging get pv --no-headers 2>/dev/null | grep "wordpress-$site/" || true)"
+  # PV(NFSのディレクトリ・Harvesterのボリューム)の削除はPVCの削除より少し遅れるので、消えるまで待つ
+  local released i
+  for ((i = 0; i < 36; i++)); do
+    released="$(kc staging get pv --no-headers 2>/dev/null | grep "wordpress-$site/" || true)"
+    [[ -z "$released" ]] && break
+    sleep 5
+  done
   if [[ -n "$released" ]]; then
-    echo "警告: 次のPVが残っています。harvester StorageClassのPVは既知の問題でReleasedのまま残ることがあります(docs/roadmap.md 項目8の手順で片付ける):" >&2
+    echo "警告: 3分待っても次のPVが残っています(docs/runbook/troubleshooting.md「PV が Released のまま残る」):" >&2
     echo "$released" >&2
   fi
   rm -rf "$(stg_state_dir "$site")"

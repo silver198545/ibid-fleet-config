@@ -198,11 +198,17 @@ kubectl delete namespace wordpress-<site>
 uninstallしてください。全環境から消す場合は環境ごとに繰り返します。
 
 - productionの`nfs-external`は`reclaimPolicy: Retain`のため、PVCを消してもNFS上の
-  `/data/nfs/wordpress/production/wordpress-<site>/`は残ります。不要なら手動で消します。
-- DBの`harvester`のPVは、Harvester CSIの既知の問題で`Released`のまま残ることがあります
-  ([roadmap.md](roadmap.md)項目8の手順で片付けます)。
+  `/data/nfs/wordpress/production/wordpress-<site>/`は残ります(PVは`Released`のまま残る)。
 - 日次バックアップの`/data/nfs/backup/<env>/wordpress-<site>/`は両環境とも残ります(`nfs-backup`は`Retain`)。
-  最後の数日分は念のため残し、不要になったら手動で消します。
+  最後の数日分は念のため残し、不要になったら消します。
+- `Retain`で残ったデータを消すときは、PVの削除ポリシーを`Delete`に変える。csi-driver-nfsがNFS上のディレクトリごと
+  削除し、PVも消える(**元に戻せない**。2026-10-25に削除済みサイトmcdのデータをこの方法で消した):
+  ```bash
+  kubectl --context <dev1|prod1> get pv | grep wordpress-<site>/          # 対象のPV名を確認
+  kubectl --context <dev1|prod1> patch pv <PV名> -p '{"spec":{"persistentVolumeReclaimPolicy":"Delete"}}'
+  ```
+- DBの`harvester`のPVは、PVCを消すと数十秒〜数分で消えます(2026-08にHarvesterをv1.8系へ上げてからは、
+  [roadmap.md](roadmap.md)項目8のCSIの問題は起きていない)。
 - `envs/<env>/secrets/<site>.yaml`も削除します(DNSはワイルドカードなので作業は無い)。
 
 ## 補足

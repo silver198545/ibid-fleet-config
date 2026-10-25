@@ -118,7 +118,11 @@ curl -sI -H "Authorization: token $tok" https://api.github.com/repos/silver19854
 ## PVC が Terminating のまま / PV が Released のまま残る
 
 - PVCが消えない: [manual-dr-troubleshooting.md](../manual-dr-troubleshooting.md) 4.・6b.
-- MariaDB(`harvester`)のPVが `Released` で残る: [roadmap.md](../roadmap.md) 項目8 の手順
+- MariaDB(`harvester`)のPVが `Released` で残る: 数分待つ(削除は遅れて行われる)。それでも残るときは
+  `kubectl describe pv <PV名>` のイベントを見て、[roadmap.md](../roadmap.md) 項目8 の手順で片付ける
+  (2026-08のHarvester v1.8系への更新で、項目8のCSIの問題は直っている)
+- `Retain` のNFSのPV(productionの `nfs-external`、全環境の `nfs-backup`)はわざと残している。消すときは
+  [manual-wordpress.md](../manual-wordpress.md) のサイト削除の節の方法で
 
 ## ノード・クラスタの障害
 
