@@ -1,0 +1,18 @@
+# staging固有: ホスト名(<app>.staging.ibid.lan)。リストは丸ごと置き換わるため全体を書く。
+spec:
+  tls:
+    - hosts:
+        - sparqlist.staging.ibid.lan
+      secretName: sparqlist-tls
+  rules:
+    - host: sparqlist.staging.ibid.lan
+      http:
+        paths:
+          # 既存運用と同じ/sparqlist/サブパスを維持する(ROOT_PATH。Dockerfile参照)。
+          - path: /sparqlist
+            pathType: Prefix
+            backend:
+              service:
+                name: sparqlist
+                port:
+                  number: 80

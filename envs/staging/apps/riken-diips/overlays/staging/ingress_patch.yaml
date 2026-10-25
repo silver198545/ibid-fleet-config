@@ -1,0 +1,17 @@
+# staging固有: ホスト名(<app>.staging.ibid.lan)。リストは丸ごと置き換わるため全体を書く。
+spec:
+  tls:
+    - hosts:
+        - riken-diips.staging.ibid.lan
+      secretName: riken-diips-tls
+  rules:
+    - host: riken-diips.staging.ibid.lan
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: riken-diips
+                port:
+                  number: 80

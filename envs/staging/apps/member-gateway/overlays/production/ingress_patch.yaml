@@ -1,0 +1,17 @@
+# production固有: ホスト名(<app>.production.ibid.lan)。リストは丸ごと置き換わるため全体を書く。
+spec:
+  tls:
+    - hosts:
+        - member-gateway.production.ibid.lan
+      secretName: member-gateway-tls
+  rules:
+    - host: member-gateway.production.ibid.lan
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: member-gateway
+                port:
+                  number: 80

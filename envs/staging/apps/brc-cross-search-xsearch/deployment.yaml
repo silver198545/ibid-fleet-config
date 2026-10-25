@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: brc-cross-search-xsearch
+  namespace: brc-cross-search-xsearch
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: brc-cross-search-xsearch
+  template:
+    metadata:
+      labels:
+        app: brc-cross-search-xsearch
+    spec:
+      imagePullSecrets:
+        - name: ghcr-brc-cross-search-xsearch
+      containers:
+        - name: brc-cross-search-xsearch
+          image: ghcr.io/silver198545/brc-cross-search-xsearch:0.1.0-r6
+          ports:
+            - name: http
+              containerPort: 4042
+          env:
+            # devは開発用にdevelopmentモードで動かす(SPARQLクエリがDEBUGでログに出る、
+            # エラー時にスタックトレースを表示する、ソース変更を検知するreloaderが有効)。
+            # productionは overlays/production/deployment_patch.yaml で production に戻す
+            # (このファイルは昇格で本番へそのままコピーされるため)。
+            - name: RACK_ENV
+              value: development
+            # developmentモードではSinatraがlocalhost・IP以外のHostを403で拒否するため、
+            # Ingressのホスト名を許可する(images/<app>/k8s.ru参照)。環境に依存しない値にするため
+            # ドメイン全体を指定する(productionモードでは検査自体が無く効かない)。
+            - name: PERMITTED_HOSTS
+              value: ".ibid.lan"
+            # Pumaのworker数と、PumaWorkerKillerがworkerを再起動するメモリ上限(MB)。
+            # 上限はlimits.memoryと揃える(images/brc-cross-search-xsearch/puma.rb参照)。
+            - name: WEB_CONCURRENCY
+              value: "2"
+            - name: PUMA_WORKER_KILLER_RAM_MB
+              value: "1024"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          # アプリの外で更新される公開ファイル(pv-nfs-public.yaml参照)。イメージの public/ には
+          # 無いパスにマウントし、アプリの静的ファイル配信で既存と同じURL
+          # (/xsearch/<辞書>.json)のまま返す。
+          volumeMounts:
+            - name: public
+              mountPath: /app/public/xsearch
+              readOnly: true
+          # ルートはアプリ側で404固定。ページは /<任意の接頭辞>/<ページ名>/ で
+          # config/page_xsearch のcatalogの設定を読む。検索フォームのページは外部SPARQLに問い合わせないため、
+          # エンドポイントの障害でPodが落ちないようこれをヘルスチェックに使う。
+          readinessProbe:
+            httpGet:
+              path: /xsearch/catalog/
+              port: 4042
+          livenessProbe:
+            httpGet:
+              path: /xsearch/catalog/
+              port: 4042
+            initialDelaySeconds: 10
+      volumes:
+        - name: public
+          persistentVolumeClaim:
+            claimName: brc-cross-search-xsearch-shared

@@ -1,0 +1,17 @@
+# staging固有: ホスト名(<app>.staging.ibid.lan)。リストは丸ごと置き換わるため全体を書く。
+spec:
+  tls:
+    - hosts:
+        - brc-advanced-search.staging.ibid.lan
+      secretName: brc-advanced-search-tls
+  rules:
+    - host: brc-advanced-search.staging.ibid.lan
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: brc-advanced-search
+                port:
+                  number: 80

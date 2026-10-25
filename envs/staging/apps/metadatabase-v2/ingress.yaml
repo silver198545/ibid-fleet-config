@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: metadatabase-v2
+  namespace: metadatabase-v2
+  annotations:
+    cert-manager.io/cluster-issuer: freeipa-acme
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - metadatabase-v2.dev.ibid.lan
+      secretName: metadatabase-v2-tls
+  rules:
+    - host: metadatabase-v2.dev.ibid.lan
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: metadatabase-v2
+                port:
+                  number: 80

@@ -1,0 +1,78 @@
+# 動物ページ(/resource/animal/)のsitemap.xmlを毎日更新する。
+# 旧サーバー(xsearch01)のRundeckジョブ「BRC Cross Search(Resource) Sitemap UPDATE Script」の置き換え。
+# GooglebotがBRCサイトを巡回するのがおよそ21時のため、それまでに更新する(Redmine #1610)。
+#
+# 取得元は同じクラスタのsparqlist(apps/sparqlist)のSPARQLet brcmouse_sitemap で、
+# 外部URL(https://splist.brc.riken.jp)ではなくクラスタ内のServiceを直接呼ぶ。
+# 出力はIDを1行に1つ並べたテキスト(旧サーバーのsitemap.xmlも同じ内容)。
+# 書き込み先は pv-nfs-public.yaml のNFS(animal/)で、Deploymentの2レプリカが同じファイルを返す。
+#
+# 取得に失敗した(HTTPエラー・空)場合は前回のsitemapを残して失敗終了する
+# (一時ファイルへ取得してから同じディレクトリ内でrenameするため、配信中のファイルが壊れない)。
+# 成否は監視(BrcCrossSearchSitemapStale)で見る。
+#
+# 書き込み先はdevとproductionで共有(pv-nfs-public.yaml)のため、**devでは止めておき**
+# (suspend: true)、productionだけ overlays/production/cronjob-sitemap_patch.yaml で動かす
+# (devのsparqlistで試し中のSPARQLetの結果が本番のsitemapを上書きしないようにする)。
+# devで動作確認したいときは書き込み先が本番と同じであることに注意して手動実行する。
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: brc-cross-search-resource-sitemap
+  namespace: brc-cross-search-resource
+spec:
+  schedule: "0 20 * * *"
+  suspend: true
+  timeZone: Asia/Tokyo
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 1800
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 1800
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app: brc-cross-search-resource-sitemap
+        spec:
+          restartPolicy: Never
+          # アプリ(uid 1000)と同じuidで書き込む
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+          containers:
+            - name: sitemap
+              image: docker.io/curlimages/curl:8.16.0@sha256:463eaf6072688fe96ac64fa623fe73e1dbe25d8ad6c34404a669ad3ce1f104b6
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  url="http://sparqlist.sparqlist.svc.cluster.local/sparqlist/api/brcmouse_sitemap?changefreq=monthly&priority=1.0"
+                  tmp=/data/.sitemap.xml.tmp
+                  rm -f "$tmp"
+                  curl -fsS --retry 3 --max-time 600 -o "$tmp" "$url"
+                  if [ ! -s "$tmp" ]; then
+                    echo "sitemapが空のため更新しません" >&2
+                    rm -f "$tmp"
+                    exit 1
+                  fi
+                  mv -f "$tmp" /data/sitemap.xml
+                  echo "sitemap.xmlを更新しました($(wc -l < /data/sitemap.xml)行)"
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 128Mi
+              volumeMounts:
+                - name: public
+                  mountPath: /data
+                  subPath: animal
+          volumes:
+            - name: public
+              persistentVolumeClaim:
+                claimName: brc-cross-search-resource-shared

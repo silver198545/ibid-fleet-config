@@ -1,0 +1,35 @@
+# WordPressサイトではない自作アプリ(metadatabase-v2)。
+# DBを持たないステートレスなフロントエンドのため、sites/ とは分けてapps/配下に置く
+# (keepResources等WordPressサイト固有の注意点はここには適用されない)。
+# 詳細は docs/manual-apps.md 参照。
+defaultNamespace: metadatabase-v2
+targetNamespace: metadatabase-v2
+
+keepResources: true
+
+helm:
+  releaseName: metadatabase-v2
+
+# 環境ごとの差分。このディレクトリはdev/staging/productionで同一内容に保ち、昇格は丸ごとコピーで行う
+# (docs/operations-flow.md「環境差分の書き方」参照)。直下のマニフェストはdevの値で書き、
+# staging・productionで変える部分だけを overlays/<env>/ に置く(<file>_patch.yaml は同名
+# マニフェストへのパッチ、パッチでない同名ファイルは直下のファイルを丸ごと置き換える)。
+# overlays/ 配下は選ばれた環境でしか使われない。
+targetCustomizations:
+  # stagingはdevと同じ設定(つくばのデータ・devのVirtuoso)にする。productionの設定にすると、
+  # 本番のVirtuoso(ISQL)と本番のNFS(uploadrdf/bioresource)に書き込めてしまうため。
+  # stagingの差分はホスト名と、Longhornの代わりのadmin-dataのStorageClassだけ(overlays/staging/)。
+  - name: staging
+    clusterSelector:
+      matchLabels:
+        env: staging
+    yaml:
+      overlays:
+        - staging
+  - name: production
+    clusterSelector:
+      matchLabels:
+        env: production
+    yaml:
+      overlays:
+        - production

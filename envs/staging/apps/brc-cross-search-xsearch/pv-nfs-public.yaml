@@ -1,0 +1,50 @@
+# アプリの外で更新される公開ファイル(オートコンプリート辞書 gene_dict.json・name_dict.json・
+# phenotype_dict.json)を置くNFS上のディレクトリの静的PV/PVC。
+# 辞書はVirtuoso01上の辞書生成ルーチン(このリポジトリ管理外)がNFSへ直接書き込む
+# (旧サーバー(xsearch01)では public/ 直下を書き換えていたが、コンテナ内のファイルは
+# Pod再作成で消え、2レプリカでは食い違うため、RWXの共有ボリュームに置く)。
+# 外部ページに埋め込まれたdna-cross-search.jsが https://knowledge.brc.riken.jp/xsearch/<辞書>.json を
+# 直接読むため、deployment.yaml が public/xsearch にマウントし、アプリの静的ファイル配信で
+# 既存と同じURLのまま返す。
+# **devとproductionで同じディレクトリ(brc-cross-search/shared/)を参照する**(2026-10-20〜。
+# 更新者がコピー先を1か所にでき、環境間で内容がずれないため)。dev側のPodは読み取り専用で
+# マウントするため本番のファイルを壊さない。書き込むのはproductionのsitemap CronJobと辞書生成ルーチンだけ。
+# ディレクトリは事前作成が必要(docs/manual-apps.md「brc-cross-search-xsearch /
+# brc-cross-search-resource 固有のメモ」)。PVの参照先は作成後に変えられないため、
+# 参照先を変えるときはPV/PVCの名前ごと変える。
+# reclaimPolicy: Retain必須(PVC削除で中身ごと消えないようにする)。
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: brc-cross-search-xsearch-shared
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  mountOptions:
+    - nfsvers=4.1
+  csi:
+    driver: nfs.csi.k8s.io
+    volumeHandle: brc-cross-search-xsearch-shared
+    volumeAttributes:
+      server: "192.168.1.1"
+      share: "/data/nfs"
+      subDir: "brc-cross-search/shared/xsearch"
+      mountPermissions: "0777"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: brc-cross-search-xsearch-shared
+  namespace: brc-cross-search-xsearch
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""
+  volumeName: brc-cross-search-xsearch-shared
+  resources:
+    requests:
+      storage: 1Gi

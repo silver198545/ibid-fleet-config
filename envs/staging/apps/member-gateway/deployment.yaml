@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: member-gateway
+  namespace: member-gateway
+spec:
+  # 照会回数の制限(クライアントIPごと)はプロセスのメモリ上で数えるため、複数レプリカにすると
+  # レプリカごとに別々に数えられ上限が実質的に緩む(アプリのREADME「照会回数の制限」)。
+  # 共有ストア対応までは本番も1レプリカで運用する(overlays/production/deployment_patch.yaml でも増やさない)。
+  replicas: 1
+  selector:
+    matchLabels:
+      app: member-gateway
+  template:
+    metadata:
+      labels:
+        app: member-gateway
+    spec:
+      imagePullSecrets:
+        - name: ghcr-member-gateway
+      # イメージのUSERはnode(名前指定)のため、runAsNonRootの検証用にUIDを明示する
+      # (node公式イメージのnodeユーザーは1000)。
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: member-gateway
+          image: ghcr.io/silver198545/member-gateway:0.2.0-r0
+          ports:
+            - name: http
+              containerPort: 3000
+          # 本家のcompose.yamlと同じく読み取り専用のファイルシステム・権限昇格なしで動かす
+          # (アプリは実行時にファイルを書かない)。
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            # Traefik(Ingress)の背後で動くため、X-Forwarded-Forからクライアントを判定する。
+            # TraefikはforwardedHeaders未設定(既定)だとクライアントが送ったX-Forwarded-*を
+            # 捨てて自分で付け直すので、ヘッダの偽装で制限を回避されることはない。
+            - name: TRUST_PROXY
+              value: "true"
+            - name: RATE_LIMIT_MAX
+              value: "30"
+            - name: RATE_LIMIT_WINDOW_MS
+              value: "60000"
+            # kintoneのURLとAPIトークン(アプリ360の「レコード閲覧」権限のみ)。環境ごとの
+            # SealedSecretから注入する(docs/manual-apps.md「member-gateway 固有のメモ」)。
+            # URLは秘密情報ではないが、トークンと対で決まる値のため同じSecretに入れる。
+            - name: KINTONE_BASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: member-gateway-kintone
+                  key: base-url
+            - name: KINTONE_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: member-gateway-kintone
+                  key: api-token
+            - name: KINTONE_APP_ID
+              value: "360"
+            - name: KINTONE_TIMEOUT_MS
+              value: "5000"
+            # 遷移先。アプリの.env.exampleの検証用の値(本番用の値が決まったら
+            # overlays/production/deployment_patch.yaml で上書きする)。
+            - name: NEW_MEMBER_URL
+              value: "https://riken-brc.form.kintoneapp.com/public/demo-registration-autocheck"
+            - name: INQUIRY_URL
+              value: "https://riken-brc.form.kintoneapp.com/public/brchat"
+            - name: INQUIRY_CATEGORY
+              value: "ユーザー登録について"
+            - name: MYPAGE_ALLOWED_HOSTS
+              value: "riken-brc.viewer.kintoneapp.com"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          # "/"は入力ページ(静的ファイル)でkintoneには照会しない。照会回数の制限の対象外。
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000

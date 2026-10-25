@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: member-gateway
+  namespace: member-gateway
+spec:
+  selector:
+    app: member-gateway
+  ports:
+    - name: http
+      port: 80
+      targetPort: 3000

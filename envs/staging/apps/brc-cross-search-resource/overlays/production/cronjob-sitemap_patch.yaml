@@ -1,0 +1,4 @@
+# production固有: sitemapの書き込み先はdevと共有のため、CronJobはproductionでだけ動かす
+# (devは直下のcronjob-sitemap.yamlでsuspend: true)。
+spec:
+  suspend: false
