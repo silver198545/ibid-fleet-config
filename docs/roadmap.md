@@ -273,7 +273,12 @@
   (コマンドは冪等なのでローテーションの有無を気にせず毎回実行してよい)。手順は
   [manual-multi-env.md](manual-multi-env.md) 6章参照。次回(初回)は2026-08-01。
 
-### 8. HarvesterのCSIドライバのバグで`harvester`StorageClassのPVC削除が詰まる
+### 8. HarvesterのCSIドライバのバグで`harvester`StorageClassのPVC削除が詰まる 【解消(2026-08のHarvester更新)】
+
+- **2026-10-25に確認**: Harvester管理クラスタはv1.8.2になっていて、`volumeremoterestores.harvesterhci.io` のCRD
+  (2026-08-27作成)と、`harvesterhci.io:csi-driver` ClusterRoleの権限(`volumeremoterestores`・`volumeremotebackups`)が
+  そろっている。staging1のidddとdev1のjmc-rhのmariadbのPVは、PVCの削除から数分で自動的に消え、Harvester側にも
+  残っていなかった。以下は当時の記録
 
 - **現状**: `harvester`StorageClass(mariadb用PVC)のPVを削除しようとすると、
   Harvester管理クラスタ側のCSIコントローラが`DeleteVolume`実行前に

@@ -171,8 +171,8 @@ gh workflow run promote.yaml -f to=staging -f name=$SITE   # devの構成(helm.v
    ```bash
    kubectl --context staging1 delete namespace wordpress-<site>   # PVC(nfs-external/nfs-backup/harvester)も削除される
    ```
-   `harvester` StorageClassのPV(mariadb)は、Harvester CSIドライバの既知の問題で
-   `Released`のまま残ることがある。その場合は [roadmap.md](roadmap.md) 項目8の手順で片付ける
+   PV(NFSのディレクトリ・mariadbのHarvesterのボリューム)は数十秒〜数分遅れて消える
+   (2026-08にHarvesterをv1.8系へ上げてから、[roadmap.md](roadmap.md) 項目8のCSIの問題は起きていない)
 
 ## Harvester物理層の容量
 
