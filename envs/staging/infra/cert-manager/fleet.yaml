@@ -13,6 +13,14 @@ helm:
     crds:
       enabled: true
       keep: true
+    # DNS-01の伝播確認とTXTの後片付け(SOAの検索)を、FreeIPAのDNSにだけ問い合わせる。
+    # 既定のクラスタ内DNS(CoreDNS → ノードの/etc/resolv.conf)は、FreeIPA(192.168.100.21/22)と並んで
+    # 外部のDNS(134.160.64.241/242)にも振り分けるため、ibid.lanの問い合わせが時々NXDOMAINになる。
+    # すると後片付けが「Could not find the SOA record」で失敗して _acme-challenge.<site>.<env> のTXTが残り、
+    # その名前にワイルドカード(*.<env>.ibid.lan)が効かなくなる(2026-10-25、staging1のidddで確認)。
+    extraArgs:
+      - --dns01-recursive-nameservers=192.168.100.21:53,192.168.100.22:53
+      - --dns01-recursive-nameservers-only
 
 # admission webhookのcaBundleはcert-manager自身が実行時に注入するため、
 # そのままだとFleetが常にModifiedと判定する(monitoring/fleet.yamlと同じ既知パターン)。
