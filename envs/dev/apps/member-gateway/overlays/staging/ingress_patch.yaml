@@ -1,0 +1,17 @@
+# staging固有: ホスト名(<app>.staging.ibid.lan)。リストは丸ごと置き換わるため全体を書く。
+spec:
+  tls:
+    - hosts:
+        - member-gateway.staging.ibid.lan
+      secretName: member-gateway-tls
+  rules:
+    - host: member-gateway.staging.ibid.lan
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: member-gateway
+                port:
+                  number: 80
