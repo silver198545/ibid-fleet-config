@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: member-gateway
+  namespace: member-gateway
+  annotations:
+    cert-manager.io/cluster-issuer: freeipa-acme
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - member-gateway.dev.ibid.lan
+      secretName: member-gateway-tls
+  rules:
+    - host: member-gateway.dev.ibid.lan
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: member-gateway
+                port:
+                  number: 80

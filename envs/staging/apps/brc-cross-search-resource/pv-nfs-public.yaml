@@ -1,0 +1,50 @@
+# アプリの外で更新される公開ファイル(sitemapと辞書)を置くNFS上のディレクトリの静的PV/PVC。
+# 旧サーバー(xsearch01)では public/ 配下のファイルを直接書き換えていたが、コンテナ内の
+# ファイルはPod再作成で消え、2レプリカでは食い違うため、RWXの共有ボリュームに置く。
+#   animal/   ... sitemap.xml。cronjob-sitemap.yaml が毎日sparqlistから取得して書き込む
+#   dict/dna/ ... オートコンプリート辞書(gene_dict.json等)。Virtuoso01上の辞書生成ルーチン
+#                 (このリポジトリ管理外)がNFSへ直接書き込む
+# deployment.yaml がsubPathで public/resource/animal・public/resource/dict/dna にマウントし、
+# アプリの静的ファイル配信で既存と同じURL(/resource/animal/sitemap.xml 等)のまま返す。
+# **devとproductionで同じディレクトリ(brc-cross-search/shared/)を参照する**(2026-10-20〜。
+# 更新者がコピー先を1か所にでき、環境間で内容がずれないため)。dev側のPodは読み取り専用で
+# マウントするため本番のファイルを壊さない。書き込むのはproductionのsitemap CronJobと辞書生成ルーチンだけ。
+# ディレクトリは事前作成が必要(docs/manual-apps.md「brc-cross-search-xsearch /
+# brc-cross-search-resource 固有のメモ」)。PVの参照先は作成後に変えられないため、
+# 参照先を変えるときはPV/PVCの名前ごと変える。
+# reclaimPolicy: Retain必須(PVC削除で中身ごと消えないようにする)。
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: brc-cross-search-resource-shared
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  mountOptions:
+    - nfsvers=4.1
+  csi:
+    driver: nfs.csi.k8s.io
+    volumeHandle: brc-cross-search-resource-shared
+    volumeAttributes:
+      server: "192.168.1.1"
+      share: "/data/nfs"
+      subDir: "brc-cross-search/shared/resource"
+      mountPermissions: "0777"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: brc-cross-search-resource-shared
+  namespace: brc-cross-search-resource
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""
+  volumeName: brc-cross-search-resource-shared
+  resources:
+    requests:
+      storage: 1Gi

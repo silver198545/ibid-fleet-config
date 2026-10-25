@@ -1,0 +1,5 @@
+# production固有: 現状はdevと同じ(照会回数の制限がプロセス内のため1レプリカのまま。
+# deployment.yaml の replicas のコメント参照)。遷移先URL等を本番だけ変えるときは、ここに
+# containers[name=member-gateway].env を書く(envはnameをキーにマージされる)。
+spec:
+  replicas: 1

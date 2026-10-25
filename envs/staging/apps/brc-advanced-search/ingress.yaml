@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: brc-advanced-search
+  namespace: brc-advanced-search
+  annotations:
+    cert-manager.io/cluster-issuer: freeipa-acme
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - brc-advanced-search.dev.ibid.lan
+      secretName: brc-advanced-search-tls
+  rules:
+    - host: brc-advanced-search.dev.ibid.lan
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: brc-advanced-search
+                port:
+                  number: 80

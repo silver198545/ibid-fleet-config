@@ -1,0 +1,37 @@
+# 既存のダウンロード用zip置き場(/data/nfs/download/tsukuba、本番相当の実データ)を
+# そのままマウントするための静的PV/PVC。詳細はpv-nfs-uploadrdf.yaml参照。
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: metadatabase-v2-download-tsukuba
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  mountOptions:
+    - nfsvers=4.1
+  csi:
+    driver: nfs.csi.k8s.io
+    volumeHandle: metadatabase-v2-download-tsukuba
+    volumeAttributes:
+      server: "192.168.1.1"
+      share: "/data/nfs"
+      subDir: "download/tsukuba"
+      mountPermissions: "0777"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: metadatabase-v2-download-tsukuba
+  namespace: metadatabase-v2
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""
+  volumeName: metadatabase-v2-download-tsukuba
+  resources:
+    requests:
+      storage: 100Gi

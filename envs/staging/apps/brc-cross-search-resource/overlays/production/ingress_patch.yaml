@@ -1,0 +1,17 @@
+# production固有: ホスト名(<app>.production.ibid.lan)。リストは丸ごと置き換わるため全体を書く。
+spec:
+  tls:
+    - hosts:
+        - brc-cross-search-resource.production.ibid.lan
+      secretName: brc-cross-search-resource-tls
+  rules:
+    - host: brc-cross-search-resource.production.ibid.lan
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: brc-cross-search-resource
+                port:
+                  number: 80

@@ -1,0 +1,15 @@
+# 管理画面の設定・LDAP認証設定・ユーザー情報(SQLite、ADMIN_DB_PATH)の永続化。
+# SQLiteはファイルロックの都合でNFS(RWX)と相性が悪いため、Longhorn(RWO)にする。
+# replicas: 1運用なのでRWOで問題ない。
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: metadatabase-v2-admin-data
+  namespace: metadatabase-v2
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 1Gi

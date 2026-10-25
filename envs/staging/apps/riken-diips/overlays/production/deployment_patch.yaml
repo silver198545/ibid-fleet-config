@@ -1,0 +1,3 @@
+# production固有: 冗長化のため2レプリカ。
+spec:
+  replicas: 2

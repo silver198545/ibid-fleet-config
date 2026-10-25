@@ -1,0 +1,14 @@
+# staging固有: 直下の同名ファイルを丸ごと置き換える。stagingにはLonghornを置かないため
+# (envs/staging/infra は軽量版)、admin-data(SQLite、RWO)はharvester StorageClassに置く。
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: metadatabase-v2-admin-data
+  namespace: metadatabase-v2
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: harvester
+  resources:
+    requests:
+      storage: 1Gi
