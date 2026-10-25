@@ -584,8 +584,10 @@ Git管理外の作業(実施したら[x]にする):
 - [x] cert-managerのDNS-01確認をFreeIPAのDNSだけに問い合わせる(staging #360・dev #364・production #365)。
   ノードの上流DNSにFreeIPAと外部のDNS(134.160.64.241/242)が混在し、`_acme-challenge` のTXTが残る原因だった
 - [ ] staging1のSealed Secrets鍵をオフラインにバックアップする(上記「6.」)
-- [ ] Rundeckに `rundeck/jobs/wordpress.yaml` を取り込み直し、旧ジョブ `2-rehearsal`・`2a-rehearsal-upgrade`・
-  `2b-rehearsal-cleanup` を削除する([manual-rundeck.md](manual-rundeck.md))
+- [x] Rundeckに `rundeck/jobs/apps.yaml`・`wordpress.yaml` を取り込み直し、旧ジョブ(各アプリの `2-production-update`・
+  `3-first-promote-prepare`・`4-first-promote-finish`、WordPressの `2-rehearsal`・`2a-rehearsal-upgrade`・
+  `2b-rehearsal-cleanup`)を削除する(2026-10-25、Rundeck UI。[manual-rundeck.md](manual-rundeck.md))
+- [ ] Rundeckのオペレータ(`publicdb_developer`・`wpadmins`)が、kubeconfigを取り直して `staging1` を含める
 - [x] staging1にRancherのプロジェクト `APPs`(`publicdb_developer` Read-only、7アプリのnamespace)・
   `Wordpress`(`wpadmins` Project Member)を作り、`STAGING_PROJECT_ID` に設定する(2026-10-25)
 - [ ] WordPressのオペレータ用に、staging1の公開証明書
