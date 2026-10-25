@@ -227,14 +227,17 @@ flowchart LR
   BUILD --> GHCR["GHCR<br>ghcr.io/silver198545/{app}:{tag}"]
   GHCR --> DEVM["envs/dev/apps/{app}<br>のタグを更新する PR"]
   DEVM --> DEV["dev1"]
-  DEVM -->|"promote(承認が必要)"| PRODM["envs/production/apps/{app}"]
+  DEVM -->|"promote(自動マージ)"| STGM["envs/staging/apps/{app}"]
+  STGM --> STG["staging1(常駐)"]
+  STGM -->|"promote(承認が必要)"| PRODM["envs/production/apps/{app}"]
   PRODM --> PROD["prod1"]
 ```
 
 - アプリのソースは別リポジトリにあり、このリポジトリは「どのコミットをどのタグでビルドするか」だけを持つ
 - Rundeck の `<app>/1-dev-update` が、最新のコミットの取り込み → ビルド → dev への反映 → 確認まで行う。
-  `<app>/2-production-update` が本番の PR を作り、承認・マージ後に確認する
-- 本番だけ違う値(ホスト名・レプリカ数など)は、dev のディレクトリ内の `overlays/production/` に書く
+  `<app>/2-staging-update` が staging へ反映して確認し(自動マージ)、`<app>/3-production-update` が本番の PR を作り、
+  承認・マージ後に確認する。自作アプリは staging に常駐させる(WordPress と違い軽く、Secret の封印に人手が要るため)
+- staging・本番だけ違う値(ホスト名・レプリカ数など)は、dev のディレクトリ内の `overlays/<env>/` に書く
 
 詳しく: [manual-apps.md](manual-apps.md)、[runbook/rundeck-app-operator.md](runbook/rundeck-app-operator.md)
 

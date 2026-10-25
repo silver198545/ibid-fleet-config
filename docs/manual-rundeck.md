@@ -20,7 +20,8 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
 | パイプライン | Rundeckのジョブ | 中身(手動でも同じことができる) |
 |---|---|---|
 | 自作アプリの開発環境更新 | `Rancher-AppControll` の `<app>/1-dev-update` | `scripts/update-app-image.sh dev-update <app>` |
-| 自作アプリの本番環境更新 | `Rancher-AppControll` の `<app>/2-production-update` | `scripts/update-app-image.sh release-production <app>` |
+| 自作アプリのstaging更新 | `Rancher-AppControll` の `<app>/2-staging-update` | `scripts/update-app-image.sh staging-update <app>` |
+| 自作アプリの本番環境更新 | `Rancher-AppControll` の `<app>/3-production-update` | `scripts/update-app-image.sh release-production <app>` |
 | WordPressの開発環境更新(本番コンテンツ → dev) | `WordPressControl` の `1-dev-refresh` | `scripts/wordpress-pipeline.sh dev-refresh <site>...` |
 | WordPressのstagingでの確認(本番データ) | `WordPressControl` の `2-staging` | `scripts/wordpress-pipeline.sh staging-start` / `staging-upgrade <site>` |
 | WordPressのstagingの後片付け | `WordPressControl` の `4-staging-cleanup` | `scripts/wordpress-pipeline.sh staging-cleanup <site>` |
@@ -233,7 +234,8 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
 `apps/<app>/` のジョブ(dev更新・本番更新・初回昇格・確認)だけを実行できるようにする。2026-10-16時点のメンバーは
 `uchida, kushida, usuda, hoge, manalili, yuki`(最初に追加するオペレータは usuda)。
 
-1. **Rancherに `APPs` プロジェクトを作り、アプリのnamespaceを移す**(dev1・prod1 それぞれ。2026-10-17に作成済み)。
+1. **Rancherに `APPs` プロジェクトを作り、アプリのnamespaceを移す**(dev1・prod1 それぞれ。2026-10-17に作成済み。
+   staging1は2026-10-25の再導入後、各アプリのstagingへの初回昇格のあとに作る)。
    Rancher UIで クラスタ → **Projects/Namespaces** → Create Project(名前 `APPs`)→ 次のnamespaceを
    「Move」で `APPs` へ移す:
    `brc-advanced-search`、`brc-cross-search-resource`、`brc-cross-search-xsearch`、`metadatabase-v2`、`riken-diips`、`sparqlist`。
@@ -245,6 +247,7 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
    | クラスタ | ロール | できること |
    |---|---|---|
    | `dev1` | **Project Member** | Podへのexecを含めて、アプリのnamespaceを操作できる |
+   | `staging1` | **Read-only** | 見るだけ(`2-staging-update` の最後の確認、`9-check`) |
    | `prod1` | **Read-only** | 見るだけ(rollout・Podの確認、`9-check`、本番更新パイプラインの最後の確認) |
 
    prod1がRead-onlyなので、`sync_prod_data=yes` のような本番Podへのexecを伴う操作はできない
@@ -346,7 +349,7 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
 
 - `<op>` で担当のプロジェクトの確認ジョブ(`<app>/9-check`、WordPressは `tools/check`)が通る(SSH・kubeconfigの確認)
 - (自作アプリ)`<app>/1-dev-update` を実行すると、PRの作成者が `<op-gh>` になり、auto-mergeされる
-- `2-production-update` / `3-production-promote` の本番PRが、`@silver198545` がApproveしないとマージできない
+- `3-production-update` / `3-production-promote` の本番PRが、`@silver198545` がApproveしないとマージできない
   (Mergeボタンが「Review required」になる)
 - (自作アプリのオペレータ)本人のkubeconfigで `kubectl --context prod1 -n sparqlist delete pod --dry-run=server -l app=sparqlist`
   が `forbidden` になり、`kubectl --context dev1 get ns` にWordPressのnamespaceが出ない
@@ -365,6 +368,7 @@ rd jobs load -p WordPressControl -f rundeck/jobs/wordpress.yaml --format yaml
   先頭の `apps/`・`wordpress/` を外したが、UUIDは外す前と同じ値のまま(`generate-jobs.py` の `job()`)なので、
   取り込み直すと既存のジョブのグループ名が変わるだけで、重複はしない
 - `rd jobs load` は定義から消えたジョブを削除しない。旧定義のグループ `app-image-update`、
+  自作アプリの `<app>/2-production-update`・`<app>/3-first-promote-prepare`(2026-10-25にジョブ名を変えた)、
   消したアプリのグループ、WordPressの `2-rehearsal`・`2a-rehearsal-upgrade`・`2b-rehearsal-cleanup`
   (2026-10-25にstagingのジョブへ置き換え)は、Rundeck UIで手動で削除する
 - 生成内容は `envs/dev/apps`・`envs/dev/sites` と `update-app-image.sh` の
@@ -391,29 +395,42 @@ rd jobs load -p WordPressControl -f rundeck/jobs/wordpress.yaml --format yaml
 | `src_ref` | 空(最新) | 取り込み元のコミットSHA。特定のコミットを入れたいときだけ指定 |
 | `tag` | 空(自動採番) | 現在のTAGが `<version>-r<N>` なら N+1。その形式でないアプリでは指定が要る |
 
-終わったらブラウザでdevを確認してから `2-production-update` へ。
+終わったらブラウザでdevを確認してから `2-staging-update` へ。
 
-### 2-production-update(本番環境更新パイプライン)
+自作アプリはstagingに常駐させている(2026-10-25〜。WordPressと違い載せ降ろししない)。本番へは必ずstagingを通す。
+
+### 2-staging-update(staging更新パイプライン)
 
 1. mainを最新化
-2. devと本番の `<app>` に差分があれば、promoteワークフロー(`kind=apps`)で昇格PRを作り、CIを待つ
-   (差分が無ければ4.へ)
-3. **人がPRのdiffを見てマージするのを待つ**(イメージタグ以外のdevの変更もすべて昇格対象になる)
+2. devとstagingの `<app>` に差分があれば、promoteワークフロー(`kind=apps`、`to=staging`)で昇格PRを作り、
+   auto-mergeを待つ(stagingはCODEOWNERSの対象外で承認不要)。差分が無ければ3.へ
+3. Fleetの適用を待って(60秒)、stagingのrollout・WEB疎通を確認する
+
+終わったらブラウザでstaging(`https://<app>.staging.ibid.lan/`)を確認してから `3-production-update` へ。
+
+### 3-production-update(本番環境更新パイプライン)
+
+1. mainを最新化
+2. stagingと本番の `<app>` に差分があれば、promoteワークフロー(`kind=apps`、`to=production`)で昇格PRを作り、CIを待つ
+   (差分が無ければ4.へ。devにstagingで未確認の変更があれば注意を出す)
+3. **人がPRのdiffを見てマージするのを待つ**(イメージタグ以外のstagingの変更もすべて昇格対象になる)
 4. mainを取り込み、Fleetの適用を待って(60秒)、本番のrollout・WEB疎通を確認する
 
-### 3-first-promote-prepare / 4-first-promote-finish(本番への初回昇格)
+### 4-first-promote-prepare / 5-first-promote-finish(初回昇格)
 
-本番にまだ無いアプリのときだけ使う(既にあれば `2-production-update`)。
+昇格先(`env`: `staging` か `production`)にまだ無いアプリのときだけ使う(既にあれば `2-staging-update`・
+`3-production-update`)。必ず `env=staging` を先に行う(本番への昇格元はstaging)。
 `prepare` はコピーまでで止まり、表示された `kubeseal` コマンドを**踏み台端末で人が実行して**
-`envs/production/secrets/<app>.yaml` を作ってから `finish` を実行する(PATを扱うため)。
-`finish` が作ったPRは人がマージし、`9-check`(`env=production`)で確認する。
+`envs/<env>/secrets/<app>.yaml` を作ってから、同じ `env` で `finish` を実行する(PATを扱うため)。
+`env=staging` の `finish` はPRをauto-mergeしてstagingの確認まで続ける。`env=production` の `finish` が
+作ったPRは人がマージし、`9-check`(`env=production`)で確認する。
 
 **`prepare` から `finish` までの間、クローンは未コミットの変更を持ったまま残る。** その間、
 他のジョブは最初の「mainを最新化」で止まる(壊れることはない)。
 
 ### 9-check
 
-devまたは本番のrollout状況とWEB疎通を確認する(読み取りのみ)。
+dev・staging・本番のいずれかのrollout状況とWEB疎通を確認する(読み取りのみ)。
 
 ## WordPress(プロジェクト `WordPressControl`)
 

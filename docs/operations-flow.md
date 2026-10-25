@@ -204,7 +204,7 @@ fleet.yamlの `plugins:` 一覧が宣言的に管理するのは**インスト�
 一覧から消してもFleetは各環境のプラグインを無効化・削除しない。
 テストの結果プラグインをやめる場合は、
 
-1. fleet.yamlから該当エントリを消すPR(dev→productionへ通常どおり昇格)
+1. fleet.yamlから該当エントリを消すPR(dev→staging→productionへ通常どおり昇格)
 2. **各環境でwp-cliによる無効化・削除を手動実行**
    ([manual-wordpress.md](manual-wordpress.md) 参照)
 

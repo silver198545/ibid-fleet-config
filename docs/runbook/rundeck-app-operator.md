@@ -28,13 +28,14 @@ Rundeck のプロジェクト **`Rancher-AppControll`** から、自作アプリ
 | GitHub | 自分の GitHub アカウントが `silver198545/ibid-fleet-config` の collaborator であること(招待を承諾済み)。2要素認証を有効にしていること |
 | Rundeck | FreeIPA のアカウントでログインでき、プロジェクト `Rancher-AppControll` が見えること |
 | SSH 鍵 | Rundeck 用の SSH 鍵が登録済みであること(管理者が Key Storage の `keys/users/<自分のユーザー名>/<自分のユーザー名>_ed25519` に登録) |
-| Rancher | Rancher(`https://rancher.brc.riken.jp/`)に FreeIPA でログインでき、`dev1`・`prod1` のプロジェクト `APPs` が見えること |
+| Rancher | Rancher(`https://rancher.brc.riken.jp/`)に FreeIPA でログインでき、`dev1`・`staging1`・`prod1` のプロジェクト `APPs` が見えること |
 
 権限は次のとおりです。
 
 | 場所 | できること |
 |---|---|
 | dev1(開発クラスタ) | アプリの namespace を操作できる(Project Member) |
+| staging1(確認用クラスタ) | **見るだけ**(Read-only) |
 | prod1(本番クラスタ) | **見るだけ**(Read-only) |
 | GitHub | PR を作れる。dev の PR は自動でマージされる。**本番の PR は管理者の承認(Approve)が必要** |
 | Rundeck | `Rancher-AppControll` のジョブの実行だけ(Commands 画面は使えない) |
@@ -91,14 +92,14 @@ gh auth status
 ### 3. kubeconfig を置く
 
 1. ブラウザで Rancher(`https://rancher.brc.riken.jp/`)に FreeIPA のアカウントでログインする
-2. クラスタ一覧で `dev1` を開き、右上の「Download KubeConfig」で保存する。`prod1` も同じようにする
+2. クラスタ一覧で `dev1` を開き、右上の「Download KubeConfig」で保存する。`staging1`・`prod1` も同じようにする
 3. 2つを1つにまとめて、rancher の `~/.kube/config` に置く
 
 ```
 mkdir -p ~/.kube
-KUBECONFIG=~/dev1.yaml:~/prod1.yaml kubectl config view --flatten > ~/.kube/config
+KUBECONFIG=~/dev1.yaml:~/staging1.yaml:~/prod1.yaml kubectl config view --flatten > ~/.kube/config
 chmod 600 ~/.kube/config
-rm ~/dev1.yaml ~/prod1.yaml
+rm ~/dev1.yaml ~/staging1.yaml ~/prod1.yaml
 ```
 
 確認(どちらも Pod の一覧が出れば OK):
@@ -125,9 +126,10 @@ OK: sparqlist.dev.ibid.lan/sparqlist/ は200を返しました。
 | ジョブ | 内容 | 使う場面 |
 |---|---|---|
 | `1-dev-update` | 取り込み元の最新コミットでイメージを作り直し、dev に反映して確認する | 開発環境を更新するとき |
-| `2-production-update` | dev と同じ内容にする本番 PR を作り、管理者の承認とマージを待って、本番を確認する | dev で確認できたあと、本番を更新するとき |
-| `3-first-promote-prepare` / `4-first-promote-finish` | 新しいアプリを初めて本番に出す | **管理者が行います**(使わないでください) |
-| `9-check` | dev または本番の稼働状況と WEB の応答を確認する(読むだけ) | いつでも |
+| `2-staging-update` | dev と同じ内容にする staging の PR を作り(自動でマージされる)、staging を確認する | dev で確認できたあと |
+| `3-production-update` | staging と同じ内容にする本番 PR を作り、管理者の承認とマージを待って、本番を確認する | staging で確認できたあと、本番を更新するとき |
+| `4-first-promote-prepare` / `5-first-promote-finish` | 新しいアプリを初めて staging・本番に出す | **管理者が行います**(使わないでください) |
+| `9-check` | dev・staging・本番の稼働状況と WEB の応答を確認する(読むだけ) | いつでも |
 
 ### オプション
 
@@ -135,8 +137,8 @@ OK: sparqlist.dev.ibid.lan/sparqlist/ は200を返しました。
 |---|---|---|---|
 | `1-dev-update` | `src_ref` | 空欄 | 取り込むコミットの SHA。**空欄なら取り込み元の最新**。特定のコミットを入れたいときだけ指定 |
 | `1-dev-update` | `tag` | 空欄 | 新しいイメージのタグ。空欄なら自動で採番(例: `2.0.0-r7` → `2.0.0-r8`) |
-| `2-production-update` | `merge_wait_minutes` | `240` | 本番 PR の承認・マージを待つ時間(分) |
-| `9-check` | `env` | `dev` | 確認する環境(`dev` / `production`) |
+| `3-production-update` | `merge_wait_minutes` | `240` | 本番 PR の承認・マージを待つ時間(分) |
+| `9-check` | `env` | `dev` | 確認する環境(`dev` / `staging` / `production`) |
 
 ## 実行方法
 
@@ -153,11 +155,24 @@ OK: sparqlist.dev.ibid.lan/sparqlist/ は200を返しました。
 
 取り込み元に新しいコミットが無いときは、イメージは作り直さず dev の確認だけ行って終わります。
 
-### 本番環境を更新する(`2-production-update`)
+### staging を更新する(`2-staging-update`)
 
-dev で確認できてから行います。
+本番へは必ず staging を通します。dev で確認できてから行います。
 
-1. `<アプリ名>/2-production-update` を開き、「Run Job Now」
+1. `<アプリ名>/2-staging-update` を開き、「Run Job Now」
+2. 数分で終わる(PR は自動でマージされる)。最後に次の行が出れば成功
+   ```
+   OK: <アプリ名>.staging.ibid.lan/... は200を返しました。
+   ```
+3. `https://<アプリ名>.staging.ibid.lan/` をブラウザで開き、動作を確認する
+
+dev と staging に差分が無いときは、PR は作らず staging の確認だけ行って終わります。
+
+### 本番環境を更新する(`3-production-update`)
+
+staging で確認できてから行います。本番に出るのは **staging に入っている内容** です。
+
+1. `<アプリ名>/3-production-update` を開き、「Run Job Now」
 2. ジョブが本番 PR を作り、出力に URL を表示して **待ち状態** になる
    ```
    PR作成: https://github.com/silver198545/ibid-fleet-config/pull/123
@@ -170,7 +185,7 @@ dev で確認できてから行います。
    ```
 5. 上表の本番の確認先をブラウザで開き、動作を確認する
 
-dev と本番に差分が無いときは、PR は作らず本番の確認だけ行って終わります。
+staging と本番に差分が無いときは、PR は作らず本番の確認だけ行って終わります。
 
 ## 動作の仕組み
 
@@ -183,10 +198,16 @@ dev と本番に差分が無いときは、PR は作らず本番の確認だけ�
 5. dev のマニフェストを新しいタグにする PR を作り、自動でマージする(Fleet が dev1 に反映する)
 6. dev の rollout と WEB の応答(200 か)を確認する
 
-### `2-production-update`
+### `2-staging-update`
 
 1. `~/ibid-fleet-config` を最新に揃える
-2. dev と本番に差分があれば、promote ワークフローで本番 PR を作る(作成者は `ibid-ops-bot`)
+2. dev と staging に差分があれば、promote ワークフローで staging の PR を作り(作成者は `ibid-ops-bot`)、自動でマージされるのを待つ
+3. Fleet の反映を待って(60 秒)、staging の rollout と WEB の応答を確認する
+
+### `3-production-update`
+
+1. `~/ibid-fleet-config` を最新に揃える
+2. staging と本番に差分があれば、promote ワークフローで本番 PR を作る(作成者は `ibid-ops-bot`)
 3. **人が PR を承認・マージするのを待つ**(このジョブはマージしない)
 4. マージされたら最新を取り込み、Fleet の反映を待って(60 秒)、本番の rollout と WEB の応答を確認する
 

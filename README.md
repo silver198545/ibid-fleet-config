@@ -125,7 +125,7 @@ WordPressの新規サイト作成・更新、自作アプリの新規展開・�
 | `scripts/restore-wordpress.sh <site> <dir> [ts]` | `yyyymmdd_hhmm.tar.lzo`/`.dump.lzo`のバックアップをサイトへリストア |
 | `scripts/bump-chart.sh [--update-images] "<種類>: <説明>"` | ラッパーチャートの変更(WordPress/MariaDBのdigest更新を含む)を公開し、devの全サイトへ反映するまでを一括実行 |
 | `scripts/bump-plugins.sh [--dry-run]` | devの全サイトのプラグインをWordPress.orgの最新版へ上げるPRを作成・マージ |
-| `scripts/update-app-image.sh <subcommand>` | 自作アプリのイメージ更新(`set-image`でdev反映まで一括)〜dev→production昇格PR。Rundeck用に `dev-update`・`release-production` |
+| `scripts/update-app-image.sh <subcommand>` | 自作アプリのイメージ更新(`set-image`でdev反映まで一括)〜dev→staging→production昇格PR。Rundeck用に `dev-update`・`staging-update`・`release-production` |
 | `scripts/wordpress-pipeline.sh <subcommand>` | WordPressのパイプライン(本番コンテンツ→dev、stagingでの確認、本番昇格、バックアップ・確認)。Rundeckの `WordPressControl` から呼ぶ |
 | `scripts/seal-monitoring-secret.sh <env>` | アラート通知用Slack Webhook URLのSealedSecret |
 | `scripts/seal-sparqlist-secret.sh <env>` | sparqlistのADMIN_PASSWORDのSealedSecret |

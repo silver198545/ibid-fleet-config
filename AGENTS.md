@@ -24,8 +24,8 @@ resource state with `kubectl`.
   `envs/dev/<kind>/<name>` → `envs/staging/` (`to=staging`; auto-merged) or `envs/staging/<kind>/<name>` →
   `envs/production/` (`to=production`; human-merged) — with `all`, every one already in the target (and, for
   production, present in staging) — and opens a PR. **Production is only ever promoted from staging.**
-  `scripts/update-app-image.sh deploy-production` just dispatches it; an app's *first* production
-  promotion stays in `update-app-image.sh promote-production` (needs kubeseal). Branch protection and the
+  `scripts/update-app-image.sh deploy-staging` / `deploy-production` just dispatch it; an app's *first* promotion
+  to each env stays in `update-app-image.sh promote-staging` / `promote-production` (needs kubeseal). Branch protection and the
   `main` ruleset require 0 approvals + Code Owner review (`/envs/production/`), but because the solo
   maintainer is both PR author and sole Code Owner, GitHub does not require a review on the maintainer's
   own PRs. Rundeck pipelines run as the operator's own OS user / GitHub account (write collaborator, not a
@@ -82,8 +82,8 @@ resource state with `kubectl`.
   cannot be copied between envs), `bootstrap-site-secrets.sh <site>` (legacy direct-to-cluster
   creation, emergencies only), `deploy-wordpress.sh <env> <site>` (**break-glass only** —
   normal changes go through PR merge; pause the env's GitRepo before using it on production),
-  `update-app-image.sh` (apps: `set-image` does image bump → build → dev in one run; production via
-  `deploy-production`), `bump-chart.sh [--update-images] "<title>"` (chart change/Bitnami digest bump →
+  `update-app-image.sh` (apps: `set-image` does image bump → build → dev in one run; then
+  `deploy-staging` (auto-merged, apps stay resident on staging) and `deploy-production`), `bump-chart.sh [--update-images] "<title>"` (chart change/Bitnami digest bump →
   publish → all dev sites' `helm.version`, one run), `bump-plugins.sh` (dev plugins → latest
   WordPress.org versions), `wordpress-pipeline.sh` (WP pipelines: production content → dev site, staging
   start/upgrade/cleanup, staging → production promotion that waits for a human merge). `auto-update.yaml` runs both weekly (dev only; production still via promote). These scripts auto-merge dev-only and staging-only PRs; see branch protection below.

@@ -12,7 +12,7 @@
     イメージPR → auto-merge → ビルド完了待ち → devのdeployment.yamlを更新するPR → auto-merge →
     devのrollout・WEB疎通確認、までを1回で行う(devだけのPRなので承認なしでマージされる)。
 
-    devでブラウザ確認したら「2-production-update」で本番へ。
+    devでブラウザ確認したら「2-staging-update」でstagingへ。
   loglevel: INFO
   executionEnabled: true
   scheduleEnabled: true
@@ -55,20 +55,68 @@
         export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh dev-update brc-advanced-search '@option.src_ref@' '@option.tag@'
       scriptInterpreter: /bin/bash
-- name: 2-production-update
+- name: 2-staging-update
   group: brc-advanced-search
-  uuid: 8c20e935-4ecc-56b2-a431-89a617640593
+  uuid: e2bd9acc-280b-5312-80be-c9c64b98a4c8
+  description: |
+    【staging更新パイプライン】brc-advanced-search
+
+    envs/staging/apps/brc-advanced-search を dev と同じ内容にする昇格PRを promote ワークフロー(to=staging)で作り、
+    auto-mergeを待って(stagingだけのPRなので承認不要)、stagingのrollout・WEB疎通を確認する。
+    devとstagingに差分が無ければPRは作らず、確認だけ行う。
+
+    stagingでブラウザ確認したら「3-production-update」で本番へ。本番へは必ずstagingを通す。
+    stagingにまだ無いアプリはエラーになる(初回は「4-first-promote-prepare」を env=staging で)。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 1h
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options: []
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: staging昇格PR作成 → auto-merge → stagingの確認
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        scripts/update-app-image.sh staging-update brc-advanced-search
+      scriptInterpreter: /bin/bash
+- name: 3-production-update
+  group: brc-advanced-search
+  uuid: 693f40de-de89-5340-8666-328d94d4e3bb
   description: |
     【本番環境更新パイプライン】brc-advanced-search
 
-    envs/production/apps/brc-advanced-search を dev と同じ内容にする昇格PRを promote ワークフローで作り、
+    envs/production/apps/brc-advanced-search を staging と同じ内容にする昇格PRを promote ワークフロー(to=production)で作り、
     **人がPRをレビュー・マージするのを待つ(このジョブはマージしない)**。マージされたら
     mainを取り込み、Fleetの適用を待って本番のrollout・WEB疎通を確認する。
-    devと本番に差分が無ければPRは作らず、確認だけ行う。
+    stagingと本番に差分が無ければPRは作らず、確認だけ行う。
 
-    PRのdiffはイメージタグに限らずdevに入っている変更すべて。内容を見てからマージすること。
+    PRのdiffはイメージタグに限らずstagingに入っている変更すべて。内容を見てからマージすること。
     マージ待ちの間、クローンのロックは手放すので他のジョブは動ける。
-    本番にまだ無いアプリはエラーになる(初回は「3-first-promote-prepare」)。
+    本番にまだ無いアプリはエラーになる(初回は「4-first-promote-prepare」を env=production で)。
   loglevel: INFO
   executionEnabled: true
   scheduleEnabled: true
@@ -116,15 +164,15 @@
         export PIPELINE_ACTOR='@job.username@'
         MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/update-app-image.sh release-production brc-advanced-search
       scriptInterpreter: /bin/bash
-- name: 3-first-promote-prepare
+- name: 4-first-promote-prepare
   group: brc-advanced-search
-  uuid: 49bee1b3-b6a4-57a0-9ed1-035ad1d16762
+  uuid: 61fc14cc-0876-5262-b6d4-d8e596ac2ecb
   description: |
-    【本番への初回昇格 1/2】brc-advanced-search(本番にまだ無いときだけ。既にあれば「2-production-update」を使う)
+    【初回昇格 1/2】brc-advanced-search(昇格先にまだ無いときだけ。既にあれば「2-staging-update」「3-production-update」を使う)
 
-    envs/dev/apps/brc-advanced-search を envs/production/apps/brc-advanced-search へコピーするブランチを作る(コミットはしない)。
+    昇格元(staging ならdev、production ならstaging)の brc-advanced-search を昇格先へコピーするブランチを作る(コミットはしない)。
     出力に表示されるkubesealコマンド(PATを扱うためジョブ化しない)を踏み台端末で人が実行し、
-    envs/production/secrets/brc-advanced-search.yaml を作ってから「4-first-promote-finish」を実行する。
+    envs/<env>/secrets/brc-advanced-search.yaml を作ってから「5-first-promote-finish」を同じ env で実行する。
 
     **finishまでの間、クローンは未コミットのまま残る**。他のジョブは「mainを最新化」で止まる。
   loglevel: INFO
@@ -135,7 +183,16 @@
   nodefilters:
     filter: 'tags: rancher'
   nodesSelectedByDefault: true
-  options: []
+  options:
+  - name: env
+    description: '初回昇格する先(staging: dev→staging / production: staging→production。必ずstagingが先)'
+    required: true
+    value: staging
+    values:
+    - staging
+    - production
+    valuesListDelimiter: ','
+    enforced: true
   sequence:
     keepgoing: false
     strategy: node-first
@@ -156,21 +213,22 @@
         git pull -q --ff-only origin main
         echo "main: $(git log -1 --format='%h %s')"
       scriptInterpreter: /bin/bash
-    - description: productionへのコピー(コミットしない)
+    - description: 昇格先へのコピー(コミットしない)
       script: |
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
-        scripts/update-app-image.sh promote-production brc-advanced-search
+        scripts/update-app-image.sh promote-@option.env@ brc-advanced-search
       scriptInterpreter: /bin/bash
-- name: 4-first-promote-finish
+- name: 5-first-promote-finish
   group: brc-advanced-search
-  uuid: 15886e84-d5d2-5839-bc6f-f7f922ec9552
+  uuid: 25342e28-6c62-59e1-9fbb-11e5ff9e461e
   description: |
-    【本番への初回昇格 2/2】brc-advanced-search
+    【初回昇格 2/2】brc-advanced-search
 
-    kubesealでSealedSecretを作った後に実行。コミット・PR作成まで行う。
-    マージはレビューのうえ人が行い、マージ後に「9-check」(env=production)で確認する。
+    kubesealでSealedSecretを作った後に、prepareと同じ env で実行。コミット・PR作成まで行う。
+    stagingはauto-mergeしてstagingの確認まで続ける。productionのPRはレビューのうえ人がマージし、
+    マージ後に「9-check」(env=production)で確認する。
   loglevel: INFO
   executionEnabled: true
   scheduleEnabled: true
@@ -179,7 +237,16 @@
   nodefilters:
     filter: 'tags: rancher'
   nodesSelectedByDefault: true
-  options: []
+  options:
+  - name: env
+    description: '初回昇格する先(staging: dev→staging / production: staging→production。必ずstagingが先)'
+    required: true
+    value: staging
+    values:
+    - staging
+    - production
+    valuesListDelimiter: ','
+    enforced: true
   sequence:
     keepgoing: false
     strategy: node-first
@@ -189,7 +256,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
-        scripts/update-app-image.sh promote-production-finish brc-advanced-search
+        scripts/update-app-image.sh promote-@option.env@-finish brc-advanced-search
       scriptInterpreter: /bin/bash
 - name: 9-check
   group: brc-advanced-search
@@ -211,6 +278,7 @@
     value: dev
     values:
     - dev
+    - staging
     - production
     valuesListDelimiter: ','
     enforced: true
@@ -235,7 +303,7 @@
     イメージPR → auto-merge → ビルド完了待ち → devのdeployment.yamlを更新するPR → auto-merge →
     devのrollout・WEB疎通確認、までを1回で行う(devだけのPRなので承認なしでマージされる)。
 
-    devでブラウザ確認したら「2-production-update」で本番へ。
+    devでブラウザ確認したら「2-staging-update」でstagingへ。
   loglevel: INFO
   executionEnabled: true
   scheduleEnabled: true
@@ -278,20 +346,68 @@
         export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh dev-update brc-cross-search-resource '@option.src_ref@' '@option.tag@'
       scriptInterpreter: /bin/bash
-- name: 2-production-update
+- name: 2-staging-update
   group: brc-cross-search-resource
-  uuid: 412c20a0-16cd-507d-bf2f-d296e00c9a04
+  uuid: 3e6d2ba6-ee03-5524-9663-c39f0498fd94
+  description: |
+    【staging更新パイプライン】brc-cross-search-resource
+
+    envs/staging/apps/brc-cross-search-resource を dev と同じ内容にする昇格PRを promote ワークフロー(to=staging)で作り、
+    auto-mergeを待って(stagingだけのPRなので承認不要)、stagingのrollout・WEB疎通を確認する。
+    devとstagingに差分が無ければPRは作らず、確認だけ行う。
+
+    stagingでブラウザ確認したら「3-production-update」で本番へ。本番へは必ずstagingを通す。
+    stagingにまだ無いアプリはエラーになる(初回は「4-first-promote-prepare」を env=staging で)。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 1h
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options: []
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: staging昇格PR作成 → auto-merge → stagingの確認
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        scripts/update-app-image.sh staging-update brc-cross-search-resource
+      scriptInterpreter: /bin/bash
+- name: 3-production-update
+  group: brc-cross-search-resource
+  uuid: db1e968e-bb42-52fd-8757-7d637fea245d
   description: |
     【本番環境更新パイプライン】brc-cross-search-resource
 
-    envs/production/apps/brc-cross-search-resource を dev と同じ内容にする昇格PRを promote ワークフローで作り、
+    envs/production/apps/brc-cross-search-resource を staging と同じ内容にする昇格PRを promote ワークフロー(to=production)で作り、
     **人がPRをレビュー・マージするのを待つ(このジョブはマージしない)**。マージされたら
     mainを取り込み、Fleetの適用を待って本番のrollout・WEB疎通を確認する。
-    devと本番に差分が無ければPRは作らず、確認だけ行う。
+    stagingと本番に差分が無ければPRは作らず、確認だけ行う。
 
-    PRのdiffはイメージタグに限らずdevに入っている変更すべて。内容を見てからマージすること。
+    PRのdiffはイメージタグに限らずstagingに入っている変更すべて。内容を見てからマージすること。
     マージ待ちの間、クローンのロックは手放すので他のジョブは動ける。
-    本番にまだ無いアプリはエラーになる(初回は「3-first-promote-prepare」)。
+    本番にまだ無いアプリはエラーになる(初回は「4-first-promote-prepare」を env=production で)。
   loglevel: INFO
   executionEnabled: true
   scheduleEnabled: true
@@ -339,15 +455,15 @@
         export PIPELINE_ACTOR='@job.username@'
         MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/update-app-image.sh release-production brc-cross-search-resource
       scriptInterpreter: /bin/bash
-- name: 3-first-promote-prepare
+- name: 4-first-promote-prepare
   group: brc-cross-search-resource
-  uuid: ba57fe31-0b5b-52d4-8e3f-0a054aca05d7
+  uuid: 3689d6e8-39bc-52e7-a9cb-fa323013e07d
   description: |
-    【本番への初回昇格 1/2】brc-cross-search-resource(本番にまだ無いときだけ。既にあれば「2-production-update」を使う)
+    【初回昇格 1/2】brc-cross-search-resource(昇格先にまだ無いときだけ。既にあれば「2-staging-update」「3-production-update」を使う)
 
-    envs/dev/apps/brc-cross-search-resource を envs/production/apps/brc-cross-search-resource へコピーするブランチを作る(コミットはしない)。
+    昇格元(staging ならdev、production ならstaging)の brc-cross-search-resource を昇格先へコピーするブランチを作る(コミットはしない)。
     出力に表示されるkubesealコマンド(PATを扱うためジョブ化しない)を踏み台端末で人が実行し、
-    envs/production/secrets/brc-cross-search-resource.yaml を作ってから「4-first-promote-finish」を実行する。
+    envs/<env>/secrets/brc-cross-search-resource.yaml を作ってから「5-first-promote-finish」を同じ env で実行する。
 
     **finishまでの間、クローンは未コミットのまま残る**。他のジョブは「mainを最新化」で止まる。
   loglevel: INFO
@@ -358,7 +474,16 @@
   nodefilters:
     filter: 'tags: rancher'
   nodesSelectedByDefault: true
-  options: []
+  options:
+  - name: env
+    description: '初回昇格する先(staging: dev→staging / production: staging→production。必ずstagingが先)'
+    required: true
+    value: staging
+    values:
+    - staging
+    - production
+    valuesListDelimiter: ','
+    enforced: true
   sequence:
     keepgoing: false
     strategy: node-first
@@ -379,21 +504,22 @@
         git pull -q --ff-only origin main
         echo "main: $(git log -1 --format='%h %s')"
       scriptInterpreter: /bin/bash
-    - description: productionへのコピー(コミットしない)
+    - description: 昇格先へのコピー(コミットしない)
       script: |
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
-        scripts/update-app-image.sh promote-production brc-cross-search-resource
+        scripts/update-app-image.sh promote-@option.env@ brc-cross-search-resource
       scriptInterpreter: /bin/bash
-- name: 4-first-promote-finish
+- name: 5-first-promote-finish
   group: brc-cross-search-resource
-  uuid: 1a9ec9ff-a408-5c93-b484-66c918d53ea2
+  uuid: b90a74bb-cbb8-5b4a-9db4-af8896d8da3d
   description: |
-    【本番への初回昇格 2/2】brc-cross-search-resource
+    【初回昇格 2/2】brc-cross-search-resource
 
-    kubesealでSealedSecretを作った後に実行。コミット・PR作成まで行う。
-    マージはレビューのうえ人が行い、マージ後に「9-check」(env=production)で確認する。
+    kubesealでSealedSecretを作った後に、prepareと同じ env で実行。コミット・PR作成まで行う。
+    stagingはauto-mergeしてstagingの確認まで続ける。productionのPRはレビューのうえ人がマージし、
+    マージ後に「9-check」(env=production)で確認する。
   loglevel: INFO
   executionEnabled: true
   scheduleEnabled: true
@@ -402,7 +528,16 @@
   nodefilters:
     filter: 'tags: rancher'
   nodesSelectedByDefault: true
-  options: []
+  options:
+  - name: env
+    description: '初回昇格する先(staging: dev→staging / production: staging→production。必ずstagingが先)'
+    required: true
+    value: staging
+    values:
+    - staging
+    - production
+    valuesListDelimiter: ','
+    enforced: true
   sequence:
     keepgoing: false
     strategy: node-first
@@ -412,7 +547,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
-        scripts/update-app-image.sh promote-production-finish brc-cross-search-resource
+        scripts/update-app-image.sh promote-@option.env@-finish brc-cross-search-resource
       scriptInterpreter: /bin/bash
 - name: 9-check
   group: brc-cross-search-resource
@@ -434,6 +569,7 @@
     value: dev
     values:
     - dev
+    - staging
     - production
     valuesListDelimiter: ','
     enforced: true
@@ -458,7 +594,7 @@
     イメージPR → auto-merge → ビルド完了待ち → devのdeployment.yamlを更新するPR → auto-merge →
     devのrollout・WEB疎通確認、までを1回で行う(devだけのPRなので承認なしでマージされる)。
 
-    devでブラウザ確認したら「2-production-update」で本番へ。
+    devでブラウザ確認したら「2-staging-update」でstagingへ。
   loglevel: INFO
   executionEnabled: true
   scheduleEnabled: true
@@ -501,20 +637,68 @@
         export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh dev-update brc-cross-search-xsearch '@option.src_ref@' '@option.tag@'
       scriptInterpreter: /bin/bash
-- name: 2-production-update
+- name: 2-staging-update
   group: brc-cross-search-xsearch
-  uuid: 9782ade7-107e-5858-84f1-20b4f1dfd81c
+  uuid: 2fcefb30-e956-52e3-a9aa-9ebe2c715835
+  description: |
+    【staging更新パイプライン】brc-cross-search-xsearch
+
+    envs/staging/apps/brc-cross-search-xsearch を dev と同じ内容にする昇格PRを promote ワークフロー(to=staging)で作り、
+    auto-mergeを待って(stagingだけのPRなので承認不要)、stagingのrollout・WEB疎通を確認する。
+    devとstagingに差分が無ければPRは作らず、確認だけ行う。
+
+    stagingでブラウザ確認したら「3-production-update」で本番へ。本番へは必ずstagingを通す。
+    stagingにまだ無いアプリはエラーになる(初回は「4-first-promote-prepare」を env=staging で)。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 1h
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options: []
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: staging昇格PR作成 → auto-merge → stagingの確認
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        scripts/update-app-image.sh staging-update brc-cross-search-xsearch
+      scriptInterpreter: /bin/bash
+- name: 3-production-update
+  group: brc-cross-search-xsearch
+  uuid: e60fb104-3c67-504f-b8f8-fa7251b90ce0
   description: |
     【本番環境更新パイプライン】brc-cross-search-xsearch
 
-    envs/production/apps/brc-cross-search-xsearch を dev と同じ内容にする昇格PRを promote ワークフローで作り、
+    envs/production/apps/brc-cross-search-xsearch を staging と同じ内容にする昇格PRを promote ワークフロー(to=production)で作り、
     **人がPRをレビュー・マージするのを待つ(このジョブはマージしない)**。マージされたら
     mainを取り込み、Fleetの適用を待って本番のrollout・WEB疎通を確認する。
-    devと本番に差分が無ければPRは作らず、確認だけ行う。
+    stagingと本番に差分が無ければPRは作らず、確認だけ行う。
 
-    PRのdiffはイメージタグに限らずdevに入っている変更すべて。内容を見てからマージすること。
+    PRのdiffはイメージタグに限らずstagingに入っている変更すべて。内容を見てからマージすること。
     マージ待ちの間、クローンのロックは手放すので他のジョブは動ける。
-    本番にまだ無いアプリはエラーになる(初回は「3-first-promote-prepare」)。
+    本番にまだ無いアプリはエラーになる(初回は「4-first-promote-prepare」を env=production で)。
   loglevel: INFO
   executionEnabled: true
   scheduleEnabled: true
@@ -562,15 +746,15 @@
         export PIPELINE_ACTOR='@job.username@'
         MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/update-app-image.sh release-production brc-cross-search-xsearch
       scriptInterpreter: /bin/bash
-- name: 3-first-promote-prepare
+- name: 4-first-promote-prepare
   group: brc-cross-search-xsearch
-  uuid: 9d7167a2-0986-5220-80d0-dbab92ed45bd
+  uuid: e56cd2dc-5a11-5cf2-a59e-9feef818fcf6
   description: |
-    【本番への初回昇格 1/2】brc-cross-search-xsearch(本番にまだ無いときだけ。既にあれば「2-production-update」を使う)
+    【初回昇格 1/2】brc-cross-search-xsearch(昇格先にまだ無いときだけ。既にあれば「2-staging-update」「3-production-update」を使う)
 
-    envs/dev/apps/brc-cross-search-xsearch を envs/production/apps/brc-cross-search-xsearch へコピーするブランチを作る(コミットはしない)。
+    昇格元(staging ならdev、production ならstaging)の brc-cross-search-xsearch を昇格先へコピーするブランチを作る(コミットはしない)。
     出力に表示されるkubesealコマンド(PATを扱うためジョブ化しない)を踏み台端末で人が実行し、
-    envs/production/secrets/brc-cross-search-xsearch.yaml を作ってから「4-first-promote-finish」を実行する。
+    envs/<env>/secrets/brc-cross-search-xsearch.yaml を作ってから「5-first-promote-finish」を同じ env で実行する。
 
     **finishまでの間、クローンは未コミットのまま残る**。他のジョブは「mainを最新化」で止まる。
   loglevel: INFO
@@ -581,7 +765,16 @@
   nodefilters:
     filter: 'tags: rancher'
   nodesSelectedByDefault: true
-  options: []
+  options:
+  - name: env
+    description: '初回昇格する先(staging: dev→staging / production: staging→production。必ずstagingが先)'
+    required: true
+    value: staging
+    values:
+    - staging
+    - production
+    valuesListDelimiter: ','
+    enforced: true
   sequence:
     keepgoing: false
     strategy: node-first
@@ -602,21 +795,22 @@
         git pull -q --ff-only origin main
         echo "main: $(git log -1 --format='%h %s')"
       scriptInterpreter: /bin/bash
-    - description: productionへのコピー(コミットしない)
+    - description: 昇格先へのコピー(コミットしない)
       script: |
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
-        scripts/update-app-image.sh promote-production brc-cross-search-xsearch
+        scripts/update-app-image.sh promote-@option.env@ brc-cross-search-xsearch
       scriptInterpreter: /bin/bash
-- name: 4-first-promote-finish
+- name: 5-first-promote-finish
   group: brc-cross-search-xsearch
-  uuid: a545a4c6-9fa5-56bf-bf67-f38897675d07
+  uuid: 0e462ca6-b8c8-52d4-bcb2-08275c6b4134
   description: |
-    【本番への初回昇格 2/2】brc-cross-search-xsearch
+    【初回昇格 2/2】brc-cross-search-xsearch
 
-    kubesealでSealedSecretを作った後に実行。コミット・PR作成まで行う。
-    マージはレビューのうえ人が行い、マージ後に「9-check」(env=production)で確認する。
+    kubesealでSealedSecretを作った後に、prepareと同じ env で実行。コミット・PR作成まで行う。
+    stagingはauto-mergeしてstagingの確認まで続ける。productionのPRはレビューのうえ人がマージし、
+    マージ後に「9-check」(env=production)で確認する。
   loglevel: INFO
   executionEnabled: true
   scheduleEnabled: true
@@ -625,7 +819,16 @@
   nodefilters:
     filter: 'tags: rancher'
   nodesSelectedByDefault: true
-  options: []
+  options:
+  - name: env
+    description: '初回昇格する先(staging: dev→staging / production: staging→production。必ずstagingが先)'
+    required: true
+    value: staging
+    values:
+    - staging
+    - production
+    valuesListDelimiter: ','
+    enforced: true
   sequence:
     keepgoing: false
     strategy: node-first
@@ -635,7 +838,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
-        scripts/update-app-image.sh promote-production-finish brc-cross-search-xsearch
+        scripts/update-app-image.sh promote-@option.env@-finish brc-cross-search-xsearch
       scriptInterpreter: /bin/bash
 - name: 9-check
   group: brc-cross-search-xsearch
@@ -657,6 +860,7 @@
     value: dev
     values:
     - dev
+    - staging
     - production
     valuesListDelimiter: ','
     enforced: true
@@ -681,7 +885,7 @@
     イメージPR → auto-merge → ビルド完了待ち → devのdeployment.yamlを更新するPR → auto-merge →
     devのrollout・WEB疎通確認、までを1回で行う(devだけのPRなので承認なしでマージされる)。
 
-    devでブラウザ確認したら「2-production-update」で本番へ。
+    devでブラウザ確認したら「2-staging-update」でstagingへ。
   loglevel: INFO
   executionEnabled: true
   scheduleEnabled: true
@@ -724,20 +928,68 @@
         export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh dev-update member-gateway '@option.src_ref@' '@option.tag@'
       scriptInterpreter: /bin/bash
-- name: 2-production-update
+- name: 2-staging-update
   group: member-gateway
-  uuid: 38a7bd6d-d3c7-5448-b1a5-1da4e8904d4d
+  uuid: 1ae8e14a-065e-5963-a17c-71e68a7b1c8a
+  description: |
+    【staging更新パイプライン】member-gateway
+
+    envs/staging/apps/member-gateway を dev と同じ内容にする昇格PRを promote ワークフロー(to=staging)で作り、
+    auto-mergeを待って(stagingだけのPRなので承認不要)、stagingのrollout・WEB疎通を確認する。
+    devとstagingに差分が無ければPRは作らず、確認だけ行う。
+
+    stagingでブラウザ確認したら「3-production-update」で本番へ。本番へは必ずstagingを通す。
+    stagingにまだ無いアプリはエラーになる(初回は「4-first-promote-prepare」を env=staging で)。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 1h
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options: []
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: staging昇格PR作成 → auto-merge → stagingの確認
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        scripts/update-app-image.sh staging-update member-gateway
+      scriptInterpreter: /bin/bash
+- name: 3-production-update
+  group: member-gateway
+  uuid: 5f6a61af-6c04-5121-a5bc-17f0affd66ad
   description: |
     【本番環境更新パイプライン】member-gateway
 
-    envs/production/apps/member-gateway を dev と同じ内容にする昇格PRを promote ワークフローで作り、
+    envs/production/apps/member-gateway を staging と同じ内容にする昇格PRを promote ワークフロー(to=production)で作り、
     **人がPRをレビュー・マージするのを待つ(このジョブはマージしない)**。マージされたら
     mainを取り込み、Fleetの適用を待って本番のrollout・WEB疎通を確認する。
-    devと本番に差分が無ければPRは作らず、確認だけ行う。
+    stagingと本番に差分が無ければPRは作らず、確認だけ行う。
 
-    PRのdiffはイメージタグに限らずdevに入っている変更すべて。内容を見てからマージすること。
+    PRのdiffはイメージタグに限らずstagingに入っている変更すべて。内容を見てからマージすること。
     マージ待ちの間、クローンのロックは手放すので他のジョブは動ける。
-    本番にまだ無いアプリはエラーになる(初回は「3-first-promote-prepare」)。
+    本番にまだ無いアプリはエラーになる(初回は「4-first-promote-prepare」を env=production で)。
   loglevel: INFO
   executionEnabled: true
   scheduleEnabled: true
@@ -785,15 +1037,15 @@
         export PIPELINE_ACTOR='@job.username@'
         MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/update-app-image.sh release-production member-gateway
       scriptInterpreter: /bin/bash
-- name: 3-first-promote-prepare
+- name: 4-first-promote-prepare
   group: member-gateway
-  uuid: bd04c785-f794-5aef-bf88-a28b014bc5d8
+  uuid: cc08b44d-248d-5524-8e46-5db67351a941
   description: |
-    【本番への初回昇格 1/2】member-gateway(本番にまだ無いときだけ。既にあれば「2-production-update」を使う)
+    【初回昇格 1/2】member-gateway(昇格先にまだ無いときだけ。既にあれば「2-staging-update」「3-production-update」を使う)
 
-    envs/dev/apps/member-gateway を envs/production/apps/member-gateway へコピーするブランチを作る(コミットはしない)。
+    昇格元(staging ならdev、production ならstaging)の member-gateway を昇格先へコピーするブランチを作る(コミットはしない)。
     出力に表示されるkubesealコマンド(PATを扱うためジョブ化しない)を踏み台端末で人が実行し、
-    envs/production/secrets/member-gateway.yaml を作ってから「4-first-promote-finish」を実行する。
+    envs/<env>/secrets/member-gateway.yaml を作ってから「5-first-promote-finish」を同じ env で実行する。
 
     **finishまでの間、クローンは未コミットのまま残る**。他のジョブは「mainを最新化」で止まる。
   loglevel: INFO
@@ -804,7 +1056,16 @@
   nodefilters:
     filter: 'tags: rancher'
   nodesSelectedByDefault: true
-  options: []
+  options:
+  - name: env
+    description: '初回昇格する先(staging: dev→staging / production: staging→production。必ずstagingが先)'
+    required: true
+    value: staging
+    values:
+    - staging
+    - production
+    valuesListDelimiter: ','
+    enforced: true
   sequence:
     keepgoing: false
     strategy: node-first
@@ -825,21 +1086,22 @@
         git pull -q --ff-only origin main
         echo "main: $(git log -1 --format='%h %s')"
       scriptInterpreter: /bin/bash
-    - description: productionへのコピー(コミットしない)
+    - description: 昇格先へのコピー(コミットしない)
       script: |
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
-        scripts/update-app-image.sh promote-production member-gateway
+        scripts/update-app-image.sh promote-@option.env@ member-gateway
       scriptInterpreter: /bin/bash
-- name: 4-first-promote-finish
+- name: 5-first-promote-finish
   group: member-gateway
-  uuid: c5df3396-5672-598b-848d-140cc8e0b4e8
+  uuid: b361a10d-5832-5ab8-b842-784d4e1e5fad
   description: |
-    【本番への初回昇格 2/2】member-gateway
+    【初回昇格 2/2】member-gateway
 
-    kubesealでSealedSecretを作った後に実行。コミット・PR作成まで行う。
-    マージはレビューのうえ人が行い、マージ後に「9-check」(env=production)で確認する。
+    kubesealでSealedSecretを作った後に、prepareと同じ env で実行。コミット・PR作成まで行う。
+    stagingはauto-mergeしてstagingの確認まで続ける。productionのPRはレビューのうえ人がマージし、
+    マージ後に「9-check」(env=production)で確認する。
   loglevel: INFO
   executionEnabled: true
   scheduleEnabled: true
@@ -848,7 +1110,16 @@
   nodefilters:
     filter: 'tags: rancher'
   nodesSelectedByDefault: true
-  options: []
+  options:
+  - name: env
+    description: '初回昇格する先(staging: dev→staging / production: staging→production。必ずstagingが先)'
+    required: true
+    value: staging
+    values:
+    - staging
+    - production
+    valuesListDelimiter: ','
+    enforced: true
   sequence:
     keepgoing: false
     strategy: node-first
@@ -858,7 +1129,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
-        scripts/update-app-image.sh promote-production-finish member-gateway
+        scripts/update-app-image.sh promote-@option.env@-finish member-gateway
       scriptInterpreter: /bin/bash
 - name: 9-check
   group: member-gateway
@@ -880,6 +1151,7 @@
     value: dev
     values:
     - dev
+    - staging
     - production
     valuesListDelimiter: ','
     enforced: true
@@ -904,7 +1176,7 @@
     イメージPR → auto-merge → ビルド完了待ち → devのdeployment.yamlを更新するPR → auto-merge →
     devのrollout・WEB疎通確認、までを1回で行う(devだけのPRなので承認なしでマージされる)。
 
-    devでブラウザ確認したら「2-production-update」で本番へ。
+    devでブラウザ確認したら「2-staging-update」でstagingへ。
   loglevel: INFO
   executionEnabled: true
   scheduleEnabled: true
@@ -947,20 +1219,68 @@
         export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh dev-update metadatabase-v2 '@option.src_ref@' '@option.tag@'
       scriptInterpreter: /bin/bash
-- name: 2-production-update
+- name: 2-staging-update
   group: metadatabase-v2
-  uuid: 7db6ab41-f5d4-5f25-b492-e9b25f030583
+  uuid: 85ad5ad9-3979-5660-9e37-d7f3da0e760b
+  description: |
+    【staging更新パイプライン】metadatabase-v2
+
+    envs/staging/apps/metadatabase-v2 を dev と同じ内容にする昇格PRを promote ワークフロー(to=staging)で作り、
+    auto-mergeを待って(stagingだけのPRなので承認不要)、stagingのrollout・WEB疎通を確認する。
+    devとstagingに差分が無ければPRは作らず、確認だけ行う。
+
+    stagingでブラウザ確認したら「3-production-update」で本番へ。本番へは必ずstagingを通す。
+    stagingにまだ無いアプリはエラーになる(初回は「4-first-promote-prepare」を env=staging で)。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 1h
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options: []
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: staging昇格PR作成 → auto-merge → stagingの確認
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        scripts/update-app-image.sh staging-update metadatabase-v2
+      scriptInterpreter: /bin/bash
+- name: 3-production-update
+  group: metadatabase-v2
+  uuid: 08097239-c3d2-5742-824e-02767527a10d
   description: |
     【本番環境更新パイプライン】metadatabase-v2
 
-    envs/production/apps/metadatabase-v2 を dev と同じ内容にする昇格PRを promote ワークフローで作り、
+    envs/production/apps/metadatabase-v2 を staging と同じ内容にする昇格PRを promote ワークフロー(to=production)で作り、
     **人がPRをレビュー・マージするのを待つ(このジョブはマージしない)**。マージされたら
     mainを取り込み、Fleetの適用を待って本番のrollout・WEB疎通を確認する。
-    devと本番に差分が無ければPRは作らず、確認だけ行う。
+    stagingと本番に差分が無ければPRは作らず、確認だけ行う。
 
-    PRのdiffはイメージタグに限らずdevに入っている変更すべて。内容を見てからマージすること。
+    PRのdiffはイメージタグに限らずstagingに入っている変更すべて。内容を見てからマージすること。
     マージ待ちの間、クローンのロックは手放すので他のジョブは動ける。
-    本番にまだ無いアプリはエラーになる(初回は「3-first-promote-prepare」)。
+    本番にまだ無いアプリはエラーになる(初回は「4-first-promote-prepare」を env=production で)。
   loglevel: INFO
   executionEnabled: true
   scheduleEnabled: true
@@ -1008,15 +1328,15 @@
         export PIPELINE_ACTOR='@job.username@'
         MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/update-app-image.sh release-production metadatabase-v2
       scriptInterpreter: /bin/bash
-- name: 3-first-promote-prepare
+- name: 4-first-promote-prepare
   group: metadatabase-v2
-  uuid: 6ead2b26-d954-518a-8e2b-2f587efaa25a
+  uuid: 753562b5-5680-5ac3-a19f-785807ffbc06
   description: |
-    【本番への初回昇格 1/2】metadatabase-v2(本番にまだ無いときだけ。既にあれば「2-production-update」を使う)
+    【初回昇格 1/2】metadatabase-v2(昇格先にまだ無いときだけ。既にあれば「2-staging-update」「3-production-update」を使う)
 
-    envs/dev/apps/metadatabase-v2 を envs/production/apps/metadatabase-v2 へコピーするブランチを作る(コミットはしない)。
+    昇格元(staging ならdev、production ならstaging)の metadatabase-v2 を昇格先へコピーするブランチを作る(コミットはしない)。
     出力に表示されるkubesealコマンド(PATを扱うためジョブ化しない)を踏み台端末で人が実行し、
-    envs/production/secrets/metadatabase-v2.yaml を作ってから「4-first-promote-finish」を実行する。
+    envs/<env>/secrets/metadatabase-v2.yaml を作ってから「5-first-promote-finish」を同じ env で実行する。
 
     **finishまでの間、クローンは未コミットのまま残る**。他のジョブは「mainを最新化」で止まる。
   loglevel: INFO
@@ -1027,7 +1347,16 @@
   nodefilters:
     filter: 'tags: rancher'
   nodesSelectedByDefault: true
-  options: []
+  options:
+  - name: env
+    description: '初回昇格する先(staging: dev→staging / production: staging→production。必ずstagingが先)'
+    required: true
+    value: staging
+    values:
+    - staging
+    - production
+    valuesListDelimiter: ','
+    enforced: true
   sequence:
     keepgoing: false
     strategy: node-first
@@ -1048,21 +1377,22 @@
         git pull -q --ff-only origin main
         echo "main: $(git log -1 --format='%h %s')"
       scriptInterpreter: /bin/bash
-    - description: productionへのコピー(コミットしない)
+    - description: 昇格先へのコピー(コミットしない)
       script: |
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
-        scripts/update-app-image.sh promote-production metadatabase-v2
+        scripts/update-app-image.sh promote-@option.env@ metadatabase-v2
       scriptInterpreter: /bin/bash
-- name: 4-first-promote-finish
+- name: 5-first-promote-finish
   group: metadatabase-v2
-  uuid: 0cc2bde5-a26b-51b6-8113-a2b7d62d3d23
+  uuid: 3427e833-4ed0-564f-aaf0-9e6d99fe92cf
   description: |
-    【本番への初回昇格 2/2】metadatabase-v2
+    【初回昇格 2/2】metadatabase-v2
 
-    kubesealでSealedSecretを作った後に実行。コミット・PR作成まで行う。
-    マージはレビューのうえ人が行い、マージ後に「9-check」(env=production)で確認する。
+    kubesealでSealedSecretを作った後に、prepareと同じ env で実行。コミット・PR作成まで行う。
+    stagingはauto-mergeしてstagingの確認まで続ける。productionのPRはレビューのうえ人がマージし、
+    マージ後に「9-check」(env=production)で確認する。
   loglevel: INFO
   executionEnabled: true
   scheduleEnabled: true
@@ -1071,7 +1401,16 @@
   nodefilters:
     filter: 'tags: rancher'
   nodesSelectedByDefault: true
-  options: []
+  options:
+  - name: env
+    description: '初回昇格する先(staging: dev→staging / production: staging→production。必ずstagingが先)'
+    required: true
+    value: staging
+    values:
+    - staging
+    - production
+    valuesListDelimiter: ','
+    enforced: true
   sequence:
     keepgoing: false
     strategy: node-first
@@ -1081,7 +1420,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
-        scripts/update-app-image.sh promote-production-finish metadatabase-v2
+        scripts/update-app-image.sh promote-@option.env@-finish metadatabase-v2
       scriptInterpreter: /bin/bash
 - name: 9-check
   group: metadatabase-v2
@@ -1103,6 +1442,7 @@
     value: dev
     values:
     - dev
+    - staging
     - production
     valuesListDelimiter: ','
     enforced: true
@@ -1127,7 +1467,7 @@
     イメージPR → auto-merge → ビルド完了待ち → devのdeployment.yamlを更新するPR → auto-merge →
     devのrollout・WEB疎通確認、までを1回で行う(devだけのPRなので承認なしでマージされる)。
 
-    devでブラウザ確認したら「2-production-update」で本番へ。
+    devでブラウザ確認したら「2-staging-update」でstagingへ。
   loglevel: INFO
   executionEnabled: true
   scheduleEnabled: true
@@ -1170,20 +1510,68 @@
         export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh dev-update riken-diips '@option.src_ref@' '@option.tag@'
       scriptInterpreter: /bin/bash
-- name: 2-production-update
+- name: 2-staging-update
   group: riken-diips
-  uuid: 938bf6f9-28c6-569a-9a22-608153efd71b
+  uuid: 63489e66-0b52-5bb3-9bc2-9b2ba2c1201a
+  description: |
+    【staging更新パイプライン】riken-diips
+
+    envs/staging/apps/riken-diips を dev と同じ内容にする昇格PRを promote ワークフロー(to=staging)で作り、
+    auto-mergeを待って(stagingだけのPRなので承認不要)、stagingのrollout・WEB疎通を確認する。
+    devとstagingに差分が無ければPRは作らず、確認だけ行う。
+
+    stagingでブラウザ確認したら「3-production-update」で本番へ。本番へは必ずstagingを通す。
+    stagingにまだ無いアプリはエラーになる(初回は「4-first-promote-prepare」を env=staging で)。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 1h
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options: []
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: staging昇格PR作成 → auto-merge → stagingの確認
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        scripts/update-app-image.sh staging-update riken-diips
+      scriptInterpreter: /bin/bash
+- name: 3-production-update
+  group: riken-diips
+  uuid: c83be125-55c1-5019-b7ff-5caac2194080
   description: |
     【本番環境更新パイプライン】riken-diips
 
-    envs/production/apps/riken-diips を dev と同じ内容にする昇格PRを promote ワークフローで作り、
+    envs/production/apps/riken-diips を staging と同じ内容にする昇格PRを promote ワークフロー(to=production)で作り、
     **人がPRをレビュー・マージするのを待つ(このジョブはマージしない)**。マージされたら
     mainを取り込み、Fleetの適用を待って本番のrollout・WEB疎通を確認する。
-    devと本番に差分が無ければPRは作らず、確認だけ行う。
+    stagingと本番に差分が無ければPRは作らず、確認だけ行う。
 
-    PRのdiffはイメージタグに限らずdevに入っている変更すべて。内容を見てからマージすること。
+    PRのdiffはイメージタグに限らずstagingに入っている変更すべて。内容を見てからマージすること。
     マージ待ちの間、クローンのロックは手放すので他のジョブは動ける。
-    本番にまだ無いアプリはエラーになる(初回は「3-first-promote-prepare」)。
+    本番にまだ無いアプリはエラーになる(初回は「4-first-promote-prepare」を env=production で)。
   loglevel: INFO
   executionEnabled: true
   scheduleEnabled: true
@@ -1231,15 +1619,15 @@
         export PIPELINE_ACTOR='@job.username@'
         MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/update-app-image.sh release-production riken-diips
       scriptInterpreter: /bin/bash
-- name: 3-first-promote-prepare
+- name: 4-first-promote-prepare
   group: riken-diips
-  uuid: f2d89229-9574-5420-a34f-1989c7ee4a8b
+  uuid: 9a4ce9fd-2342-5bb0-893d-bf1ed6d55a6b
   description: |
-    【本番への初回昇格 1/2】riken-diips(本番にまだ無いときだけ。既にあれば「2-production-update」を使う)
+    【初回昇格 1/2】riken-diips(昇格先にまだ無いときだけ。既にあれば「2-staging-update」「3-production-update」を使う)
 
-    envs/dev/apps/riken-diips を envs/production/apps/riken-diips へコピーするブランチを作る(コミットはしない)。
+    昇格元(staging ならdev、production ならstaging)の riken-diips を昇格先へコピーするブランチを作る(コミットはしない)。
     出力に表示されるkubesealコマンド(PATを扱うためジョブ化しない)を踏み台端末で人が実行し、
-    envs/production/secrets/riken-diips.yaml を作ってから「4-first-promote-finish」を実行する。
+    envs/<env>/secrets/riken-diips.yaml を作ってから「5-first-promote-finish」を同じ env で実行する。
 
     **finishまでの間、クローンは未コミットのまま残る**。他のジョブは「mainを最新化」で止まる。
   loglevel: INFO
@@ -1250,7 +1638,16 @@
   nodefilters:
     filter: 'tags: rancher'
   nodesSelectedByDefault: true
-  options: []
+  options:
+  - name: env
+    description: '初回昇格する先(staging: dev→staging / production: staging→production。必ずstagingが先)'
+    required: true
+    value: staging
+    values:
+    - staging
+    - production
+    valuesListDelimiter: ','
+    enforced: true
   sequence:
     keepgoing: false
     strategy: node-first
@@ -1271,21 +1668,22 @@
         git pull -q --ff-only origin main
         echo "main: $(git log -1 --format='%h %s')"
       scriptInterpreter: /bin/bash
-    - description: productionへのコピー(コミットしない)
+    - description: 昇格先へのコピー(コミットしない)
       script: |
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
-        scripts/update-app-image.sh promote-production riken-diips
+        scripts/update-app-image.sh promote-@option.env@ riken-diips
       scriptInterpreter: /bin/bash
-- name: 4-first-promote-finish
+- name: 5-first-promote-finish
   group: riken-diips
-  uuid: 81af824e-fd2a-562c-bb57-4b7d8a63de2e
+  uuid: 783588ad-1784-5341-bb67-caa56f576950
   description: |
-    【本番への初回昇格 2/2】riken-diips
+    【初回昇格 2/2】riken-diips
 
-    kubesealでSealedSecretを作った後に実行。コミット・PR作成まで行う。
-    マージはレビューのうえ人が行い、マージ後に「9-check」(env=production)で確認する。
+    kubesealでSealedSecretを作った後に、prepareと同じ env で実行。コミット・PR作成まで行う。
+    stagingはauto-mergeしてstagingの確認まで続ける。productionのPRはレビューのうえ人がマージし、
+    マージ後に「9-check」(env=production)で確認する。
   loglevel: INFO
   executionEnabled: true
   scheduleEnabled: true
@@ -1294,7 +1692,16 @@
   nodefilters:
     filter: 'tags: rancher'
   nodesSelectedByDefault: true
-  options: []
+  options:
+  - name: env
+    description: '初回昇格する先(staging: dev→staging / production: staging→production。必ずstagingが先)'
+    required: true
+    value: staging
+    values:
+    - staging
+    - production
+    valuesListDelimiter: ','
+    enforced: true
   sequence:
     keepgoing: false
     strategy: node-first
@@ -1304,7 +1711,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
-        scripts/update-app-image.sh promote-production-finish riken-diips
+        scripts/update-app-image.sh promote-@option.env@-finish riken-diips
       scriptInterpreter: /bin/bash
 - name: 9-check
   group: riken-diips
@@ -1326,6 +1733,7 @@
     value: dev
     values:
     - dev
+    - staging
     - production
     valuesListDelimiter: ','
     enforced: true
@@ -1350,7 +1758,7 @@
     イメージPR → auto-merge → ビルド完了待ち → devのdeployment.yamlを更新するPR → auto-merge →
     devのrollout・WEB疎通確認、までを1回で行う(devだけのPRなので承認なしでマージされる)。
 
-    devでブラウザ確認したら「2-production-update」で本番へ。
+    devでブラウザ確認したら「2-staging-update」でstagingへ。
   loglevel: INFO
   executionEnabled: true
   scheduleEnabled: true
@@ -1393,20 +1801,68 @@
         export PIPELINE_ACTOR='@job.username@'
         scripts/update-app-image.sh dev-update sparqlist '@option.src_ref@' '@option.tag@'
       scriptInterpreter: /bin/bash
-- name: 2-production-update
+- name: 2-staging-update
   group: sparqlist
-  uuid: e2340c99-5ea2-559b-9544-6aadba3e09b6
+  uuid: 5dbc439b-692a-5283-a546-f4a63b382c2a
+  description: |
+    【staging更新パイプライン】sparqlist
+
+    envs/staging/apps/sparqlist を dev と同じ内容にする昇格PRを promote ワークフロー(to=staging)で作り、
+    auto-mergeを待って(stagingだけのPRなので承認不要)、stagingのrollout・WEB疎通を確認する。
+    devとstagingに差分が無ければPRは作らず、確認だけ行う。
+
+    stagingでブラウザ確認したら「3-production-update」で本番へ。本番へは必ずstagingを通す。
+    stagingにまだ無いアプリはエラーになる(初回は「4-first-promote-prepare」を env=staging で)。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 1h
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options: []
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: staging昇格PR作成 → auto-merge → stagingの確認
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        scripts/update-app-image.sh staging-update sparqlist
+      scriptInterpreter: /bin/bash
+- name: 3-production-update
+  group: sparqlist
+  uuid: a6059965-59bb-5f9e-bba4-75fb9c2e3b35
   description: |
     【本番環境更新パイプライン】sparqlist
 
-    envs/production/apps/sparqlist を dev と同じ内容にする昇格PRを promote ワークフローで作り、
+    envs/production/apps/sparqlist を staging と同じ内容にする昇格PRを promote ワークフロー(to=production)で作り、
     **人がPRをレビュー・マージするのを待つ(このジョブはマージしない)**。マージされたら
     mainを取り込み、Fleetの適用を待って本番のrollout・WEB疎通を確認する。
-    devと本番に差分が無ければPRは作らず、確認だけ行う。
+    stagingと本番に差分が無ければPRは作らず、確認だけ行う。
 
-    PRのdiffはイメージタグに限らずdevに入っている変更すべて。内容を見てからマージすること。
+    PRのdiffはイメージタグに限らずstagingに入っている変更すべて。内容を見てからマージすること。
     マージ待ちの間、クローンのロックは手放すので他のジョブは動ける。
-    本番にまだ無いアプリはエラーになる(初回は「3-first-promote-prepare」)。
+    本番にまだ無いアプリはエラーになる(初回は「4-first-promote-prepare」を env=production で)。
   loglevel: INFO
   executionEnabled: true
   scheduleEnabled: true
@@ -1454,15 +1910,15 @@
         export PIPELINE_ACTOR='@job.username@'
         MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/update-app-image.sh release-production sparqlist
       scriptInterpreter: /bin/bash
-- name: 3-first-promote-prepare
+- name: 4-first-promote-prepare
   group: sparqlist
-  uuid: 6a7e16a2-385e-5562-beca-b4a652768b1e
+  uuid: d9fc24c5-f5c1-59d8-a2d2-f27f16209cad
   description: |
-    【本番への初回昇格 1/2】sparqlist(本番にまだ無いときだけ。既にあれば「2-production-update」を使う)
+    【初回昇格 1/2】sparqlist(昇格先にまだ無いときだけ。既にあれば「2-staging-update」「3-production-update」を使う)
 
-    envs/dev/apps/sparqlist を envs/production/apps/sparqlist へコピーするブランチを作る(コミットはしない)。
+    昇格元(staging ならdev、production ならstaging)の sparqlist を昇格先へコピーするブランチを作る(コミットはしない)。
     出力に表示されるkubesealコマンド(PATを扱うためジョブ化しない)を踏み台端末で人が実行し、
-    envs/production/secrets/sparqlist.yaml を作ってから「4-first-promote-finish」を実行する。
+    envs/<env>/secrets/sparqlist.yaml を作ってから「5-first-promote-finish」を同じ env で実行する。
 
     **finishまでの間、クローンは未コミットのまま残る**。他のジョブは「mainを最新化」で止まる。
   loglevel: INFO
@@ -1473,7 +1929,16 @@
   nodefilters:
     filter: 'tags: rancher'
   nodesSelectedByDefault: true
-  options: []
+  options:
+  - name: env
+    description: '初回昇格する先(staging: dev→staging / production: staging→production。必ずstagingが先)'
+    required: true
+    value: staging
+    values:
+    - staging
+    - production
+    valuesListDelimiter: ','
+    enforced: true
   sequence:
     keepgoing: false
     strategy: node-first
@@ -1494,21 +1959,22 @@
         git pull -q --ff-only origin main
         echo "main: $(git log -1 --format='%h %s')"
       scriptInterpreter: /bin/bash
-    - description: productionへのコピー(コミットしない)
+    - description: 昇格先へのコピー(コミットしない)
       script: |
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
-        scripts/update-app-image.sh promote-production sparqlist
+        scripts/update-app-image.sh promote-@option.env@ sparqlist
       scriptInterpreter: /bin/bash
-- name: 4-first-promote-finish
+- name: 5-first-promote-finish
   group: sparqlist
-  uuid: 95cfcd1b-9d38-5745-bcfd-997900c3a6f5
+  uuid: 300268b0-0c49-5da0-b4e4-0720ff9c01cf
   description: |
-    【本番への初回昇格 2/2】sparqlist
+    【初回昇格 2/2】sparqlist
 
-    kubesealでSealedSecretを作った後に実行。コミット・PR作成まで行う。
-    マージはレビューのうえ人が行い、マージ後に「9-check」(env=production)で確認する。
+    kubesealでSealedSecretを作った後に、prepareと同じ env で実行。コミット・PR作成まで行う。
+    stagingはauto-mergeしてstagingの確認まで続ける。productionのPRはレビューのうえ人がマージし、
+    マージ後に「9-check」(env=production)で確認する。
   loglevel: INFO
   executionEnabled: true
   scheduleEnabled: true
@@ -1517,7 +1983,16 @@
   nodefilters:
     filter: 'tags: rancher'
   nodesSelectedByDefault: true
-  options: []
+  options:
+  - name: env
+    description: '初回昇格する先(staging: dev→staging / production: staging→production。必ずstagingが先)'
+    required: true
+    value: staging
+    values:
+    - staging
+    - production
+    valuesListDelimiter: ','
+    enforced: true
   sequence:
     keepgoing: false
     strategy: node-first
@@ -1527,7 +2002,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
-        scripts/update-app-image.sh promote-production-finish sparqlist
+        scripts/update-app-image.sh promote-@option.env@-finish sparqlist
       scriptInterpreter: /bin/bash
 - name: 9-check
   group: sparqlist
@@ -1549,6 +2024,7 @@
     value: dev
     values:
     - dev
+    - staging
     - production
     valuesListDelimiter: ','
     enforced: true

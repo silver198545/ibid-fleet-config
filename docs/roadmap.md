@@ -361,7 +361,7 @@
 - **クラスタ定義のGitOps化**(Rancher provisioning-v2)— 誤マージの影響半径が
   大きいため2クラスタ規模では見送り中。
 - **DB層の冗長化**(mariadb-galera等)— 現在は単体MariaDB。可用性要件が上がったら。
-- **昇格の自動化深化**(dev→productionのPR自動生成、Kargo再評価)— 昇格頻度が
+- **昇格の自動化深化**(昇格PRの自動生成、Kargo再評価)— 昇格頻度が
   上がって手動dispatchが煩雑になったら。
 - **Bitnamiチャート依存からの脱却** — イメージはBitnami公式の`latest`をdigest固定、
   チャートもbitnami/wordpress依存。提供形態が再度変わった場合は公式イメージ+

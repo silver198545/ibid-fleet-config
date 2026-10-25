@@ -206,20 +206,35 @@ def app_jobs(app, has_data):
 イメージPR → auto-merge → ビルド完了待ち → devのdeployment.yamlを更新するPR → auto-merge →
 devのrollout・WEB疎通確認、までを1回で行う(devだけのPRなので承認なしでマージされる)。
 
-devでブラウザ確認したら「2-production-update」で本番へ。
+devでブラウザ確認したら「2-staging-update」でstagingへ。
 """, dev_options, dev_steps, "90m"))
 
-    jobs.append(job(group, "2-production-update", f"""
+    jobs.append(job(group, "2-staging-update", f"""
+【staging更新パイプライン】{app}
+
+envs/staging/apps/{app} を dev と同じ内容にする昇格PRを promote ワークフロー(to=staging)で作り、
+auto-mergeを待って(stagingだけのPRなので承認不要)、stagingのrollout・WEB疎通を確認する。
+devとstagingに差分が無ければPRは作らず、確認だけ行う。
+
+stagingでブラウザ確認したら「3-production-update」で本番へ。本番へは必ずstagingを通す。
+stagingにまだ無いアプリはエラーになる(初回は「4-first-promote-prepare」を env=staging で)。
+""", [], [
+        SYNC_MAIN,
+        step("staging昇格PR作成 → auto-merge → stagingの確認",
+             "scripts/update-app-image.sh staging-update " + app),
+    ], "1h"))
+
+    jobs.append(job(group, "3-production-update", f"""
 【本番環境更新パイプライン】{app}
 
-envs/production/apps/{app} を dev と同じ内容にする昇格PRを promote ワークフローで作り、
+envs/production/apps/{app} を staging と同じ内容にする昇格PRを promote ワークフロー(to=production)で作り、
 **人がPRをレビュー・マージするのを待つ(このジョブはマージしない)**。マージされたら
 mainを取り込み、Fleetの適用を待って本番のrollout・WEB疎通を確認する。
-devと本番に差分が無ければPRは作らず、確認だけ行う。
+stagingと本番に差分が無ければPRは作らず、確認だけ行う。
 
-PRのdiffはイメージタグに限らずdevに入っている変更すべて。内容を見てからマージすること。
+PRのdiffはイメージタグに限らずstagingに入っている変更すべて。内容を見てからマージすること。
 マージ待ちの間、クローンのロックは手放すので他のジョブは動ける。
-本番にまだ無いアプリはエラーになる(初回は「3-first-promote-prepare」)。
+本番にまだ無いアプリはエラーになる(初回は「4-first-promote-prepare」を env=production で)。
 """, [merge_wait_opt()], [
         SYNC_MAIN,
         step("昇格PR作成 → 人のマージ待ち → 本番の確認",
@@ -227,33 +242,36 @@ PRのdiffはイメージタグに限らずdevに入っている変更すべて�
              "scripts/update-app-image.sh release-production " + app),
     ], "10h"))
 
-    jobs.append(job(group, "3-first-promote-prepare", f"""
-【本番への初回昇格 1/2】{app}(本番にまだ無いときだけ。既にあれば「2-production-update」を使う)
+    env_opt = opt("env", "初回昇格する先(staging: dev→staging / production: staging→production。必ずstagingが先)",
+                  value="staging", values=["staging", "production"], required=True, enforced=True)
+    jobs.append(job(group, "4-first-promote-prepare", f"""
+【初回昇格 1/2】{app}(昇格先にまだ無いときだけ。既にあれば「2-staging-update」「3-production-update」を使う)
 
-envs/dev/apps/{app} を envs/production/apps/{app} へコピーするブランチを作る(コミットはしない)。
+昇格元(staging ならdev、production ならstaging)の {app} を昇格先へコピーするブランチを作る(コミットはしない)。
 出力に表示されるkubesealコマンド(PATを扱うためジョブ化しない)を踏み台端末で人が実行し、
-envs/production/secrets/{app}.yaml を作ってから「4-first-promote-finish」を実行する。
+envs/<env>/secrets/{app}.yaml を作ってから「5-first-promote-finish」を同じ env で実行する。
 
 **finishまでの間、クローンは未コミットのまま残る**。他のジョブは「mainを最新化」で止まる。
-""", [], [
+""", [env_opt], [
         SYNC_MAIN,
-        step("productionへのコピー(コミットしない)",
-             "scripts/update-app-image.sh promote-production " + app),
+        step("昇格先へのコピー(コミットしない)",
+             "scripts/update-app-image.sh promote-@option.env@ " + app),
     ], "30m"))
 
-    jobs.append(job(group, "4-first-promote-finish", f"""
-【本番への初回昇格 2/2】{app}
+    jobs.append(job(group, "5-first-promote-finish", f"""
+【初回昇格 2/2】{app}
 
-kubesealでSealedSecretを作った後に実行。コミット・PR作成まで行う。
-マージはレビューのうえ人が行い、マージ後に「9-check」(env=production)で確認する。
-""", [], [
+kubesealでSealedSecretを作った後に、prepareと同じ env で実行。コミット・PR作成まで行う。
+stagingはauto-mergeしてstagingの確認まで続ける。productionのPRはレビューのうえ人がマージし、
+マージ後に「9-check」(env=production)で確認する。
+""", [env_opt], [
         step("コミット・PR作成",
-             "scripts/update-app-image.sh promote-production-finish " + app),
+             "scripts/update-app-image.sh promote-@option.env@-finish " + app),
     ], "30m"))
 
     jobs.append(job(group, "9-check", f"""
 {app} のrollout状況とWEB疎通(readinessProbeのpathで200か)を確認する(読み取りのみ)。
-""", [opt("env", "確認する環境", value="dev", values=["dev", "production"], required=True, enforced=True)], [
+""", [opt("env", "確認する環境", value="dev", values=["dev", "staging", "production"], required=True, enforced=True)], [
         step("確認", "scripts/update-app-image.sh check-@option.env@ " + app),
     ], "10m"))
     return jobs

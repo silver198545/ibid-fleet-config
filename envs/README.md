@@ -29,13 +29,13 @@ stagingのinfraは軽量版で、Longhorn(`longhorn*`)を置かない。staging�
 
 ## 運用ルール
 
-- **変更は必ずdevから入れ、productionへ昇格させる。** 昇格の経路は種類ごとに決まっている:
+- **変更は必ずdevから入れ、staging → productionへ昇格させる**(本番への昇格元はstaging)。昇格の経路は種類ごとに決まっている:
 
   | 対象 | 昇格の方法 |
   |---|---|
-  | `sites/` | `promote`ワークフロー(手動起動)が作るPR |
-  | `apps/` | `scripts/update-app-image.sh deploy-production`(Rundeckからも可)が作るPR |
-  | `infra/` | 手動のPR(SealedSecretは環境ごとに封印し直す) |
+  | `sites/` | `scripts/wordpress-pipeline.sh`(staging-start/upgrade → promote-production → staging-cleanup。Rundeckからも可)。中身は`promote`ワークフローが作るPR |
+  | `apps/` | `scripts/update-app-image.sh deploy-staging` → `deploy-production`(Rundeckからも可)。中身は`promote`ワークフローが作るPR。アプリはstagingに常駐 |
+  | `infra/` | 手動のPR(SealedSecretは環境ごとに封印し直す。stagingは軽量版) |
 
   `envs/production/` 配下の変更はCODEOWNERSにより承認必須。
 - `sites/`・`apps/` のバンドルは**全環境で同一内容**にし、環境ごとに変わる値は

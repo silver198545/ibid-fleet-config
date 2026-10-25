@@ -1,7 +1,7 @@
 # WordPress以外の自作アプリ追加手順
 
 このリポジトリは元々WordPressサイト専用のFleet構成だったが、同じクラスタ
-(dev→production)・同じ昇格運用に乗せたい自作アプリ(DBを持たない
+(dev→staging→production)・同じ昇格運用に乗せたい自作アプリ(DBを持たない
 ステートレスなフロントエンドなど)は `sites/` とは別に `apps/` 配下で管理する。
 `sites/<site>/` はBitnami WordPress前提(ラッパーチャート、3種のSecret、PVC、
 `keepResources` 等の注意点)を暗黙に含むため、性質の異なるアプリを混ぜると
@@ -43,29 +43,39 @@ DBなし。外部のSPARQLエンドポイントを参照するのみ)はriken-di
 
 ## 昇格(プロモーション)についての注意
 
-`apps/` のdev→production昇格も、サイトと同じ `.github/workflows/promote.yaml` で行う
-(2026-10-10から。`gh workflow run promote.yaml -f kind=apps -f name=<app>`、`name=all` で本番にある全アプリ)。
-`scripts/update-app-image.sh deploy-production <app>` はこのワークフローを起動してPRができるのを待つ
-(Rundeck(プロジェクト `Rancher-AppControll`)の `<app>/2-production-update` は、これに続けて人のマージを待ち本番の確認まで行う。[manual-rundeck.md](manual-rundeck.md))。
-**本番への初回昇格だけは** SealedSecretをkubesealで作る必要があるため、ワークフローでは行わず
-`update-app-image.sh promote-production` / `promote-production-finish` を使う(ワークフローは
-本番に無いアプリを指定するとエラーにして案内する)。
+`apps/` の昇格も、サイトと同じ `.github/workflows/promote.yaml` で行う(2026-10-10から)。
+**本番へは必ずstagingを通す**(2026-10-25〜): dev → staging(`to=staging`、auto-merge)→ production(`to=production`、
+人がマージ。昇格元はstaging)。WordPressサイトと違い、**自作アプリはstagingに常駐させる**
+(7アプリ合計で約0.9Giと軽く、Secretの封印にPATの入力が要るため、載せ降ろしはしない)。
 
-昇格は**ディレクトリの丸ごとコピー**(`envs/dev/apps/<app>` → `envs/production/apps/<app>`)。
-productionで変える値(ホスト名、レプリカ数、アフィニティ等)はdev側のディレクトリ内に
-`overlays/production/<マニフェスト名>_patch.yaml` として置き、`fleet.yaml` の
-`targetCustomizations` で `env: production` のクラスタにだけ適用させる
+- `scripts/update-app-image.sh deploy-staging <app>`: `gh workflow run promote.yaml -f kind=apps -f to=staging -f name=<app>` を起動し、
+  auto-mergeを待ってstagingの確認(`check-staging`)まで行う(Rundeckの `<app>/2-staging-update`)
+- `scripts/update-app-image.sh deploy-production <app>`: `-f to=production` で起動してPRができるのを待つ
+  (Rundeckの `<app>/3-production-update` は、これに続けて人のマージを待ち本番の確認まで行う。[manual-rundeck.md](manual-rundeck.md))
+- **各環境への初回昇格だけは** SealedSecretをkubesealで作る必要があるため、ワークフローでは行わず
+  `update-app-image.sh promote-staging` / `promote-staging-finish`、`promote-production` / `promote-production-finish`
+  を使う(ワークフローは昇格先に無いアプリを指定するとエラーにして案内する)
+
+昇格は**ディレクトリの丸ごとコピー**(`envs/dev/apps/<app>` → `envs/staging/apps/<app>` → `envs/production/apps/<app>`)。
+staging・productionで変える値(ホスト名、レプリカ数、アフィニティ等)はdev側のディレクトリ内に
+`overlays/<env>/<マニフェスト名>_patch.yaml` として置き、`fleet.yaml` の
+`targetCustomizations` でその `env` のクラスタにだけ適用させる
 (Fleetのyaml overlay機能。[operations-flow.md](operations-flow.md)「環境差分の書き方」)。
-そのためコピー後のホスト名書き換え等は不要で、`envs/dev/apps/<app>` と
-`envs/production/apps/<app>` は、昇格待ちの変更(イメージタグ等)を除き同じ内容になる。
+そのためコピー後のホスト名書き換え等は不要で、3環境の `apps/<app>` は、昇格待ちの変更(イメージタグ等)を除き同じ内容になる。
+stagingはproductionに近い設定にするが、レプリカは1、本番と共有するNFSは読み取り専用のまま、
+本番のデータや外部サービスへ書き込める設定は持ち込まない(metadatabase-v2はstagingでもdevの設定)。
 
 - **2回目以降(通常のイメージ更新)**: `set-image`(イメージPR→ビルド→`deploy-dev`→`check-dev`
-  まで自動で進む)→ devで動作確認 → `deploy-production`(productionをdevと同じ内容に同期するPR。イメージタグに限らず
-  devに入っている変更はすべて昇格対象になるので、PRのdiffを確認する)→ `check-production`
-- **初回昇格(新規アプリ)**: `promote-production` → SealedSecret作成 →
-  `promote-production-finish`。devのディレクトリに `overlays/production/` が無いと
+  まで自動で進む)→ devで動作確認 → `deploy-staging`(→`check-staging`まで自動)→ stagingで動作確認 →
+  `deploy-production`(productionをstagingと同じ内容に同期するPR。イメージタグに限らず
+  stagingに入っている変更はすべて昇格対象になるので、PRのdiffを確認する)→ `check-production`
+- **初回昇格(新規アプリ)**: `promote-staging` → SealedSecret作成(`--context staging1`)→ `promote-staging-finish`
+  (auto-merge・stagingの確認まで)→ stagingで確認 → `promote-production` → SealedSecret作成 →
+  `promote-production-finish`。昇格元のディレクトリに `overlays/<昇格先>/` が無いと
   エラーになる(下記「新しいアプリを追加する手順」5.)
-- **2026-10-08以前**(dev→staging→productionの3環境時代)は、昇格のたびにホスト名を
+- **既存アプリのstagingへの初回昇格(2026-10-25のstaging再導入時)**: 上の `promote-staging` / `promote-staging-finish` を
+  アプリごとに1回行う。それまでは `deploy-production` が「stagingにありません」で止まる
+- **2026-10-08以前**(前回の3環境時代)は、昇格のたびにホスト名を
   `ingress.yaml`内で書き換え、production固有のレプリカ数等をproduction側のファイルにだけ
   持たせていた。現在の方式に移行済み
 
@@ -125,16 +135,18 @@ productionで変える値(ホスト名、レプリカ数、アフィニティ等
      **全環境分**(dev1とprod1それぞれの鍵)を封印し直す。PATが使えるかは、値を表示せずに
      `curl -s -o /dev/null -w '%{http_code}' -u <ユーザー名>:<PAT> 'https://ghcr.io/token?scope=repository:<owner>/<app>:pull'`
      が200を返すかで確かめられる。
-5. productionへ出す前に、devのディレクトリに production 用の差分を用意してdevへマージする
-   (dev1では使われないので、devの動作には影響しない)。既存の
-   `envs/dev/apps/brc-advanced-search/` をひな形にする:
-   - `overlays/production/ingress_patch.yaml`: `spec.tls`/`spec.rules` を
-     `<app>.production.ibid.lan` で丸ごと書く(リストは置き換えになるため全体を書く)
-   - `overlays/production/deployment_patch.yaml`: `spec.replicas: 2` 等の冗長化設定
-   - `fleet.yaml` 末尾の `targetCustomizations`(`env: production` → `yaml.overlays: [production]`)
-6. dev確認後、上記「昇格についての注意」の初回昇格でproductionへ出す
+5. staging・productionへ出す前に、devのディレクトリに環境ごとの差分を用意してdevへマージする
+   (dev1では使われないので、devの動作には影響しない。validateが `overlays/staging|production/ingress_patch.yaml`
+   の有無とホスト名を確認する)。既存の `envs/dev/apps/brc-advanced-search/` をひな形にする:
+   - `overlays/<env>/ingress_patch.yaml`: `spec.tls`/`spec.rules` を
+     `<app>.staging.ibid.lan`・`<app>.production.ibid.lan` で丸ごと書く(リストは置き換えになるため全体を書く)
+   - `overlays/production/deployment_patch.yaml`: `spec.replicas: 2` 等の冗長化設定(stagingはレプリカ1のまま)
+   - 本番のデータや外部サービスへ書き込む設定は `overlays/staging/` に持ち込まない
+   - `fleet.yaml` 末尾の `targetCustomizations`(`env: staging` → `yaml.overlays: [staging]`、
+     `env: production` → `yaml.overlays: [production]`)
+6. dev確認後、上記「昇格についての注意」の初回昇格でstaging、続いてproductionへ出す
    (pull用SealedSecretは環境ごとに作り直しが必要。他環境のSealedSecretはコピーできない)。
-   DNSは環境ごとのワイルドカード(`*.production.ibid.lan`)なので、ホスト名の登録は不要
+   DNSは環境ごとのワイルドカード(`*.staging.ibid.lan`・`*.production.ibid.lan`)なので、ホスト名の登録は不要
    ([manual-cert-manager-freeipa-acme.md](manual-cert-manager-freeipa-acme.md)「サイトホスト名のDNS」)。
 
 ## 本番反映のサイクル
@@ -414,7 +426,9 @@ devとproductionで同じNFSディレクトリを共有しているためコピ�
 - 管理用SQLite(`metadatabase-v2-admin-data`、Longhorn RWO)と、既存NFS上の実データを
   直接指す静的PV/PVC(`pv-nfs-uploadrdf.yaml`・`pv-nfs-download.yaml`、`Retain`)を持つ。
   RWOのため`replicas: 1`・`strategy: Recreate`で運用する(productionも1レプリカ)。
-- **dev/productionの差分**(`overlays/production/`):
+- **dev/productionの差分**(`overlays/production/`)。**stagingはdevと同じ設定**(`overlays/staging/`はホスト名と、
+  Longhornの無いstaging向けに`admin-data`のPVCをharvester StorageClassに置き換えるだけ)。productionの設定にすると
+  本番のVirtuoso(ISQL)と本番のNFS(`uploadrdf/bioresource`)に書き込めてしまうため:
 
   | 項目 | dev | production |
   |---|---|---|
@@ -426,7 +440,7 @@ devとproductionで同じNFSディレクトリを共有しているためコピ�
 
   - Next.jsの`basePath`はビルド時に埋め込まれるため、`build-metadatabase-v2-image.yaml`が
     同じ`TAG`・`SRC_REF`から2つのイメージを公開する。`deploy-dev`は
-    `deployment.yaml`と`overlays/production/deployment_patch.yaml`の両方のタグを揃えて
+    `deployment.yaml`と、image行のある`overlays/<env>/deployment_patch.yaml`のタグを揃えて
     更新する(両者のタグがずれないよう、手で片方だけ直さないこと)。
   - アップロード先はVirtuosoのホストと同じ絶対パスで見える必要があるため、NFSの
     マウント先パスも環境ごとに変える。Deploymentのパッチは`$patch: replace`で
