@@ -1,0 +1,12 @@
+defaultNamespace: cattle-monitoring-system
+targetNamespace: cattle-monitoring-system
+
+# CRDを消すと全ServiceMonitor/PrometheusRule等が道連れ削除されるため、
+# infraバンドルの方針に合わせてバンドル削除時もリソースを残す。
+keepResources: true
+
+helm:
+  releaseName: rancher-monitoring-crd
+  chart: rancher-monitoring-crd
+  repo: https://charts.rancher.io
+  version: 109.0.3+up80.9.1-rancher.14
