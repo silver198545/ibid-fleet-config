@@ -2,10 +2,12 @@
 
 詳しい説明: [operations-flow.md](../operations-flow.md)、[manual-multi-env.md](../manual-multi-env.md) 4章
 
-更新は「devに入れる → devで確認 → 本番へ昇格」の順。devに入れるところは自動化されている。
+更新は「devに入れる → devで確認 → stagingで本番データを使って確認 → 本番へ昇格 → stagingから削除」の順。
+devに入れるところは自動化されている。本番へは必ずstagingを通す(stagingに同時に置けるのは4サイトまで)。
 
-Rundeck(プロジェクト `WordPressControl`)では、手順B(リハーサル)がジョブ `2-rehearsal`(終わったら `2b-rehearsal-cleanup`)、
-手順C(バックアップ → 昇格PR → 人がマージ → 本番の確認)が `3-production-promote` で1回ずつになる。
+Rundeck(プロジェクト `WordPressControl`)では、手順B(staging)がジョブ `2-staging`、
+手順C(バックアップ → 昇格PR → 人がマージ → 本番の確認)が `3-production-promote`、
+手順D(stagingから削除)が `4-staging-cleanup` で1回ずつになる。
 devのサイトに本番のコンテンツを入れ直したいときは `1-dev-refresh`([manual-rundeck.md](../manual-rundeck.md))。
 
 ## A. devへの反映(どれか)
@@ -27,7 +29,7 @@ git checkout main && git pull
 scripts/bump-chart.sh --update-images "feat: WordPress/MariaDBイメージを最新のdigestへ更新"
 ```
 
-PRの本文に「**メジャー更新**」「**メジャーリリース**」と出たら、本番の前に手順Bのリハーサルを行う。
+PRの本文に「**メジャー更新**」「**メジャーリリース**」と出たら、手順Bの確認を特に念入りに行う。
 
 ### プラグインだけを手で更新する
 
@@ -40,7 +42,7 @@ scripts/bump-plugins.sh            # 先に中身だけ見たいときは --dry-
 
 1. `envs/dev/sites/<site>/fleet.yaml` の `plugins:` に追加する(`name` と `version`)
 2. PRを作ってマージする(devに自動で入る)
-3. 削除は一覧から消すだけでは消えない。devと本番でそれぞれ手で消す:
+3. 削除は一覧から消すだけでは消えない。devと本番でそれぞれ手で消す(stagingは片付けで消えるので不要):
    ```bash
    kubectl --context <dev1|prod1> -n wordpress-<site> exec deploy/wordpress-<site> -c wordpress -- \
      sh -c 'cd /opt/bitnami/wordpress && wp plugin deactivate <name> && wp plugin delete <name>'
@@ -64,21 +66,32 @@ kubectl --context dev1 get pods -A | grep wordpress- | grep -v -E 'Running|Compl
 - 主なサイト(web・dna)の表示と管理画面をブラウザで見る
 - プラグインを更新したときは、そのプラグインを使っている画面も見る
 
-## B. 本番データリハーサル(メジャー更新のときだけ)
+## B. stagingで本番データを使って確認する
 
-WordPress本体のメジャーリリース(7.0→7.1 など)、MariaDBのメジャー更新、プラグインの大きな更新のときに行う。
-本番のコピーで更新を試す。手順: [operations-flow.md](../operations-flow.md)「本番データリハーサル」
-(一連の手順は `scripts/wordpress-pipeline.sh rehearsal-start <site>` → `rehearsal-upgrade <site>` →
-`rehearsal-cleanup <site>` でまとめて実行できる)
+本番へ出すサイトを本番と同じ構成でstagingに置き、本番データを入れてから、devの構成(昇格予定の変更)へ切り替えて
+基準と比べる。手順の説明: [operations-flow.md](../operations-flow.md)「stagingでの確認」
+
+```bash
+scripts/wordpress-pipeline.sh staging-start <site>     # stagingへ追加 → 本番データをリストア → 基準を記録
+scripts/wordpress-pipeline.sh staging-upgrade <site>   # devの構成へ切り替え → 基準と比較
+```
+
+- 出力の「HTTPステータスが変わったページ」「PHPエラー」を見て、stagingのサイト(`https://<site>.staging.ibid.lan/ja/`)を
+  ブラウザでも確認する。問題があればdevで直して `staging-upgrade` をやり直す
+- WordPress本体のメジャーリリース(7.0→7.1 など)、MariaDBのメジャー更新、プラグインの大きな更新のときは特に念入りに
+- 全サイトを更新するときは、4サイトずつ B → C → D を繰り返す
 
 ## C. 本番へ昇格する
 
+stagingに載っている内容を本番へ昇格する。
+
 1. 本番のバックアップを取る([README.md](README.md)「本番のバックアップ」)
-2. 昇格PRを作る:
+2. 昇格PRを作る(`all` はstagingに載っている、本番にある全サイト):
    ```bash
-   gh workflow run promote.yaml -f name=all
+   gh workflow run promote.yaml -f to=production -f name=all
    ```
-3. PRの差分が、devで確認した変更(`helm.version`、プラグインの `version`)だけであることを見てマージする
+   (1.〜5.は `scripts/wordpress-pipeline.sh promote-production <site...|all>` でまとめて実行できる)
+3. PRの差分が、stagingで確認した変更(`helm.version`、プラグインの `version`)だけであることを見てマージする
 4. 5〜10分後に本番を確認する:
    ```bash
    for f in envs/production/sites/*/fleet.yaml; do h=$(grep -oP 'hostname: \K[a-z0-9-]+' $f); p=$(grep -oP '^    sitePath: \K\S+' $f); printf '%-12s %s\n' $(basename $(dirname $f)) "$(curl -sk -o /dev/null -w '%{http_code}' https://$h.production.ibid.lan$p/)"; done
@@ -88,5 +101,13 @@ WordPress本体のメジャーリリース(7.0→7.1 など)、MariaDBのメジ�
    ```bash
    for s in $(ls envs/production/sites); do echo "$s $(kubectl --context prod1 -n wordpress-$s exec wordpress-$s-mariadb-0 -c mariadb -- cat /bitnami/mariadb/data/mariadb_upgrade_info)"; done
    ```
+
+## D. stagingから削除する
+
+本番へ昇格したら必ず削除する(本番データのコピーを残さない。staging1のメモリを空ける):
+
+```bash
+scripts/wordpress-pipeline.sh staging-cleanup <site>
+```
 
 問題があったら: [troubleshooting.md](troubleshooting.md)

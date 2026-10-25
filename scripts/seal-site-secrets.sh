@@ -19,13 +19,13 @@
 # 使い方:
 #   scripts/seal-site-secrets.sh <env> <site>
 #   例: scripts/seal-site-secrets.sh dev web
-#   環境→kubectlコンテキストの対応は既定(dev1/prod1)。
+#   環境→kubectlコンテキストの対応は既定(dev1/staging1/prod1)。
 #   異なる場合は KUBE_CONTEXT=<コンテキスト名> で上書きする。
 #   SEALED_SECRETS_CERT=<pemファイル> で、コントローラから証明書を取らずにそのファイルで封印する
 #   (kube-systemのServiceにアクセスできないオペレータ用。公開証明書なので秘密ではない。
 #   docs/manual-rundeck.md「WordPressのオペレータ」)。
 #   NAMESPACE_PROJECT_ID=<クラスタID>:<プロジェクトID> で、出力するNamespaceにRancherのプロジェクトの
-#   注釈を付ける(リハーサルサイトを元のサイトと同じプロジェクトに置き、オペレータが触れるようにする)。
+#   注釈を付ける(stagingに置くサイトをオペレータが触れるプロジェクトに置く。wordpress-pipeline.sh staging-start)。
 #   SEAL_HIDE_PASSWORDS=1 で、新規生成したパスワードを表示しない(Rundeck等ログが残る場所から
 #   実行するとき。値は復号後のSecretから kubectl get secret で読める)。
 set -euo pipefail
@@ -43,9 +43,10 @@ SITE="$2"
 
 case "$ENV_NAME" in
   dev) DEFAULT_CONTEXT="dev1" ;;
+  staging) DEFAULT_CONTEXT="staging1" ;;
   production) DEFAULT_CONTEXT="prod1" ;;
   *)
-    echo "エラー: envは dev / production のいずれかを指定してください: $ENV_NAME" >&2
+    echo "エラー: envは dev / staging / production のいずれかを指定してください: $ENV_NAME" >&2
     exit 1
     ;;
 esac

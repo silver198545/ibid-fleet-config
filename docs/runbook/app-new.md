@@ -23,10 +23,13 @@
 
 1. `envs/dev/apps/brc-advanced-search/` を `envs/dev/apps/<app>/` にコピーし、名前・イメージ・ポート・ヘルスチェックのパスを書き換える
    - namespace はアプリ名と同じにする
-   - ホスト名は `<app>.dev.ibid.lan`(本番の値は次の `overlays/production/` に書く)
-2. `overlays/production/` に本番だけの値を書く
-   - `ingress_patch.yaml`: ホスト名 `<app>.production.ibid.lan`(`tls` と `rules` を丸ごと書く)
-   - `deployment_patch.yaml`: `replicas: 2` など
+   - ホスト名は `<app>.dev.ibid.lan`(staging・本番の値は次の `overlays/<env>/` に書く)
+2. `overlays/staging/`・`overlays/production/` に環境ごとの値を書く(validateが両方の `ingress_patch.yaml` を確認する)
+   - `ingress_patch.yaml`: ホスト名 `<app>.staging.ibid.lan`・`<app>.production.ibid.lan`(`tls` と `rules` を丸ごと書く)
+   - `overlays/production/deployment_patch.yaml`: `replicas: 2` など。stagingはレプリカ1のまま
+   - 本番のデータや外部サービスへ書き込む設定は `overlays/staging/` に持ち込まない
+     ([operations-flow.md](../operations-flow.md)「環境差分の書き方」)
+   - `fleet.yaml` の `targetCustomizations` に `staging`・`production` の両方のエントリを書く
 3. イメージを非公開にする場合は、GHCRのpull用Secretを作る(`read:packages` だけのPATを使う):
    ```bash
    kubectl create secret docker-registry ghcr-<app> -n <app> \
@@ -62,7 +65,22 @@ git push -u origin HEAD && gh pr create --fill
   scripts/update-app-image.sh check-dev <app>
   ```
 
-## 4. 本番に出す(初回だけ専用の手順)
+## 4. stagingに出す(初回だけ専用の手順)
+
+```bash
+scripts/update-app-image.sh promote-staging <app>
+```
+
+表示された `kubeseal` のコマンド(staging用のSecret作成。`--context staging1`)を実行してから:
+
+```bash
+scripts/update-app-image.sh promote-staging-finish <app>
+```
+
+PRは自動でマージされ、stagingの確認まで進む。ブラウザで `https://<app>.staging.ibid.lan/` を見る。
+staging1でも、namespace `<app>` をプロジェクト `APPs` へ移す。
+
+## 5. 本番に出す(初回だけ専用の手順)
 
 ```bash
 scripts/update-app-image.sh promote-production <app>

@@ -5,7 +5,7 @@
 
 ## 0. 大前提: この基盤では「構成」と「コンテンツ」で管理経路が違う
 
-このリポジトリの設計上、**Gitで昇格(dev→production)できるのは構成のみ**
+このリポジトリの設計上、**Gitで昇格(dev→staging→production)できるのは構成のみ**
 (チャートバージョン、values、イメージdigest)。一方、記事・固定ページ・メディア・
 プラグイン・テーマは **DBとwp-content(永続ボリューム)上のデータ**であり、
 Gitの昇格フローには乗らない。環境間でデータを移すには
@@ -17,7 +17,7 @@ Gitの昇格フローには乗らない。環境間でデータを移すには
 | 層 | 具体例 | 実体 | 変更経路 |
 |---|---|---|---|
 | 基盤 | クラスタ、Longhorn、LB/IPPool、Secret | K8sリソース | Git(PR)+ 手動手順 |
-| アプリ構成 | WPコア/PHPバージョン、レプリカ数、ボリュームサイズ | イメージdigest・チャートvalues | Git(PR)→ dev→production 昇格 |
+| アプリ構成 | WPコア/PHPバージョン、レプリカ数、ボリュームサイズ | イメージdigest・チャートvalues | Git(PR)→ dev→staging→production 昇格 |
 | サイト構成 | プラグイン、テーマ | **wp-content上のデータ**(ただし実質コード) | wp-admin / wp-cli(環境ごとに同じ操作を繰り返す) |
 | コンテンツ | 記事、固定ページ、メディア、カテゴリ、WPユーザー | DB + wp-content/uploads | wp-admin(**本番に直接**) |
 
@@ -85,7 +85,7 @@ dev検証→本番適用する。セキュリティ緊急パッチのみ、ス�
 wp-admin上の「更新してください」通知からコアを更新しても、Pod再作成で消えるか
 書き込み失敗になる。**コア・PHPの更新は基盤チームが
 ラッパーチャート([values.yaml](../charts/ibid-wordpress/values.yaml))のdigest更新→チャート版数上げ→
-dev→production昇格で行う**([manual-multi-env.md](manual-multi-env.md) 4章)。
+dev→staging→production昇格で行う**([manual-multi-env.md](manual-multi-env.md) 4章)。
 サイトチームには「管理画面の更新ボタンは押さない」ことをルールとして明示する。
 
 ## 3. 権限設計: 何を渡し、何を渡さないか
@@ -140,7 +140,7 @@ dev→production昇格で行う**([manual-multi-env.md](manual-multi-env.md) 4�
 | 記事・固定ページ・メディアの追加/編集 | サイトチーム | wp-admin(下書き→レビュー→公開) | 本番直接 |
 | WPユーザーの発行・ロール変更 | 基盤チーム | wp-admin(Administrator) | 各環境 |
 | プラグイン/テーマの追加・更新 | サイトチーム申請 → 基盤チーム実施 | wp-admin / wp-cli | dev検証 → 本番(同一バージョンを手動で反映) |
-| WPコア・PHP更新 | 基盤チーム | Git(イメージdigest → チャート版数) | dev→production 昇格 |
+| WPコア・PHP更新 | 基盤チーム | Git(イメージdigest → チャート版数) | dev→staging→production 昇格 |
 | サイト設定(レプリカ数、ドメイン、SMTP等) | 基盤チーム | Git(fleet.yaml / チャートvalues) | 昇格 |
 | Secretローテーション | 基盤チーム | `seal-site-secrets.sh` + kubectl | 各環境 |
 | バックアップ・リストア | 基盤チーム | Longhorn + 手順書 | 主に本番 |

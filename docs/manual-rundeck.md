@@ -20,9 +20,11 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
 | パイプライン | Rundeckのジョブ | 中身(手動でも同じことができる) |
 |---|---|---|
 | 自作アプリの開発環境更新 | `Rancher-AppControll` の `<app>/1-dev-update` | `scripts/update-app-image.sh dev-update <app>` |
-| 自作アプリの本番環境更新 | `Rancher-AppControll` の `<app>/2-production-update` | `scripts/update-app-image.sh release-production <app>` |
+| 自作アプリのstaging更新 | `Rancher-AppControll` の `<app>/2-staging-update` | `scripts/update-app-image.sh staging-update <app>` |
+| 自作アプリの本番環境更新 | `Rancher-AppControll` の `<app>/3-production-update` | `scripts/update-app-image.sh release-production <app>` |
 | WordPressの開発環境更新(本番コンテンツ → dev) | `WordPressControl` の `1-dev-refresh` | `scripts/wordpress-pipeline.sh dev-refresh <site>...` |
-| WordPressの本番データリハーサル | `WordPressControl` の `2-rehearsal` | `scripts/wordpress-pipeline.sh rehearsal-start` / `rehearsal-upgrade <site>` |
+| WordPressのstagingでの確認(本番データ) | `WordPressControl` の `2-staging` | `scripts/wordpress-pipeline.sh staging-start` / `staging-upgrade <site>` |
+| WordPressのstagingの後片付け | `WordPressControl` の `4-staging-cleanup` | `scripts/wordpress-pipeline.sh staging-cleanup <site>` |
 | WordPressの本番昇格 | `WordPressControl` の `3-production-promote` | `scripts/wordpress-pipeline.sh promote-production <site...\|all>` |
 
 (2026-10-15に、サブコマンドを1つずつジョブにしていた旧定義 `rundeck/jobs/update-app-image.yaml`
@@ -39,12 +41,12 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
   確認まで続ける。オペレータやマシンユーザー(promoteワークフロー)が作った本番PRは、
   Code Ownerの承認が無いとマージできない(下記「実行アカウント」)。待ち時間を過ぎるとジョブは失敗で終わる(PRは残るので、マージ後に
   `<app>/9-check` / `tools/check` で確認する)
-- **devだけに触れるPRはauto-merge**する(イメージ更新、リハーサルサイトの追加・削除)
+- **dev・stagingだけに触れるPRはauto-merge**する(イメージ更新、stagingへのサイトの追加・昇格・削除)
 - **同じクローンを使うジョブは排他する**。gitのブランチを切り替える処理は
   `.git/ibid-pipeline.lock` のロック(`scripts/lib/pr.sh` の `pr_lock_repo`)を取ってから行う。
   本番PRのマージ待ちやリストアの間はロックを手放すので、その間も他のジョブは動ける
 - **秘密情報はジョブで扱わない**。GHCR pull用SealedSecret(PAT)の作成はジョブにしない
-  (アプリの初回昇格のときだけ人が実行する)。リハーサルサイトの新規パスワードは
+  (アプリの初回昇格のときだけ人が実行する)。stagingのサイトの新規パスワードは
   ログに出さない(`SEAL_HIDE_PASSWORDS=1`)
 
 ## 前提
@@ -54,8 +56,8 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
   GitHub・kubectlの操作もその人自身のアカウントで行われる(下記「実行アカウント」)
 - 各ユーザーのホームに `~/ibid-fleet-config` のクローンがあり、そのユーザーで `git`/`gh`/`kubectl`/
   `kubeseal`/`flock` が使え、`gh auth status` が本人のGitHubアカウントで認証済み、`~/.kube/config` に
-  `dev1`/`prod1` があること([manual-tooling-setup.md](manual-tooling-setup.md))
-- WordPressのジョブ(dev-refresh・リハーサル)は、バックアップNFSを踏み台端末に**読み取り専用で
+  `dev1`/`staging1`/`prod1` があること([manual-tooling-setup.md](manual-tooling-setup.md))
+- WordPressのジョブ(dev-refresh・staging)は、バックアップNFSを踏み台端末に**読み取り専用で
   マウント**しておく(`/mnt/ibid-nfs`。[manual-wordpress-restore.md](manual-wordpress-restore.md)
   「日次バックアップ」)。再起動で外れるので、外れていたらジョブが案内を出して止まる:
   ```bash
@@ -63,8 +65,8 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
   ```
   リストアはwp-contentを踏み台端末の `/tmp` で展開し直すため、最大のサイトのwp-content
   (2026-10時点で圧縮470MB)の数倍の空きが要る
-- リハーサルの比較の基準は `/var/lib/ibid-fleet-config/rehearsal`(FreeIPAのグループ `wpadmins` で共有)に置く。
-  始めた人と続き(`2a-rehearsal-upgrade`・`2b-rehearsal-cleanup`)を実行する人が違ってもよい
+- stagingでの比較の基準は `/var/lib/ibid-fleet-config/rehearsal`(FreeIPAのグループ `wpadmins` で共有。パスは
+  dev1のリハーサルサイト時代のまま)に置く。始めた人と続き(`2a-staging-upgrade`・`4-staging-cleanup`)を実行する人が違ってもよい
 - クローンのパス(`$HOME/ibid-fleet-config`)とノードフィルタ(`tags: rancher`)は `generate-jobs.py` の
   `REPO_PATH`・`NODE_FILTER`。別ホストへ持っていくときはそこを変えて再生成する
 - ロック(`.git/ibid-pipeline.lock`)はクローンごと。別の人のジョブ同士は排他しないが、同じジョブの
@@ -174,7 +176,7 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
    | `silver198545/metadatabase-v2` | 管理者 | write固定 |
    | `dbcls/sparqlist` | 公開 | 不要 |
 3. **サーバーのユーザー**: FreeIPAのユーザー `<op>` がrancherにログインでき(HBAC)、担当のグループに入っていること
-   (`ipa group-add-member <グループ> --users=<op>`。`getent group <グループ>` で確かめる)。WordPressのリハーサルを
+   (`ipa group-add-member <グループ> --users=<op>`。`getent group <グループ>` で確かめる)。WordPressのstagingでの確認を
    実行する人は `wpadmins` にも入れる(比較の基準の置き場所に書くため)
 4. **本人のクローンとGitHub認証**(`<op>` でログインして本人が行う):
    ```bash
@@ -186,9 +188,9 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
    gh auth setup-git
    gh auth status                                                   # repo・workflow・read:org スコープがあること
    ```
-5. **kubeconfig**: 本人がRancher(https://rancher.brc.riken.jp/ 、FreeIPAでログイン)にログインし、クラスタ一覧の `dev1`・`prod1`
+5. **kubeconfig**: 本人がRancher(https://rancher.brc.riken.jp/ 、FreeIPAでログイン)にログインし、クラスタ一覧の `dev1`・`staging1`・`prod1`
    それぞれの「Download KubeConfig」で取得して、`~<op>/.kube/config`(パーミッション600)に1つにまとめる。
-   コンテキスト名はRancherのクラスタ名(`dev1`・`prod1`)になるので、そのまま使える
+   コンテキスト名はRancherのクラスタ名(`dev1`・`staging1`・`prod1`)になるので、そのまま使える
    ([manual-tooling-setup.md](manual-tooling-setup.md))。クラスタで何ができるかは、担当のグループに付けた
    Rancherの権限で決まる。**トークンの有効期限は30日**(Rancherの `kubeconfig-default-token-ttl-minutes`=43200)
    なので、切れたら同じ手順で取り直す(ジョブが `Unauthorized` で止まる)
@@ -232,7 +234,8 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
 `apps/<app>/` のジョブ(dev更新・本番更新・初回昇格・確認)だけを実行できるようにする。2026-10-16時点のメンバーは
 `uchida, kushida, usuda, hoge, manalili, yuki`(最初に追加するオペレータは usuda)。
 
-1. **Rancherに `APPs` プロジェクトを作り、アプリのnamespaceを移す**(dev1・prod1 それぞれ。2026-10-17に作成済み)。
+1. **Rancherに `APPs` プロジェクトを作り、アプリのnamespaceを移す**(dev1・prod1 それぞれ。2026-10-17に作成済み。
+   staging1は2026-10-25の再導入後、各アプリのstagingへの初回昇格のあとに作る)。
    Rancher UIで クラスタ → **Projects/Namespaces** → Create Project(名前 `APPs`)→ 次のnamespaceを
    「Move」で `APPs` へ移す:
    `brc-advanced-search`、`brc-cross-search-resource`、`brc-cross-search-xsearch`、`metadatabase-v2`、`riken-diips`、`sparqlist`。
@@ -244,6 +247,7 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
    | クラスタ | ロール | できること |
    |---|---|---|
    | `dev1` | **Project Member** | Podへのexecを含めて、アプリのnamespaceを操作できる |
+   | `staging1` | **Read-only** | 見るだけ(`2-staging-update` の最後の確認、`9-check`) |
    | `prod1` | **Read-only** | 見るだけ(rollout・Podの確認、`9-check`、本番更新パイプラインの最後の確認) |
 
    prod1がRead-onlyなので、`sync_prod_data=yes` のような本番Podへのexecを伴う操作はできない
@@ -300,7 +304,7 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
 
 ### WordPressのオペレータ(グループ `wpadmins`)の1回だけの設定
 
-プロジェクト `WordPressControl` のジョブ(本番コンテンツ→dev、リハーサル、本番昇格、バックアップ・確認)を
+プロジェクト `WordPressControl` のジョブ(本番コンテンツ→dev、stagingでの確認、本番昇格、バックアップ・確認)を
 実行できるようにする。2026-10-16時点のメンバーは `hoge, uchida, iwase, kurihara, namiki, yuhara`。
 
 1. **Rancherの `Wordpress` プロジェクト**(dev1・prod1 それぞれ。2026-10-17に作成済みで、全34サイトの
@@ -311,27 +315,30 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
    | `prod1` | **Read-only** | 見るだけ(Secret・exec・Jobの作成はできない) |
 
    新しいサイトを作ったとき(`new-wordpress-site.sh`)とDRのときは、namespaceを `Wordpress` へ移す。
-   リハーサルサイト `wordpress-<site>-rh` は、パイプラインが元のサイトと同じプロジェクトの注釈を付けて作るので、移す必要はない
-2. **dev1のSealed Secretsの公開証明書を置く**(リハーサルサイトのSecretを封印するため。オペレータは
+   **staging1**(2026-10-25〜): stagingのサイトは確認のたびに作っては消すので、staging1に `Wordpress` プロジェクトを作って
+   `wpadmins` を **Project Member** にし、そのプロジェクトID(`<クラスタID>:<プロジェクトID>`。staging1のクラスタIDは
+   `c-m-qqhsg9c2`)を `rundeck/generate-jobs.py` の `STAGING_PROJECT_ID` に書いて再生成する。パイプラインが
+   staging-startで作るnamespaceにその注釈を付ける(空ならプロジェクトの外に作られ、管理者しか触れない)
+2. **staging1のSealed Secretsの公開証明書を置く**(stagingのサイトのSecretを封印するため。オペレータは
    kube-systemのSealed Secretsのコントローラに届かない)。公開証明書なので秘密ではない:
    ```bash
-   kubeseal --context dev1 --fetch-cert | sudo tee /var/lib/ibid-fleet-config/sealed-secrets-dev1.pem >/dev/null
-   sudo chmod 644 /var/lib/ibid-fleet-config/sealed-secrets-dev1.pem
+   kubeseal --context staging1 --fetch-cert | sudo tee /var/lib/ibid-fleet-config/sealed-secrets-staging1.pem >/dev/null
+   sudo chmod 644 /var/lib/ibid-fleet-config/sealed-secrets-staging1.pem
    ```
-   コントローラの鍵は30日ごとに追加されるが、古い鍵でも復号できるので、作り直しはdev1を作り直したとき
-   (鍵が変わったとき)だけでよい
+   コントローラの鍵は30日ごとに追加されるが、古い鍵でも復号できるので、作り直しはstaging1を作り直したとき
+   (鍵が変わったとき)だけでよい。dev1のリハーサルサイト用に置いていた `sealed-secrets-dev1.pem` は不要になった
 3. **RundeckのACL**。自作アプリの節と同じ形で作る:
    - プロジェクトのACL(`WordPressControl` のプロジェクト設定 → Access Control): `description` を変え、`by.group` を `wpadmins` にする
    - システム側のACL: `project` の `name` を `'^WordPressControl$'`(ほかに見せるプロジェクトがあれば足す)、`by.group` を `wpadmins` にする
    - 個人のKey Storage用ACL: 上記「オペレータを追加する」の7のとおり人ごと(両方の担当の人も1つでよい)
-4. 実行する人を `wpadmins` に入れる(リハーサルの比較の基準 `/var/lib/ibid-fleet-config/rehearsal` を書けるようにするためでもある)
+4. 実行する人を `wpadmins` に入れる(stagingでの比較の基準 `/var/lib/ibid-fleet-config/rehearsal` を書けるようにするためでもある)
 
 **prod1がRead-onlyなので、オペレータが実行すると次のように動く**(`scripts/wordpress-pipeline.sh` が権限を
 `kubectl auth can-i` で確かめて切り替える):
 
 | ジョブ | 管理者が実行したとき | オペレータが実行したとき |
 |---|---|---|
-| `1-dev-refresh`・`2-rehearsal`(`fresh_backup=yes`) | 本番のバックアップを今すぐ取って使う | 最新の日次バックアップ(JST 3:00)を使う |
+| `1-dev-refresh`・`2-staging`(`fresh_backup=yes`) | 本番のバックアップを今すぐ取って使う | 最新の日次バックアップ(JST 3:00)を使う |
 | `3-production-promote` | PRができたら本番のバックアップを取り、PRにコメントする | バックアップは取らず、「承認する管理者がマージ直前に `tools/backup`(`env=production`)で取る」とPRにコメントする |
 | `3-production-promote` のマージ後 | Helmのリビジョンが上がるのを待ってrolloutを確認 | 180秒待ってからrolloutを確認(Helmの履歴を読めないため) |
 | `tools/backup`(`env=production`) | 取れる | 権限が無いと表示して止まる |
@@ -342,7 +349,7 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
 
 - `<op>` で担当のプロジェクトの確認ジョブ(`<app>/9-check`、WordPressは `tools/check`)が通る(SSH・kubeconfigの確認)
 - (自作アプリ)`<app>/1-dev-update` を実行すると、PRの作成者が `<op-gh>` になり、auto-mergeされる
-- `2-production-update` / `3-production-promote` の本番PRが、`@silver198545` がApproveしないとマージできない
+- `3-production-update` / `3-production-promote` の本番PRが、`@silver198545` がApproveしないとマージできない
   (Mergeボタンが「Review required」になる)
 - (自作アプリのオペレータ)本人のkubeconfigで `kubectl --context prod1 -n sparqlist delete pod --dry-run=server -l app=sparqlist`
   が `forbidden` になり、`kubectl --context dev1 get ns` にWordPressのnamespaceが出ない
@@ -360,9 +367,11 @@ rd jobs load -p WordPressControl -f rundeck/jobs/wordpress.yaml --format yaml
 - ジョブのUUIDはグループ・名前から決まるので、取り込み直すと同じジョブが更新される。2026-10-17にグループ名から
   先頭の `apps/`・`wordpress/` を外したが、UUIDは外す前と同じ値のまま(`generate-jobs.py` の `job()`)なので、
   取り込み直すと既存のジョブのグループ名が変わるだけで、重複はしない
-- `rd jobs load` は定義から消えたジョブを削除しない。旧定義のグループ `app-image-update` と、
-  消したアプリのグループは、Rundeck UIで手動で削除する
-- 生成内容は `envs/dev/apps`・`envs/dev/sites`(`-rh`を除く)と `update-app-image.sh` の
+- `rd jobs load` は定義から消えたジョブを削除しない。旧定義のグループ `app-image-update`、
+  自作アプリの `<app>/2-production-update`・`<app>/3-first-promote-prepare`(2026-10-25にジョブ名を変えた)、
+  消したアプリのグループ、WordPressの `2-rehearsal`・`2a-rehearsal-upgrade`・`2b-rehearsal-cleanup`
+  (2026-10-25にstagingのジョブへ置き換え)は、Rundeck UIで手動で削除する
+- 生成内容は `envs/dev/apps`・`envs/dev/sites` と `update-app-image.sh` の
   `persistent_data_dir_for` だけで決まる。`validate` ワークフローが生成結果との一致を確かめるので、
   アプリ・サイトを追加したPRでは再生成したファイルも一緒にコミットする
   (`scripts/new-wordpress-site.sh dev <site>` は自動で再生成する)。本番への昇格では変わらない
@@ -386,29 +395,42 @@ rd jobs load -p WordPressControl -f rundeck/jobs/wordpress.yaml --format yaml
 | `src_ref` | 空(最新) | 取り込み元のコミットSHA。特定のコミットを入れたいときだけ指定 |
 | `tag` | 空(自動採番) | 現在のTAGが `<version>-r<N>` なら N+1。その形式でないアプリでは指定が要る |
 
-終わったらブラウザでdevを確認してから `2-production-update` へ。
+終わったらブラウザでdevを確認してから `2-staging-update` へ。
 
-### 2-production-update(本番環境更新パイプライン)
+自作アプリはstagingに常駐させている(2026-10-25〜。WordPressと違い載せ降ろししない)。本番へは必ずstagingを通す。
+
+### 2-staging-update(staging更新パイプライン)
 
 1. mainを最新化
-2. devと本番の `<app>` に差分があれば、promoteワークフロー(`kind=apps`)で昇格PRを作り、CIを待つ
-   (差分が無ければ4.へ)
-3. **人がPRのdiffを見てマージするのを待つ**(イメージタグ以外のdevの変更もすべて昇格対象になる)
+2. devとstagingの `<app>` に差分があれば、promoteワークフロー(`kind=apps`、`to=staging`)で昇格PRを作り、
+   auto-mergeを待つ(stagingはCODEOWNERSの対象外で承認不要)。差分が無ければ3.へ
+3. Fleetの適用を待って(60秒)、stagingのrollout・WEB疎通を確認する
+
+終わったらブラウザでstaging(`https://<app>.staging.ibid.lan/`)を確認してから `3-production-update` へ。
+
+### 3-production-update(本番環境更新パイプライン)
+
+1. mainを最新化
+2. stagingと本番の `<app>` に差分があれば、promoteワークフロー(`kind=apps`、`to=production`)で昇格PRを作り、CIを待つ
+   (差分が無ければ4.へ。devにstagingで未確認の変更があれば注意を出す)
+3. **人がPRのdiffを見てマージするのを待つ**(イメージタグ以外のstagingの変更もすべて昇格対象になる)
 4. mainを取り込み、Fleetの適用を待って(60秒)、本番のrollout・WEB疎通を確認する
 
-### 3-first-promote-prepare / 4-first-promote-finish(本番への初回昇格)
+### 4-first-promote-prepare / 5-first-promote-finish(初回昇格)
 
-本番にまだ無いアプリのときだけ使う(既にあれば `2-production-update`)。
+昇格先(`env`: `staging` か `production`)にまだ無いアプリのときだけ使う(既にあれば `2-staging-update`・
+`3-production-update`)。必ず `env=staging` を先に行う(本番への昇格元はstaging)。
 `prepare` はコピーまでで止まり、表示された `kubeseal` コマンドを**踏み台端末で人が実行して**
-`envs/production/secrets/<app>.yaml` を作ってから `finish` を実行する(PATを扱うため)。
-`finish` が作ったPRは人がマージし、`9-check`(`env=production`)で確認する。
+`envs/<env>/secrets/<app>.yaml` を作ってから、同じ `env` で `finish` を実行する(PATを扱うため)。
+`env=staging` の `finish` はPRをauto-mergeしてstagingの確認まで続ける。`env=production` の `finish` が
+作ったPRは人がマージし、`9-check`(`env=production`)で確認する。
 
 **`prepare` から `finish` までの間、クローンは未コミットの変更を持ったまま残る。** その間、
 他のジョブは最初の「mainを最新化」で止まる(壊れることはない)。
 
 ### 9-check
 
-devまたは本番のrollout状況とWEB疎通を確認する(読み取りのみ)。
+dev・staging・本番のいずれかのrollout状況とWEB疎通を確認する(読み取りのみ)。
 
 ## WordPress(プロジェクト `WordPressControl`)
 
@@ -432,50 +454,55 @@ gitは触らないので、チャート版・プラグイン(構成)はdevのま
 本番のもので上書きされる**(ログインも本番のアカウントになる)。全サイトを選ぶと数時間かかる。
 前回の `wp-content.orig` が残っているサイトがあると、最初に止まる(中身を確認して消してから再実行)。
 
-### 2-rehearsal(本番データのリハーサル)
+### 2-staging(stagingで本番データを使って確認する)
 
-WordPress本体・MariaDBのメジャー更新、プラグインの大きな更新を本番へ出す前に行う
-([operations-flow.md](operations-flow.md)「本番データリハーサル」の手順をそのまま自動化したもの)。
+本番へ出すサイトは、必ずstagingで確認してから昇格する
+([operations-flow.md](operations-flow.md)「stagingでの確認」の手順をそのまま自動化したもの)。
 
 1. mainを最新化
-2. **rehearsal-start**: `envs/production/sites/<site>` と同じ構成の `<site>-rh` をdev1に作るPR
-   (`rehearsal-site.sh <site> production` + `seal-site-secrets.sh dev <site>-rh`)→ auto-merge →
-   Fleetの適用待ち → 本番のバックアップ → `<site>-rh` へリストア・URL置換 →
+2. **staging-start**: `envs/production/sites/<site>` を `envs/staging/sites/<site>` へコピーし、
+   `seal-site-secrets.sh staging <site>`(新規パスワード)と一緒にPR → auto-merge(stagingはCODEOWNERSの対象外)→
+   Fleetの適用待ち → 本番のバックアップ → stagingの `<site>` へリストア・URL置換 →
    **比較の基準**を記録する(トップと最近更新された10ページのHTTPステータス、WordPress・プラグイン・
-   テーマの版、`mariadb_upgrade_info`)
-3. **rehearsal-upgrade**(`upgrade=yes` のとき): `<site>-rh` をdevの構成(昇格予定の `helm.version`・
-   `plugins`)へ切り替えるPR → auto-merge → Helmリビジョンの更新とrolloutを待つ →
+   テーマの版、`mariadb_upgrade_info`)。本番にまだ無い新規サイトはdevの構成で置き、本番データは入れない
+3. **staging-upgrade**(`upgrade=yes` のとき): promoteワークフロー(`to=staging`)でdevの構成(昇格予定の
+   `helm.version`・`plugins`)をstagingへ昇格するPR → auto-merge → Helmリビジョンの更新とrolloutを待つ →
    プラグイン同期Jobの成否と所要時間 → `wp core update-db`(管理画面の「データベースの更新」と同じ)の
    所要時間 → 基準との比較(版の差分、HTTPステータスが変わったページ)→ 直近のPHPエラー
 
-devと本番の構成に差分が無ければ、3.は何もせず終わる。HTTPステータスが変わったページ・
-プラグイン同期Jobの失敗があるとジョブは失敗になる。結果(所要時間・気づいた点)は昇格PRに書く。
-ブラウザでの確認(記事表示・管理画面・プラグイン固有の画面)も行うこと。
+devとstagingの構成に差分が無ければ、3.は何もせず終わる。HTTPステータスが変わったページ・
+プラグイン同期Jobの失敗があるとジョブは失敗になる。結果(所要時間・気づいた点)は本番への昇格PRに書く。
+ブラウザでの確認(`https://<site>.staging.ibid.lan/ja/`。記事表示・管理画面・プラグイン固有の画面)も行うこと。
 
-- dev1のメモリの都合で、**リハーサルサイトは同時に1つまで**(他の `-rh` があると止まる)
-- 比較の基準は踏み台端末の `~/.local/state/ibid-fleet-config/rehearsal/<site>-rh/` に置く
-- 問題があればdevで直し、`2a-rehearsal-upgrade` で切り替えからやり直す
-  (`2-rehearsal` を `upgrade=no` で実行した場合もこれで続ける)
-- **終わったら必ず `2b-rehearsal-cleanup`**: `<site>-rh` をGitから消すPR(auto-merge)→ マージ後に
-  `wordpress-<site>-rh` namespaceを削除(本番データのコピーが消える)。harvesterのPVが
-  `Released` のまま残ったら警告が出るので [roadmap.md](roadmap.md) 項目8の手順で片付ける
+- staging1のメモリの都合で、**stagingに同時に置けるサイトは4つまで**(`STAGING_MAX_SITES`。超えると止まる)
+- 比較の基準は `/var/lib/ibid-fleet-config/rehearsal/staging-<site>/` に置く(パスはリハーサルサイト時代のまま)
+- 問題があればdevで直し、`2a-staging-upgrade` で切り替えからやり直す
+  (`2-staging` を `upgrade=no` で実行した場合もこれで続ける)
 
 ### 3-production-promote(本番昇格パイプライン)
 
 1. mainを最新化
-2. 選んだサイト(`all` は本番に既にある全サイト)のうち、devと本番で差分のあるものの昇格PRを
-   promoteワークフローで作り、CIを待つ。差分が無ければ確認だけ行って終わる
+2. 選んだサイト(`all` は本番に既にあり、stagingに載っている全サイト)のうち、stagingと本番で差分のあるものの
+   昇格PRをpromoteワークフロー(`to=production`)で作り、CIを待つ。差分が無ければ確認だけ行って終わる。
+   **stagingに無いサイトを選ぶと止まる**(本番へはstagingを通す)。devにstagingで未確認の変更があれば注意を出す
 3. **対象サイトの本番バックアップを取り**(本番反映前のバックアップ。
    [operations-flow.md](operations-flow.md))、取得したファイル名をPRにコメントする
-4. **人がPRのdiffを見てマージするのを待つ**(diffが devで確認した `helm.version`・`plugins` の
+4. **人がPRのdiffを見てマージするのを待つ**(diffが stagingで確認した `helm.version`・`plugins` の
    `version` 等だけであること)。バックアップから長く時間が空いた場合は、マージの前に
    `tools/backup` で取り直す
 5. mainを取り込み、各サイトのHelmリビジョンが上がってrolloutが終わるのを待つ
 6. 本番のHTTP 200・Pod・MariaDBのアップグレード状況(`mariadb_upgrade_info`)を確認する
 
-devにしか無いサイトを本番へ追加するときは、サイト名を選ぶ(`all` では追加されない)。
+本番に無いサイトを追加するときは、サイト名を選ぶ(`all` では追加されない)。
 先に `scripts/seal-site-secrets.sh production <site>` のSecretをmainに入れておくこと(無いと止まる)。
-DBマイグレーションを伴う更新なら、先に `2-rehearsal` を済ませておく。
+
+### 4-staging-cleanup(stagingの後片付け)
+
+本番へ昇格したら(または昇格をやめたら)**必ず実行する**。`<site>` をstagingのGitから消すPR(auto-merge)→
+マージ後にstaging1の `wordpress-<site>` namespaceを削除する(本番データのコピーが消える。
+stagingのStorageClassは`Delete`なので、NFS上のwp-content・バックアップも消える)。
+stagingの構成が本番へまだ昇格していなければ注意を出す。harvesterのPVが `Released` のまま残ったら
+警告が出るので [roadmap.md](roadmap.md) 項目8の手順で片付ける
 
 ### tools/backup・tools/check
 

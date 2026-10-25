@@ -77,7 +77,7 @@ if [[ -n "$(git status --porcelain -- . ":(exclude)${CHART_DIR}")" ]]; then
 fi
 pr_require_main_uptodate
 
-# PR本文に載せる、イメージのバージョン変化の説明(メジャー更新ならリハーサル必須と明記する)
+# PR本文に載せる、イメージのバージョン変化の説明(メジャー更新ならstagingでの確認必須と明記する)
 image_notes=""
 if $update_images; then
   for repo in bitnami/wordpress bitnami/mariadb; do
@@ -95,10 +95,10 @@ if $update_images; then
     note="- \`${repo}\`: ${old_app:-?} → ${new_app:-?}"
     if [[ -n "$old_app" && -n "$new_app" ]]; then
       if [[ "${old_app%%.*}" != "${new_app%%.*}" ]]; then
-        note+="(**メジャー更新**。本番昇格前に本番データリハーサル必須)"
+        note+="(**メジャー更新**。本番昇格前にstagingで本番データでの確認必須)"
       elif [[ "$repo" == bitnami/wordpress && "$(cut -d. -f1-2 <<< "$old_app")" != "$(cut -d. -f1-2 <<< "$new_app")" ]]; then
         # WordPressは x.Y の変化がメジャーリリース(DBスキーマが変わり得る)
-        note+="(**WordPressのメジャーリリース**。本番昇格前に本番データリハーサル必須)"
+        note+="(**WordPressのメジャーリリース**。本番昇格前にstagingで本番データでの確認必須)"
       fi
     fi
     image_notes+="${note}"$'\n'
@@ -170,7 +170,7 @@ pr_commit_push_create "chore: devの全サイトをibid-wordpress ${new_version}
 ${image_notes:+
 ### イメージ
 ${image_notes}}
-devで確認後、\`promote\` ワークフロー(name=all)でproductionへ昇格する。
+devで確認後、stagingで本番データを入れて確かめてからproductionへ昇格する(docs/runbook/wordpress-update.md)。
 EOF
 )" || exit 1
 pr_automerge_and_wait "$PR_URL"
@@ -180,8 +180,9 @@ cat <<EOF
 devへの反映が始まりました(Fleetが数分で適用します)。確認:
   kubectl --context dev1 get pods -A -l app.kubernetes.io/instance --field-selector=status.phase!=Running,status.phase!=Succeeded
   各サイトの表示・管理画面(https://<site>.dev.ibid.lan/)
-DBを書き換え得る変更(コア・プラグインのメジャー更新、MariaDB更新)なら本番データリハーサルを行う
-(docs/operations-flow.md「本番データリハーサル」)。問題なければ本番バックアップを取り、
-  gh workflow run promote.yaml -f name=all
-で昇格PRを作成してレビュー・マージする。
+本番へは、サイトごとにstagingで本番データを入れて確かめてから昇格する(docs/operations-flow.md「stagingでの確認」):
+  scripts/wordpress-pipeline.sh staging-start <site> && scripts/wordpress-pipeline.sh staging-upgrade <site>
+  scripts/wordpress-pipeline.sh promote-production <site...>   # 人のレビュー・マージを待つ
+  scripts/wordpress-pipeline.sh staging-cleanup <site>
+(RundeckのWordPressControlからも同じことができる。docs/runbook/rundeck-wordpress-operator.md)
 EOF

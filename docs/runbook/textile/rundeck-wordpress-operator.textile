@@ -3,12 +3,13 @@ h1. Rundeck WordPress運用 オペレータ手順書
 h2. 概要
 
 Rundeck のプロジェクト *@WordPressControl@* から、WordPress サイト(全34サイト。日本語版 @<site>@ と英語版 @<site>-en@)を運用する手順です。
-次の3つの作業を、それぞれジョブ1つで最後まで進めます。
+次の作業を、それぞれジョブ1つで最後まで進めます。本番へは必ず staging(本番データで確認するための環境)を通します。
 
 |_.作業|_.ジョブ|_.何が起きるか|
 |開発環境のコンテンツを本番と同じにする|@1-dev-refresh@|本番のバックアップを dev の同名サイトに戻す(*dev の内容は上書き*)|
-|本番データでリハーサルする|@2-rehearsal@|dev1 に本番のコピー @<site>-rh@ を作り、昇格予定の更新を当てて、表示を比べる|
-|本番へ昇格する|@3-production-promote@|本番 PR を作り、管理者の承認とマージを待って、本番を確認する|
+|staging で本番データを使って確認する|@2-staging@|staging に本番のコピーを置き、昇格予定の更新を当てて、表示を比べる|
+|本番へ昇格する|@3-production-promote@|staging の内容で本番 PR を作り、管理者の承認とマージを待って、本番を確認する|
+|staging を片付ける|@4-staging-cleanup@|staging からサイトを消す(本番データのコピーを消す)|
 
 ジョブは *あなた自身のアカウント* で動きます(サーバーのユーザー、GitHub、Rancher の権限)。GitHub の PR もあなたの名前で作られます。
 WordPress 本体・プラグインの新しい版を dev に入れる作業は、毎週月曜 9:00 に自動で行われます(このジョブでは行いません)。
@@ -17,10 +18,10 @@ WordPress 本体・プラグインの新しい版を dev に入れる作業は�
 
 |_.環境|_.日本語版|_.英語版|
 |dev|@https://<site>.dev.ibid.lan/ja/@|@https://<site>.dev.ibid.lan/en/@|
+|staging|@https://<site>.staging.ibid.lan/ja/@|@https://<site>-en.staging.ibid.lan/en/@(staging に置いたときだけ)|
 |本番|@https://<site>.production.ibid.lan/ja/@|@https://<site>.production.ibid.lan/en/@|
-|リハーサル|@https://<site>-rh.dev.ibid.lan/ja/@|(英語版はリハーサルしない)|
 
-外部公開のドメインは、本番が @https://<site>.brc.riken.jp/@、dev が @https://wpdev1.brc.riken.jp/@(外部の nginx で表示するサイトを切り替える)です。dev・リハーサルのページ内のリンクは @wpdev1.brc.riken.jp@ を指します。
+外部公開のドメインは、本番が @https://<site>.brc.riken.jp/@、dev が @https://wpdev1.brc.riken.jp/@(外部の nginx で表示するサイトを切り替える)です。dev のページ内のリンクは @wpdev1.brc.riken.jp@ を指します。staging は外部公開しません。
 
 h2. 前提条件
 
@@ -30,15 +31,16 @@ h2. 前提条件
 |GitHub|自分の GitHub アカウントが @silver198545/ibid-fleet-config@ の collaborator であること(招待を承諾済み)。2要素認証を有効にしていること|
 |Rundeck|FreeIPA のアカウントでログインでき、プロジェクト @WordPressControl@ が見えること|
 |SSH 鍵|Rundeck 用の SSH 鍵が登録済みであること(管理者が Key Storage の @keys/users/<自分のユーザー名>/<自分のユーザー名>_ed25519@ に登録)|
-|Rancher|Rancher(@https://rancher.brc.riken.jp/@)に FreeIPA でログインでき、@dev1@・@prod1@ のプロジェクト @Wordpress@ が見えること|
+|Rancher|Rancher(@https://rancher.brc.riken.jp/@)に FreeIPA でログインでき、@dev1@・@staging1@・@prod1@ のプロジェクト @Wordpress@ が見えること|
 |バックアップ|rancher にバックアップの NFS がマウントされていること(管理者が行う。外れているとジョブが止まって知らせる)|
 
 権限は次のとおりです。
 
 |_.場所|_.できること|
 |dev1(開発クラスタ)|サイトの namespace を操作できる(Project Member)|
+|staging1(確認用クラスタ)|staging に置いたサイトの namespace を操作できる(Project Member)|
 |prod1(本番クラスタ)|*見るだけ*(Read-only)。本番のバックアップを「今すぐ」取ることはできない|
-|GitHub|PR を作れる。dev の PR は自動でマージされる。*本番の PR は管理者の承認(Approve)が必要*|
+|GitHub|PR を作れる。dev・staging の PR は自動でマージされる。*本番の PR は管理者の承認(Approve)が必要*|
 |Rundeck|@WordPressControl@ のジョブの実行だけ(Commands 画面は使えない)|
 
 h2. 初回設定(1回だけ)
@@ -88,14 +90,14 @@ gh auth status
 h3. 3. kubeconfig を置く
 
 # ブラウザで Rancher(@https://rancher.brc.riken.jp/@)に FreeIPA のアカウントでログインする
-# クラスタ一覧で @dev1@ を開き、右上の「Download KubeConfig」で保存する。@prod1@ も同じようにする
-# 2つを1つにまとめて、rancher の @~/.kube/config@ に置く
+# クラスタ一覧で @dev1@ を開き、右上の「Download KubeConfig」で保存する。@staging1@・@prod1@ も同じようにする
+# 3つを1つにまとめて、rancher の @~/.kube/config@ に置く
 
 <pre>
 mkdir -p ~/.kube
-KUBECONFIG=~/dev1.yaml:~/prod1.yaml kubectl config view --flatten > ~/.kube/config
+KUBECONFIG=~/dev1.yaml:~/staging1.yaml:~/prod1.yaml kubectl config view --flatten > ~/.kube/config
 chmod 600 ~/.kube/config
-rm ~/dev1.yaml ~/prod1.yaml
+rm ~/dev1.yaml ~/staging1.yaml ~/prod1.yaml
 </pre>
 
 確認(どちらも Pod の一覧が出れば OK):
@@ -120,10 +122,10 @@ h2. ジョブ一覧
 
 |_.ジョブ|_.内容|_.使う場面|
 |@1-dev-refresh@|本番のコンテンツ(記事・メディア・設定・ユーザー)を dev の同名サイトに戻す|dev を本番と同じ状態にして確認したいとき|
-|@2-rehearsal@|本番のコピー @<site>-rh@ を dev1 に作り、昇格予定の更新を当てて、表示を比べる|WordPress 本体・MariaDB・プラグインの大きな更新を本番に出す前|
-|@2a-rehearsal-upgrade@|既にある @<site>-rh@ に、dev の今の構成を当て直して比べる|リハーサルで見つかった問題を dev で直したあと|
-|@2b-rehearsal-cleanup@|@<site>-rh@ を削除する|リハーサルが終わったら*必ず*|
-|@3-production-promote@|dev と差分のあるサイトの本番 PR を作り、承認・マージ後に本番を確認する|dev(とリハーサル)で確認できたあと|
+|@2-staging@|本番と同じ構成・本番データのサイトを staging に置き、昇格予定の更新を当てて、表示を比べる|本番に出す前に*毎回*(staging を通さないと本番へ昇格できない)|
+|@2a-staging-upgrade@|staging にあるサイトに、dev の今の構成を当て直して比べる|staging で見つかった問題を dev で直したあと|
+|@3-production-promote@|staging と本番で差分のあるサイトの本番 PR を作り、承認・マージ後に本番を確認する|staging で確認できたあと|
+|@4-staging-cleanup@|staging からサイトを削除する|本番へ昇格したら*必ず*|
 |@tools/check@|各サイトの WEB の応答(200 か)と Pod の状態を確認する(読むだけ)|いつでも|
 |@tools/backup@|今すぐバックアップを取る|dev のみ(本番は管理者が実行)|
 
@@ -131,12 +133,12 @@ h3. オプション
 
 |_.ジョブ|_.オプション|_.既定値|_.説明|
 |@1-dev-refresh@|@sites@|(なし)|対象サイト(複数選択可)|
-|@1-dev-refresh@・@2-rehearsal@|@fresh_backup@|@yes@|本番のバックアップを今すぐ取るか。*オペレータは本番の権限が無いので、@yes@ でも自動で最新の日次バックアップ(毎日 3:00)を使います*|
-|@2-rehearsal@・@2a@・@2b@|@site@|(なし)|リハーサルするサイト(日本語版の名前。例: @abc@)|
-|@2-rehearsal@|@upgrade@|@yes@|続けて dev の構成に切り替えて比べる。@no@ なら本番のコピーを作るところまで|
-|@3-production-promote@|@sites@|@all@|昇格するサイト。@all@ は本番にある全サイトのうち dev と差分のあるもの|
+|@1-dev-refresh@・@2-staging@|@fresh_backup@|@yes@|本番のバックアップを今すぐ取るか。*オペレータは本番の権限が無いので、@yes@ でも自動で最新の日次バックアップ(毎日 3:00)を使います*|
+|@2-staging@・@2a@・@4@|@site@|(なし)|対象サイト(例: @abc@。英語版は @abc-en@ を別に選ぶ)|
+|@2-staging@|@upgrade@|@yes@|続けて dev の構成に切り替えて比べる。@no@ なら本番のコピーを置くところまで|
+|@3-production-promote@|@sites@|@all@|昇格するサイト。@all@ は staging に載っている、本番にある全サイトのうち差分のあるもの|
 |@3-production-promote@|@merge_wait_minutes@|@240@|本番 PR の承認・マージを待つ時間(分)|
-|@tools/check@・@tools/backup@|@env@ / @sites@|@production@ / @all@|環境と対象サイト|
+|@tools/check@・@tools/backup@|@env@ / @sites@|@production@ / @all@|環境(@production@・@staging@・@dev@)と対象サイト|
 
 h2. 実行方法
 
@@ -151,35 +153,39 @@ h3. A. 開発環境のコンテンツを本番と同じにする(@1-dev-refresh@
 
 上書き前の dev の状態は、ジョブが最初にバックアップしています(戻すときは管理者に依頼)。
 
-h3. B. 本番データでリハーサルする(@2-rehearsal@ → @2b-rehearsal-cleanup@)
+h3. B. staging で本番データを使って確認する(@2-staging@)
 
-WordPress 本体のメジャー更新(例: 7.0 → 7.1)、MariaDB のメジャー更新、プラグインの大きな更新のときに行います。
-*リハーサルサイトは同時に1つまで*です。
+本番に出すサイトは、毎回ここで確認します。*staging に同時に置けるのは4サイトまで*です。
 
-# @2-rehearsal@ を開き、@site@(例: @web@)を選んで「Run Job Now」(@upgrade=yes@ のまま)
+# @2-staging@ を開き、@site@(例: @web@)を選んで「Run Job Now」(@upgrade=yes@ のまま)
 # ジョブが次を順に行う(サイトの大きさによって数十分以上かかる)
-#* 本番と同じ構成の @<site>-rh@ を dev1 に作る(PR は自動でマージされる)
+#* 本番と同じ構成で、サイトを staging に置く(PR は自動でマージされる)
 #* 本番のバックアップを戻し、*比較の基準*(各ページの応答、WordPress・プラグインの版)を記録する
-#* dev の構成(昇格予定の更新)に切り替え、プラグインの更新・DB の更新の所要時間を測る
+#* dev の構成(昇格予定の更新)に切り替え(PR は自動でマージされる)、プラグインの更新・DB の更新の所要時間を測る
 #* 基準と比べて、応答が変わったページ・PHP のエラーを報告する
 # 出力の「基準(本番と同じ構成)との比較」を見る。成功なら次の行が出る: @HTTPステータスが変わったページはありません(11ページ)。@
-# ブラウザで @https://<site>-rh.dev.ibid.lan/ja/@ を開き、記事・管理画面・プラグインの画面を確認する
+# ブラウザで @https://<site>.staging.ibid.lan/ja/@ を開き、記事・管理画面・プラグインの画面を確認する
 # 結果(所要時間・気づいた点)を、本番昇格の PR に書く
-# *終わったら必ず @2b-rehearsal-cleanup@* を同じ @site@ で実行する(本番データのコピーを消す)
 
-問題が見つかったら、dev で直してから @2a-rehearsal-upgrade@ で切り替えからやり直します。
+問題が見つかったら、dev で直してから @2a-staging-upgrade@ で切り替えからやり直します。
 
 h3. C. 本番へ昇格する(@3-production-promote@)
 
-dev(と必要ならリハーサル)で確認できてから行います。
+staging で確認できてから行います。本番に出るのは *staging に載っている内容* です。
 
-# @3-production-promote@ を開き、@sites=all@ のまま「Run Job Now」
+# @3-production-promote@ を開き、@sites@ を選んで(staging に載せたサイト、または @all@)「Run Job Now」
 # ジョブが本番 PR を作り、CI を待ってから PR に次のコメントを付け、*待ち状態* になる: @本番バックアップは未取得です(実行者に本番でJobを作る権限が無いため)。@
 # *管理者に PR の URL を伝えて、「バックアップ → 承認(Approve)→ マージ」を依頼する* (本番のバックアップは、承認する管理者がマージの直前に取ります)
 # マージされると、ジョブが自動で続きを行い、本番の確認まで進む。最後に次の行が出れば成功: @本番への昇格が完了しました: abc abc-en ...@
 # 本番の確認先をブラウザで開き、表示を確認する
 
-dev と本番に差分が無いときは、PR は作らず本番の確認だけ行って終わります。
+staging と本番に差分が無いときは、PR は作らず本番の確認だけ行って終わります。
+staging に無いサイトを選ぶと、「stagingに <site> がありません」で止まります(先に @2-staging@)。
+
+h3. D. staging を片付ける(@4-staging-cleanup@)
+
+本番へ昇格したら、*必ず* 同じ @site@ で @4-staging-cleanup@ を実行します(本番データのコピーを消し、staging の空きを作る)。
+昇格をやめた場合も実行します。
 
 h2. 動作の仕組み
 
@@ -191,22 +197,27 @@ h3. @1-dev-refresh@
 # DB の中の本番の URL(@<site>.brc.riken.jp@)を dev の URL(@wpdev1.brc.riken.jp@)に置き換える
 # 各サイトの応答(200 か)を確かめる
 
-h3. @2-rehearsal@
+h3. @2-staging@
 
-# 本番と同じ構成のリハーサルサイト @<site>-rh@ を作る PR を作り、自動でマージする
-# dev1 にサイトができるのを待ち、本番のバックアップを戻して URL を置き換える
+# 本番と同じ構成で staging にサイトを置く PR を作り、自動でマージする(staging 用のパスワードは毎回新しく作る)
+# staging1 にサイトができるのを待ち、本番のバックアップを戻して URL を置き換える
 # トップと最近更新された10ページの応答、WordPress・プラグイン・テーマの版を「基準」として記録する
-# (@upgrade=yes@)dev の構成に切り替える PR を作り、自動でマージする
+# (@upgrade=yes@)promote ワークフローで dev の構成を staging へ昇格する PR を作り、自動でマージされるのを待つ
 # プラグイン同期の Job、DB の更新(@wp core update-db@)、MariaDB のアップグレードを確かめる
 # 同じページの応答を取り直して基準と比べ、PHP のエラーを表示する
 
 h3. @3-production-promote@
 
-# dev と本番で差分のあるサイトを調べる
-# promote ワークフローで本番 PR を作る(作成者は @ibid-ops-bot@)
+# staging と本番で差分のあるサイトを調べる(staging に無いサイトは対象外)
+# promote ワークフローで staging → 本番の PR を作る(作成者は @ibid-ops-bot@)
 # 「本番バックアップは管理者がマージ直前に取る」と PR にコメントする
 # *人が PR を承認・マージするのを待つ*(このジョブはマージしない)
 # マージされたら、Fleet の反映を待って(約3分)各サイトの rollout を確かめ、本番の応答と MariaDB の状態を確認する
+
+h3. @4-staging-cleanup@
+
+# staging からサイトを消す PR を作り、自動でマージする
+# マージされたら、staging1 のサイトの namespace を削除する(DB・wp-content・バックアップも消える)
 
 h2. ログの確認
 
@@ -220,7 +231,7 @@ Rundeck のジョブの実行画面(Log Output)に、すべての出力が残り
 |@<site>  200  https://...@|サイトの応答(200 なら正常)|
 |@全サイト正常です。@|確認した全サイトが正常|
 |@PR作成: https://...@|作った PR|
-|@HTTPステータスが変わったページ:@|リハーサルで応答が変わったページ(要確認)|
+|@HTTPステータスが変わったページ:@|staging で応答が変わったページ(要確認)|
 
 作られた PR は GitHub の Pull requests でも見られます。本文の最後に「実行者: <あなた>(Rundeck、...)」と入ります。
 
@@ -228,7 +239,7 @@ h2. 注意事項
 
 * *@1-dev-refresh@ は dev の内容を上書きします。* dev で作業中の記事や設定があれば消えます。
 * dev のコンテンツを本番に送る方法はありません(本番に出るのは構成=バージョンとプラグインだけ)。
-* *リハーサルサイトは本番データのコピーです。終わったら必ず @2b-rehearsal-cleanup@ で消してください。* 同時に置けるのは1つまでです。
+* *staging のサイトは本番データのコピーです。本番へ昇格したら必ず @4-staging-cleanup@ で消してください。* 同時に置けるのは4サイトまでです。
 * *本番の PR は自分ではマージできません。* 管理者の承認が必要で、本番のバックアップも管理者が取ります。
 * @merge_wait_minutes@ を過ぎてもマージされないと、ジョブは失敗で終わります。PR は残るので、マージ後に @tools/check@(@env=production@)で確認してください。
 * 同じジョブは同時に1つしか動きません。
@@ -241,11 +252,12 @@ h2. トラブルシューティング
 |_.症状(出力)|_.対処|
 |@エラー: /mnt/ibid-nfs/backup/production が見えません。@|バックアップの NFS が外れています。管理者に連絡する|
 |@dev/<site> に前回のリストアの退避分 wp-content.orig が残っています。@|前回の @1-dev-refresh@ が途中で失敗しています。表示が正常なら、表示されたコマンド(@kubectl ... rm -rf /bitnami/wordpress/wp-content.orig@)で消してから実行し直す|
-|@他のリハーサルサイトがあります: <site>-rh@|前のリハーサルが残っています。終わっているなら @2b-rehearsal-cleanup@ で消す|
-|@envs/dev/sites/<site>-rh は既にあります。@|そのサイトのリハーサルが途中です。続けるなら @2a-rehearsal-upgrade@、やり直すなら @2b-rehearsal-cleanup@ のあと @2-rehearsal@|
-|@リハーサルの基準の置き場所 … 書き込めません。@|@wpadmins@ に入っていない、または入った直後。管理者に確認する|
+|@stagingには既に 4 サイトあります@|確認の終わったサイトが残っています。本番へ昇格済みなら @4-staging-cleanup@ で消す|
+|@envs/staging/sites/<site> は既にあります。@|そのサイトの確認が途中です。続けるなら @2a-staging-upgrade@、やり直すなら @4-staging-cleanup@ のあと @2-staging@|
+|@stagingに <site> がありません。@|本番へは staging を通します。先に @2-staging@|
+|@stagingの比較の基準の置き場所 … 書き込めません。@|@wpadmins@ に入っていない、または入った直後。管理者に確認する|
 |@…証明書ファイル … もありません。@|管理者の準備が足りません。管理者に連絡する|
-|@HTTPステータスが変わったページ:@|ブラウザでそのページを開いて確認する。dev で直したら @2a-rehearsal-upgrade@|
+|@HTTPステータスが変わったページ:@|ブラウザでそのページを開いて確認する。dev で直したら @2a-staging-upgrade@|
 |@Unauthorized@ / @You must be logged in to the server@|kubeconfig の期限切れ。「初回設定 3」で取り直す|
 |@エラー: 作業ツリーに未コミットの変更があります@|rancher で @cd ~/ibid-fleet-config && git status@ を見る。心当たりが無ければ管理者に相談する|
 |@エラー: ...分待ってもマージされませんでした@|PR はそのまま残っています。管理者に依頼し、マージ後に @tools/check@(@env=production@)で確認する|

@@ -20,10 +20,12 @@ resource state with `kubectl`.
   GitRepo CRs on the Rancher local cluster (copies kept in `fleet-bootstrap/`, applied manually) each
   watch only their environment's directory and target clusters labeled `env=<name>`.
 - **Promotion is controlled through GitHub PRs**, not cluster-side tooling: the `promote` workflow
-  (manual dispatch; `kind=sites|apps`, `name=<site|app>[ <site|app>...]|all`) copies `envs/dev/<kind>/<name>` (or, with
-  `all`, every one already in production) to `envs/production/<kind>/` and opens a PR.
-  `scripts/update-app-image.sh deploy-production` just dispatches it; an app's *first* production
-  promotion stays in `update-app-image.sh promote-production` (needs kubeseal). Branch protection and the
+  (manual dispatch; `kind=sites|apps`, `to=staging|production`, `name=<site|app>[ <site|app>...]|all`) copies
+  `envs/dev/<kind>/<name>` → `envs/staging/` (`to=staging`; auto-merged) or `envs/staging/<kind>/<name>` →
+  `envs/production/` (`to=production`; human-merged) — with `all`, every one already in the target (and, for
+  production, present in staging) — and opens a PR. **Production is only ever promoted from staging.**
+  `scripts/update-app-image.sh deploy-staging` / `deploy-production` just dispatch it; an app's *first* promotion
+  to each env stays in `update-app-image.sh promote-staging` / `promote-production` (needs kubeseal). Branch protection and the
   `main` ruleset require 0 approvals + Code Owner review (`/envs/production/`), but because the solo
   maintainer is both PR author and sole Code Owner, GitHub does not require a review on the maintainer's
   own PRs. Rundeck pipelines run as the operator's own OS user / GitHub account (write collaborator, not a
@@ -35,12 +37,15 @@ resource state with `kubectl`.
   per-site *and per-environment* and never shared or committed.
 - `diff -r envs/dev/sites envs/production/sites` (and `apps`) should only show promotions in flight
   (`helm.version`, `plugins`, image tags) — bundles are environment-agnostic (see below).
-- **Staging (reintroduction in progress, 2026-10-25).** Decided: staging holds only what is being verified
-  (sites/apps are added, tested with restored production data, promoted, then removed); it replaces the
-  dev1 rehearsal sites `<site>-rh`; everything goes dev → staging → production; staging infra is a light
-  version (no Longhorn, `reclaimPolicy: Delete` StorageClasses); PRs touching only `envs/staging/` may
-  auto-merge. Until the staging pipeline lands, the promote workflow and scripts below still describe
-  dev → production and the `<site>-rh` rehearsal. Do not invent other promotion paths.
+- **Staging holds only what is being verified** (reintroduced 2026-10-25; replaces the former dev1 rehearsal
+  sites `<site>-rh`). A site is put on staging with production's config, production data is restored into it,
+  dev's config is promoted onto it and compared (`wordpress-pipeline.sh staging-start` / `staging-upgrade`),
+  then staging → production, then it is removed from staging (`staging-cleanup`). staging1 is small (3 × 8GiB):
+  at most 4 WordPress sites at once (`STAGING_MAX_SITES`). Staging infra is a light version (no Longhorn,
+  `reclaimPolicy: Delete` StorageClasses, small Prometheus). Staging Secrets are sealed fresh per stay with
+  staging1's key. PRs touching only `envs/staging/` (no CODEOWNERS) auto-merge. Apps get `overlays/staging/`
+  (production-like, 1 replica, shared NFS read-only; never point staging at production data/services —
+  metadatabase-v2 keeps dev settings on staging). See `docs/operations-flow.md` 「stagingでの確認」.
 
 ## Repository structure
 
@@ -77,12 +82,11 @@ resource state with `kubectl`.
   cannot be copied between envs), `bootstrap-site-secrets.sh <site>` (legacy direct-to-cluster
   creation, emergencies only), `deploy-wordpress.sh <env> <site>` (**break-glass only** —
   normal changes go through PR merge; pause the env's GitRepo before using it on production),
-  `rehearsal-site.sh <site> <production|dev>` (temporary `<site>-rh` bundle on dev for production-data
-  rehearsals), `update-app-image.sh` (apps: `set-image` does image bump → build → dev in one run; production via
-  `deploy-production`), `bump-chart.sh [--update-images] "<title>"` (chart change/Bitnami digest bump →
+  `update-app-image.sh` (apps: `set-image` does image bump → build → dev in one run; then
+  `deploy-staging` (auto-merged, apps stay resident on staging) and `deploy-production`), `bump-chart.sh [--update-images] "<title>"` (chart change/Bitnami digest bump →
   publish → all dev sites' `helm.version`, one run), `bump-plugins.sh` (dev plugins → latest
-  WordPress.org versions), `wordpress-pipeline.sh` (WP pipelines: production content → dev site, rehearsal
-  start/upgrade/cleanup, production promotion that waits for a human merge). `auto-update.yaml` runs both weekly (dev only; production still via promote). These scripts auto-merge dev-only PRs; see branch protection below.
+  WordPress.org versions), `wordpress-pipeline.sh` (WP pipelines: production content → dev site, staging
+  start/upgrade/cleanup, staging → production promotion that waits for a human merge). `auto-update.yaml` runs both weekly (dev only; production still via promote). These scripts auto-merge dev-only and staging-only PRs; see branch protection below.
 - `docs/` — manual runbooks for steps Fleet cannot automate. Always check these before changing
   behavior they document, and update them when the corresponding config changes. `docs/runbook/` holds
   the short, steps-only operator runbooks (new site, WP update, new app, app update, troubleshooting);

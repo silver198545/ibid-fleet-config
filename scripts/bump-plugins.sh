@@ -65,8 +65,8 @@ pr_commit_push_create "chore: devのWordPressプラグインを最新版へ更�
 ${summary}
 
 マージ後、devのFleetが各サイトのプラグイン同期Jobで適用する。
-メジャー更新を含む場合は各プラグインの変更履歴を確認し、必要なら本番データリハーサルを行う
-(docs/operations-flow.md)。devで確認後、\`promote\` ワークフロー(name=all)でproductionへ昇格する。
+メジャー更新を含む場合は各プラグインの変更履歴を確認し、必要ならstagingで本番データを入れて確かめる
+(docs/operations-flow.md)。devで確認後、サイトごとにstagingを通してproductionへ昇格する(docs/runbook/wordpress-update.md)。
 EOF
 )" || exit 1
 pr_automerge_and_wait "$PR_URL"

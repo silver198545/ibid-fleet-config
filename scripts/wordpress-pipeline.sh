@@ -2,42 +2,48 @@
 # WordPressサイトの運用パイプライン。Rundeckの wordpress グループのジョブ
 # (rundeck/jobs/wordpress.yaml、docs/manual-rundeck.md)から呼ぶ。手動でも実行できる。
 # 手順書の手作業を順につないだもので、各段の内容は次の手順書と同じ:
-#   docs/operations-flow.md「本番データリハーサル」「本番反映前のバックアップ」
+#   docs/operations-flow.md「stagingでの確認」「本番反映前のバックアップ」
 #   docs/manual-wordpress-restore.md「日次バックアップ」「6b.」
 #   docs/runbook/wordpress-update.md「C. 本番へ昇格する」
+#
+# 昇格の流れ: dev → staging(本番データで確認) → production。stagingには確認中のサイトだけを一時的に置き、
+# 終わったら消す(staging1のメモリの都合で同時に STAGING_MAX_SITES サイトまで)。
 #
 # サブコマンド:
 #   dev-refresh <site>...            本番の最新コンテンツでdevの同名サイトを上書きする。
 #                                    本番のバックアップを今すぐ取る → devの現状をバックアップ →
 #                                    リストア → URL置換 → 確認。gitは触らない
-#   rehearsal-start <site>           本番と同じ構成のリハーサルサイト <site>-rh をdev1に作り
-#                                    (devだけのPRなのでauto-merge)、本番の最新コンテンツを入れて、
-#                                    比較の基準(各ページのHTTPステータス・版)を記録する
-#   rehearsal-upgrade <site>         <site>-rh をdevの構成(昇格予定の変更)へ切り替え、
-#                                    プラグイン同期Job・DB更新・MariaDBアップグレード・表示を基準と比べる
-#   rehearsal-cleanup <site>         <site>-rh をGitから消し(auto-merge)、namespaceを削除する
-#   promote-production <site...|all> 本番への昇格PRを作り、対象サイトの本番バックアップを取ってから
+#   staging-start <site>             <site>を本番と同じ構成でstagingに置き(stagingだけのPRなのでauto-merge)、
+#                                    本番の最新コンテンツを入れて、比較の基準(各ページのHTTPステータス・版)を記録する。
+#                                    本番にまだ無い新規サイトはdevの構成で置く(本番データは入れない)
+#   staging-upgrade <site>           stagingの<site>をdevの構成(昇格予定の変更)へ切り替え(promoteワークフロー、
+#                                    auto-merge)、プラグイン同期Job・DB更新・MariaDBアップグレード・表示を基準と比べる
+#   staging-cleanup <site>           stagingの<site>をGitから消し(auto-merge)、namespaceを削除する
+#   promote-production <site...|all> stagingから本番への昇格PRを作り、対象サイトの本番バックアップを取ってから
 #                                    人がPRをマージするのを待ち(このスクリプトはマージしない)、
-#                                    反映後に本番を確認する
+#                                    反映後に本番を確認する。all はstagingに載っている、本番にある全サイト
 #   backup <env> <site...|all>       日次バックアップのCronJobから今すぐ1つ取る(完了まで待つ)
 #   check <env> <site...|all>        各サイトのHTTPステータス(200か)とPodの状態を確認する
 #
 # 環境変数:
 #   NFS_BACKUP_ROOT=<path>    バックアップNFSのマウント先(既定 /mnt/ibid-nfs/backup。
 #                             192.168.1.1:/data/nfs を読み取り専用でマウントしておく)
-#   FRESH_BACKUP=0            dev-refresh/rehearsal-start で本番のバックアップを新たに取らず、
+#   FRESH_BACKUP=0            dev-refresh/staging-start で本番のバックアップを新たに取らず、
 #                             最新の日次バックアップ(JST 3:00)を使う
 #   MERGE_WAIT_MINUTES=<分>   promote-production で人のマージを待つ時間(既定240)
-#   SEALED_SECRETS_CERT_DEV=<pem> rehearsal-start で、dev1のSealed Secretsの証明書を取りに行けないとき
-#                             に使う公開証明書(既定 /var/lib/ibid-fleet-config/sealed-secrets-dev1.pem)
+#   STAGING_MAX_SITES=<数>    stagingに同時に置けるサイト数(既定4。staging1のメモリの都合)
+#   STAGING_PROJECT_ID=<クラスタID>:<プロジェクトID> staging-start で作るnamespaceを置く、staging1のRancherの
+#                             プロジェクト(オペレータが触れるようにする。空ならプロジェクトの外)
+#   SEALED_SECRETS_CERT_STAGING=<pem> staging-start で、staging1のSealed Secretsの証明書を取りに行けないとき
+#                             に使う公開証明書(既定 /var/lib/ibid-fleet-config/sealed-secrets-staging1.pem)
 #
 # 実行する人の権限が足りないときの動き(Rundeckのオペレータ。docs/manual-rundeck.md「WordPressのオペレータ」):
-#   - 本番でJobを作れない(prod1がRead-only): 今すぐのバックアップは取らず、dev-refresh・rehearsal-start は
+#   - 本番でJobを作れない(prod1がRead-only): 今すぐのバックアップは取らず、dev-refresh・staging-start は
 #     最新の日次バックアップを使う。promote-production は「マージ前に管理者がバックアップを取る」とPRに書いて待つ
 #   - 本番のSecret(Helmの履歴)を読めない: 反映はHelmのリビジョンでなく、一定時間待ってからrolloutで確かめる
-#   - kube-systemのSealed Secretsに届かない: SEALED_SECRETS_CERT_DEV の証明書で封印する
+#   - kube-systemのSealed Secretsに届かない: SEALED_SECRETS_CERT_STAGING の証明書で封印する
 #
-# 前提: gh CLIが認証済み、kubectl/kubesealのコンテキスト dev1/prod1 が ~/.kube/config にあること
+# 前提: gh CLIが認証済み、kubectl/kubesealのコンテキスト dev1/staging1/prod1 が ~/.kube/config にあること
 # (docs/manual-tooling-setup.md)。
 set -euo pipefail
 
@@ -51,10 +57,12 @@ NFS_BACKUP_ROOT="${NFS_BACKUP_ROOT:-/mnt/ibid-nfs/backup}"
 FRESH_BACKUP="${FRESH_BACKUP:-1}"
 MERGE_WAIT_MINUTES="${MERGE_WAIT_MINUTES:-240}"
 WP_PATH="/opt/bitnami/wordpress"
-# リハーサルの比較の基準。始めた人と続きを実行する人が違ってもよいよう、ユーザー間で共有する
-# (FreeIPAのグループ wpadmins で書けるsetgidディレクトリ。docs/manual-rundeck.md「実行アカウント」)
-STATE_ROOT="${REHEARSAL_STATE_ROOT:-/var/lib/ibid-fleet-config/rehearsal}"
-SEALED_SECRETS_CERT_DEV="${SEALED_SECRETS_CERT_DEV:-/var/lib/ibid-fleet-config/sealed-secrets-dev1.pem}"
+STAGING_MAX_SITES="${STAGING_MAX_SITES:-4}"
+# stagingでの比較の基準。始めた人と続きを実行する人が違ってもよいよう、ユーザー間で共有する
+# (FreeIPAのグループ wpadmins で書けるsetgidディレクトリ。docs/manual-rundeck.md「実行アカウント」)。
+# パスはdev1のリハーサルサイト時代(〜2026-10-25)のものをそのまま使う
+STATE_ROOT="${STAGING_STATE_ROOT:-/var/lib/ibid-fleet-config/rehearsal}"
+SEALED_SECRETS_CERT_STAGING="${SEALED_SECRETS_CERT_STAGING:-/var/lib/ibid-fleet-config/sealed-secrets-staging1.pem}"
 
 usage() {
   echo "使い方: $0 <subcommand> [args...]" >&2
@@ -75,8 +83,9 @@ done
 context_for_env() {
   case "$1" in
     dev) echo "dev1" ;;
+    staging) echo "staging1" ;;
     production) echo "prod1" ;;
-    *) die "envは dev / production のいずれかを指定してください: $1" ;;
+    *) die "envは dev / staging / production のいずれかを指定してください: $1" ;;
   esac
 }
 
@@ -97,7 +106,7 @@ check_site_name() {
   [[ "$1" =~ ^[a-z0-9-]+$ ]] || die "サイト名は英小文字・数字・ハイフンのみ使用できます: $1"
 }
 
-# 引数(サイト名の並び、または all)を SITES 配列に展開する。all はその環境のリハーサルサイト以外の全サイト。
+# 引数(サイト名の並び、または all)を SITES 配列に展開する。all はその環境の全サイト。
 resolve_sites() {
   local env="$1" s d
   shift
@@ -105,9 +114,7 @@ resolve_sites() {
   [[ $# -gt 0 ]] || die "サイト名を指定してください(複数可。all で全サイト)。"
   if [[ "$*" == "all" ]]; then
     for d in "envs/$env/sites/"*/; do
-      s="$(basename "$d")"
-      [[ "$s" == *-rh ]] && continue
-      SITES+=("$s")
+      SITES+=("$(basename "$d")")
     done
   else
     for s in "$@"; do
@@ -329,17 +336,17 @@ replace_urls() {
   wp_cli "$env" "$site" rewrite flush >/dev/null || echo "警告: wp rewrite flush に失敗しました(パーマリンクが404なら手動で実行してください)。" >&2
 }
 
-# 本番<src_site>のバックアップ(時刻<ts>)を dev の<dst_site>へリストアし、URLを置換する
+# 本番<src_site>のバックアップ(時刻<ts>)を <dst_env> の<dst_site>へリストアし、URLを置換する
 restore_from_production() {
-  local src_site="$1" dst_site="$2" ts="$3"
+  local src_site="$1" dst_env="$2" dst_site="$3" ts="$4"
   echo ""
-  echo "=== リストア: production/${src_site}(${ts}) → dev/${dst_site} ==="
+  echo "=== リストア: production/${src_site}(${ts}) → ${dst_env}/${dst_site} ==="
   # (dev-refreshではサブシェル内のif条件として呼ばれ set -e が効かないため、各段で明示的に止める)
-  KUBE_CONTEXT=dev1 IBID_ASSUME_YES=1 "$SCRIPT_DIR/restore-wordpress.sh" \
+  KUBE_CONTEXT="$(context_for_env "$dst_env")" IBID_ASSUME_YES=1 "$SCRIPT_DIR/restore-wordpress.sh" \
     "$dst_site" "$(backup_dir production "$src_site")" "$ts" || return 1
   # Podの入れ替え中に置換すると途中で切れるため、落ち着いてから行う(6b.参照)
-  kc dev -n "wordpress-$dst_site" rollout status "deploy/wordpress-$dst_site" --timeout=10m || return 1
-  replace_urls dev "$dst_site" || return 1
+  kc "$dst_env" -n "wordpress-$dst_site" rollout status "deploy/wordpress-$dst_site" --timeout=10m || return 1
+  replace_urls "$dst_env" "$dst_site" || return 1
 }
 
 # 本番データのバックアップの時刻をサイトごとに決める(FRESH_BACKUP=1なら今すぐ取る)
@@ -368,7 +375,6 @@ cmd_dev_refresh() {
   resolve_sites dev "$@"
   local -a targets=("${SITES[@]}")
   for s in "${targets[@]}"; do
-    [[ "$s" == *-rh ]] && die "リハーサルサイトは対象外です: $s(rehearsal-start を使ってください)"
     [[ -d "envs/production/sites/$s" ]] || die "本番に ${s} がありません(envs/production/sites/${s})。"
     if kc dev -n "wordpress-$s" exec "deploy/wordpress-$s" -c wordpress -- test -e /bitnami/wordpress/wp-content.orig 2>/dev/null; then
       die "dev/${s} に前回のリストアの退避分 wp-content.orig が残っています。内容を確認して削除してから再実行してください:
@@ -389,7 +395,7 @@ cmd_dev_refresh() {
   local failed=()
   for s in "${targets[@]}"; do
     ts="${prod_ts[$s]}"
-    if ! (restore_from_production "$s" "$s" "$ts"); then
+    if ! (restore_from_production "$s" dev "$s" "$ts"); then
       echo "エラー: dev/${s} のリストアに失敗しました。上書き前のバックアップ: $(backup_dir dev "$s")/${BACKUP_TS[$s]}" >&2
       failed+=("$s")
       continue
@@ -410,164 +416,223 @@ cmd_dev_refresh() {
 }
 
 # ---------------------------------------------------------------------------
-# 本番データリハーサル(docs/operations-flow.md「本番データリハーサル」)
+# staging(検証中のサイトを一時的に置く。docs/operations-flow.md「stagingでの確認」)
 # ---------------------------------------------------------------------------
 
-rh_state_dir() { echo "$STATE_ROOT/$1-rh"; }
+stg_state_dir() { echo "$STATE_ROOT/staging-$1"; }
 
 # 基準のディレクトリへ書けることを確かめる(他のオペレータも上書きできるよう、グループ書き込み可で作る)
-rh_require_state_root() {
-  [[ -d "$STATE_ROOT" && -w "$STATE_ROOT" ]] || die "リハーサルの基準の置き場所 ${STATE_ROOT} がない、または書き込めません。
+stg_require_state_root() {
+  [[ -d "$STATE_ROOT" && -w "$STATE_ROOT" ]] || die "stagingの比較の基準の置き場所 ${STATE_ROOT} がない、または書き込めません。
   sudo install -d -m 2775 -g wpadmins ${STATE_ROOT}   # 実行するユーザーをグループ wpadmins に入れておく
 (docs/manual-rundeck.md「実行アカウント」)"
   umask 002
 }
 
-# リハーサルサイトの状態を記録する(<dir>/<name>-info.txt と <name>-pages.txt)。
+# stagingのサイトの状態を記録する(<dir>/<name>-info.txt と <name>-pages.txt)。
 # ページの一覧は基準の記録時(before)に作り、以降は同じページを見る。
-rh_snapshot() {
-  local site="$1" name="$2" rh="$1-rh" dir host url path code
-  dir="$(rh_state_dir "$site")"
+stg_snapshot() {
+  local site="$1" name="$2" dir url path code base
+  dir="$(stg_state_dir "$site")"
   mkdir -p "$dir"
   {
-    echo "WordPress: $(wp_cli dev "$rh" core version 2>/dev/null || echo 不明)"
-    echo "MariaDB(mariadb_upgrade_info): $(kc dev -n "wordpress-$rh" exec "wordpress-$rh-mariadb-0" -c mariadb -- cat /bitnami/mariadb/data/mariadb_upgrade_info 2>/dev/null || echo なし)"
-    echo "テーマ: $(wp_cli dev "$rh" theme list --status=active --field=name 2>/dev/null | tr '\n' ' ')"
+    echo "WordPress: $(wp_cli staging "$site" core version 2>/dev/null || echo 不明)"
+    echo "MariaDB(mariadb_upgrade_info): $(kc staging -n "wordpress-$site" exec "wordpress-$site-mariadb-0" -c mariadb -- cat /bitnami/mariadb/data/mariadb_upgrade_info 2>/dev/null || echo なし)"
+    echo "テーマ: $(wp_cli staging "$site" theme list --status=active --field=name 2>/dev/null | tr '\n' ' ')"
     echo "プラグイン(name,status,version):"
-    { wp_cli dev "$rh" plugin list --fields=name,status,version --format=csv 2>/dev/null || printf 'header\n(取得失敗)\n'; } | tail -n +2 | sed 's/^/  /'
+    { wp_cli staging "$site" plugin list --fields=name,status,version --format=csv 2>/dev/null || printf 'header\n(取得失敗)\n'; } | tail -n +2 | sed 's/^/  /'
   } >"$dir/$name-info.txt"
 
   if [[ ! -f "$dir/paths.txt" ]]; then
     {
       echo "/"
-      { wp_cli dev "$rh" post list --post_type=post,page --post_status=publish --posts_per_page=10 \
+      { wp_cli staging "$site" post list --post_type=post,page --post_status=publish --posts_per_page=10 \
         --orderby=modified --field=url 2>/dev/null || true; } | sed -E 's#^[a-z]+://[^/]+##'
     } | sort -u >"$dir/paths.txt"
   fi
-  host="$(grep -oP '^\s*hostname: \K[a-z0-9-]+' "envs/dev/sites/$rh/fleet.yaml" | head -1).dev.ibid.lan"
+  # site_url は https://<host><sitePath>/ 。記事のURLはsitePathを含むので、ホストまでを使う
+  base="$(site_url staging "$site" | sed -E 's#^(https://[^/]+).*#\1#')"
   : >"$dir/$name-pages.txt"
   while read -r path; do
-    [[ "$path" == "/" ]] && path="$(grep -oP '^    sitePath: \K\S+' "envs/dev/sites/$rh/fleet.yaml" | head -1 || true)/"
-    url="https://${host}${path}"
+    if [[ "$path" == "/" ]]; then url="$(site_url staging "$site")"; else url="${base}${path}"; fi
     code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 30 "$url" || echo 000)"
     echo "$code $path" >>"$dir/$name-pages.txt"
   done <"$dir/paths.txt"
-  echo "--- ${name}: $(cat "$dir/$name-info.txt" | head -2 | tr '\n' ' ')"
+  echo "--- ${name}: $(head -2 "$dir/$name-info.txt" | tr '\n' ' ')"
   sed 's/^/  /' "$dir/$name-pages.txt"
 }
 
-rh_require_single() {
-  local rh="$1" d other=()
-  for d in envs/dev/sites/*-rh; do
-    [[ -d "$d" && "$(basename "$d")" != "$rh" ]] && other+=("$(basename "$d")")
+# stagingに今載っているサイト(envs/staging/sites/ のディレクトリ)
+staging_sites() {
+  local d
+  for d in envs/staging/sites/*/; do
+    [[ -d "$d" ]] && basename "$d"
   done
-  [[ ${#other[@]} -eq 0 ]] || die "他のリハーサルサイトがあります: ${other[*]}。dev1のメモリの都合で同時に置けるのは1つまでです。先に rehearsal-cleanup してください。"
 }
 
-cmd_rehearsal_start() {
+# staging1のメモリの都合で、同時に載せるサイト数に上限を設ける(既定4。STAGING_MAX_SITES)
+stg_require_capacity() {
+  local -a current
+  mapfile -t current < <(staging_sites)
+  if (( ${#current[@]} >= STAGING_MAX_SITES )); then
+    die "stagingには既に ${#current[@]} サイトあります(${current[*]})。staging1のメモリの都合で同時に置けるのは${STAGING_MAX_SITES}サイトまでです。
+確認の終わったサイトを staging-cleanup してください。"
+  fi
+}
+
+# promoteワークフローを起動し、作られたPRのURLを PROMOTE_PR_URL に入れる。差分が無くPRが作られなかったときは空。
+# 引数: <kind> <to> <name...|all>
+run_promote() {
+  local kind="$1" to="$2" names="$3" started run_id="" i from
+  case "$to" in staging) from=dev ;; production) from=staging ;; esac
+  started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  gh workflow run promote.yaml -f kind="$kind" -f to="$to" -f name="$names"
+  echo "promoteワークフロー(${from}→${to})を起動しました。実行を待っています..."
+  for ((i = 0; i < 30; i++)); do
+    run_id="$(gh run list --workflow=promote.yaml --event workflow_dispatch --limit 5 \
+      --json databaseId,createdAt -q "[.[] | select(.createdAt >= \"${started}\")] | last | .databaseId // empty")"
+    [[ -n "$run_id" ]] && break
+    sleep 5
+  done
+  [[ -n "$run_id" ]] || die "promoteワークフローの実行が見つかりません(gh run list --workflow=promote.yaml)。"
+  gh run watch "$run_id" --exit-status >/dev/null || die "promoteワークフローが失敗しました: gh run view ${run_id} --log-failed"
+  PROMOTE_PR_URL="$(gh pr list --state all --search "head:promote/${from}-to-${to}-${kind}-" --json url,headRefName \
+    -q "[.[] | select(.headRefName | endswith(\"-${run_id}\"))][0].url // empty")"
+  if [[ -n "$PROMOTE_PR_URL" ]]; then
+    echo "PR作成: ${PROMOTE_PR_URL}"
+    pr_comment_actor "$PROMOTE_PR_URL"
+  fi
+}
+
+# auto-mergeを設定したPR(stagingだけに触れるもの)のマージを待つ。引数: <pr_url>
+wait_automerged() {
+  local pr_url="$1" i state
+  echo "auto-mergeを待っています: ${pr_url}"
+  for ((i = 0; i < 90; i++)); do
+    state="$(gh pr view "$pr_url" --json state -q .state)"
+    case "$state" in
+      MERGED) echo "マージされました。"; return 0 ;;
+      CLOSED) die "PRがマージされずにcloseされました: ${pr_url}" ;;
+    esac
+    sleep 10
+  done
+  die "15分待ってもマージされませんでした(validateの失敗等を確認してください): ${pr_url}"
+}
+
+cmd_staging_start() {
   [[ $# -eq 1 ]] || usage
-  local site="$1" rh="$1-rh" ts
+  local site="$1" ts from
   check_site_name "$site"
-  [[ "$site" != *-rh ]] || die "リハーサル元のサイト名を指定してください: $site"
-  [[ -d "envs/production/sites/$site" ]] || die "本番に ${site} がありません。"
-  rh_require_single "$rh"
-  require_nfs
-  rh_require_state_root
+  [[ -d "envs/dev/sites/$site" ]] || die "envs/dev/sites/${site} がありません(変更は必ずdevから入れる)。"
+  if [[ -d "envs/production/sites/$site" ]]; then
+    from=production
+    require_nfs
+  else
+    from=dev
+  fi
+  stg_require_state_root
 
   pr_lock_repo
   pr_ensure_clean_worktree
   pr_require_main_uptodate
-  if [[ -d "envs/dev/sites/$rh" ]]; then
-    die "envs/dev/sites/${rh} は既にあります。続きは rehearsal-upgrade、作り直すなら rehearsal-cleanup してから実行してください。"
-  fi
+  [[ -d "envs/staging/sites/$site" ]] && die "envs/staging/sites/${site} は既にあります。続きは staging-upgrade、作り直すなら staging-cleanup してから実行してください。"
+  stg_require_capacity
 
-  git checkout -b "rehearsal/${rh}-start-$(date +%Y%m%d%H%M%S)"
-  "$SCRIPT_DIR/rehearsal-site.sh" "$site" production
-  # リハーサルサイトのnamespaceを元のサイトと同じRancherのプロジェクトに置く(オペレータが触れるように)
-  local project_id
-  project_id="$(kc dev get namespace "wordpress-$site" -o jsonpath='{.metadata.annotations.field\.cattle\.io/projectId}' 2>/dev/null || true)"
-  [[ -n "$project_id" ]] || echo "警告: dev/${site} のnamespaceがRancherのプロジェクトに属していません。${rh} もプロジェクトの外に作られます。" >&2
-  local -a seal_env=(SEAL_HIDE_PASSWORDS=1 NAMESPACE_PROJECT_ID="$project_id")
-  if ! can_i dev get services/proxy -n kube-system; then
-    [[ -r "$SEALED_SECRETS_CERT_DEV" ]] || die "dev1のSealed Secretsの証明書を取りに行く権限が無く、証明書ファイル ${SEALED_SECRETS_CERT_DEV} もありません。
-管理者に置いてもらってください: kubeseal --context dev1 --fetch-cert | sudo tee ${SEALED_SECRETS_CERT_DEV}"
-    seal_env+=(SEALED_SECRETS_CERT="$SEALED_SECRETS_CERT_DEV")
+  git checkout -b "staging/${site}-start-$(date +%Y%m%d%H%M%S)"
+  # 本番にあるサイトは本番と同じ構成で置き(このあと本番データを入れて基準を記録する)、
+  # 本番にまだ無い新規サイトはdevの構成で置く
+  cp -r "envs/$from/sites/$site" "envs/staging/sites/$site"
+  # stagingのSecretは毎回新しいパスワードで作る(片付けで消す)。オペレータがstaging1で触れるよう、
+  # STAGING_PROJECT_ID があればRancherのプロジェクトに置く
+  local -a seal_env=(SEAL_HIDE_PASSWORDS=1 NAMESPACE_PROJECT_ID="${STAGING_PROJECT_ID:-}")
+  if ! can_i staging get services/proxy -n kube-system; then
+    [[ -r "$SEALED_SECRETS_CERT_STAGING" ]] || die "staging1のSealed Secretsの証明書を取りに行く権限が無く、証明書ファイル ${SEALED_SECRETS_CERT_STAGING} もありません。
+管理者に置いてもらってください: kubeseal --context staging1 --fetch-cert | sudo tee ${SEALED_SECRETS_CERT_STAGING}"
+    seal_env+=(SEALED_SECRETS_CERT="$SEALED_SECRETS_CERT_STAGING")
   fi
-  env "${seal_env[@]}" "$SCRIPT_DIR/seal-site-secrets.sh" dev "$rh"
-  git add "envs/dev/sites/$rh" "envs/dev/secrets/$rh.yaml"
+  env "${seal_env[@]}" "$SCRIPT_DIR/seal-site-secrets.sh" staging "$site"
+  git add "envs/staging/sites/$site" "envs/staging/secrets/$site.yaml"
   pr_commit_push_create \
-    "chore: 本番データリハーサル用に${rh}をdevへ追加" \
+    "chore: 確認のため${site}をstagingへ追加" \
     "$(cat <<EOF
 ## 内容
-\`scripts/wordpress-pipeline.sh rehearsal-start ${site}\` で作成。本番(\`envs/production/sites/${site}\`)と同じ構成の
-一時サイト \`${rh}\` をdev1に作り、本番の最新コンテンツをリストアします(docs/operations-flow.md「本番データリハーサル」)。
+\`scripts/wordpress-pipeline.sh staging-start ${site}\` で作成。\`envs/${from}/sites/${site}\` と同じ構成で
+\`${site}\` をstaging1に置きます(docs/operations-flow.md「stagingでの確認」)。
+$([[ "$from" == production ]] && echo "このあと本番の最新コンテンツをリストアし、比較の基準を記録します。")
 
-リハーサルが終わったら \`rehearsal-cleanup ${site}\` で削除します。
+確認が終わったら \`staging-cleanup ${site}\` で削除します。
 EOF
 )"
   pr_automerge_and_wait "$PR_URL"
   pr_unlock_repo
 
-  wait_site_applied dev "$rh"
+  wait_site_applied staging "$site"
+  rm -f "$(stg_state_dir "$site")"/*
 
-  echo ""
-  echo "=== 本番のバックアップ ==="
-  prepare_production_backups "$site"
-  ts="${BACKUP_TS[$site]}"
-  restore_from_production "$site" "$rh" "$ts"
-  kc dev -n "wordpress-$rh" exec "deploy/wordpress-$rh" -c wordpress -- rm -rf /bitnami/wordpress/wp-content.orig
-
-  rm -f "$(rh_state_dir "$site")"/*
-  echo ""
-  echo "=== 比較の基準(本番と同じ構成・本番データ)を記録します ==="
-  rh_snapshot "$site" before
-  echo "production/${site} ${ts}" >"$(rh_state_dir "$site")/source.txt"
-  echo ""
-  echo "リハーサルサイトを本番と同じ構成で用意しました: $(site_url dev "$rh")"
-  echo "(リンク先はdevの公開ドメインになる。docs/manual-wordpress-restore.md 6b.)"
+  if [[ "$from" == production ]]; then
+    echo ""
+    echo "=== 本番のバックアップ ==="
+    prepare_production_backups "$site"
+    ts="${BACKUP_TS[$site]}"
+    restore_from_production "$site" staging "$site" "$ts"
+    kc staging -n "wordpress-$site" exec "deploy/wordpress-$site" -c wordpress -- rm -rf /bitnami/wordpress/wp-content.orig
+    echo ""
+    echo "=== 比較の基準(本番と同じ構成・本番データ)を記録します ==="
+    stg_snapshot "$site" before
+    echo "production/${site} ${ts}" >"$(stg_state_dir "$site")/source.txt"
+    echo ""
+    echo "stagingに本番と同じ構成・本番データで用意しました: $(site_url staging "$site")"
+    echo "続けて staging-upgrade ${site} でdevの構成(昇格予定の変更)へ切り替えます。"
+  else
+    echo ""
+    echo "=== 状態を記録します(本番にまだ無い新規サイトのため、本番データは入れない) ==="
+    stg_snapshot "$site" before
+    echo ""
+    echo "新規サイトをdevの構成でstagingに置きました: $(site_url staging "$site")"
+    echo "確認できたら promote-production ${site} で本番へ追加します(先に scripts/seal-site-secrets.sh production ${site})。"
+  fi
 }
 
-cmd_rehearsal_upgrade() {
+cmd_staging_upgrade() {
   [[ $# -eq 1 ]] || usage
-  local site="$1" rh="$1-rh" dir before_rev merged_at job_line job_created job failed=0 secs
+  local site="$1" dir before_rev merged_at job_line job_created job failed=0 secs
   check_site_name "$site"
-  rh_require_state_root
-  dir="$(rh_state_dir "$site")"
-  [[ -d "envs/dev/sites/$rh" ]] || die "envs/dev/sites/${rh} がありません。先に rehearsal-start ${site} を実行してください。"
+  stg_require_state_root
+  dir="$(stg_state_dir "$site")"
+  [[ -d "envs/staging/sites/$site" ]] || die "envs/staging/sites/${site} がありません。先に staging-start ${site} を実行してください。"
   [[ -f "$dir/before-pages.txt" ]] || echo "警告: 比較の基準(${dir}/before-pages.txt)がありません。比較はせず現状だけ表示します。" >&2
 
   pr_lock_repo
   pr_ensure_clean_worktree
   pr_require_main_uptodate
-  before_rev="$(helm_revision dev "$rh")"
-  git checkout -b "rehearsal/${rh}-upgrade-$(date +%Y%m%d%H%M%S)"
-  "$SCRIPT_DIR/rehearsal-site.sh" "$site" dev
-  if git diff --quiet; then
-    git checkout main
-    git branch -D "$(git rev-parse --abbrev-ref '@{-1}')" >/dev/null
+  if diff -rq "envs/dev/sites/$site" "envs/staging/sites/$site" >/dev/null; then
     pr_unlock_repo
-    echo "devと本番の ${site} の構成に差分がありません(昇格予定の変更が無い)。リハーサルで確かめることはありません。"
+    echo "devとstagingの ${site} の構成に差分がありません(昇格予定の変更が無い、または切り替え済み)。"
     return 0
   fi
-  echo "適用する変更(本番の構成 → devの構成):"
-  git --no-pager diff
-  git add "envs/dev/sites/$rh"
-  pr_commit_push_create \
-    "chore: ${rh}をdevの構成へ切り替えて本番データリハーサル" \
-    "\`scripts/wordpress-pipeline.sh rehearsal-upgrade ${site}\` で作成。\`${rh}\`(本番データ)に、昇格予定の構成(\`envs/dev/sites/${site}\`)を適用します。"
+  echo "適用する変更(stagingの構成 → devの構成):"
+  diff -ru "envs/staging/sites/$site" "envs/dev/sites/$site" | sed 's/^/  /' || true
+  before_rev="$(helm_revision staging "$site")"
   merged_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  pr_automerge_and_wait "$PR_URL"
+  pr_unlock_repo
+
+  # dev→stagingの昇格はpromoteワークフローで行う(stagingだけのPRなのでauto-merge)
+  run_promote sites staging "$site"
+  [[ -n "$PROMOTE_PR_URL" ]] || die "昇格PRが見つかりません。"
+  wait_automerged "$PROMOTE_PR_URL"
+  pr_lock_repo
+  git pull --ff-only origin main
   pr_unlock_repo
 
   SECONDS=0
-  wait_site_applied dev "$rh" "$before_rev"
+  wait_site_applied staging "$site" "$before_rev"
   echo "適用にかかった時間: ${SECONDS}秒"
 
   echo ""
   echo "=== プラグイン同期Job ==="
   job=""
   for ((secs = 0; secs < 300; secs += 15)); do
-    job_line="$(kc dev -n "wordpress-$rh" get jobs -l app.kubernetes.io/component=plugin-sync \
+    job_line="$(kc staging -n "wordpress-$site" get jobs -l app.kubernetes.io/component=plugin-sync \
       -o jsonpath='{range .items[*]}{.metadata.creationTimestamp} {.metadata.name}{"\n"}{end}' 2>/dev/null | sort | tail -1)"
     job_created="${job_line%% *}"
     if [[ -n "$job_line" && "$job_created" > "$merged_at" ]]; then
@@ -578,9 +643,9 @@ cmd_rehearsal_upgrade() {
   done
   if [[ -z "$job" ]]; then
     echo "新しいプラグイン同期Jobは作られませんでした(プラグイン一覧・イメージに変更が無い)。"
-  elif wait_job dev "wordpress-$rh" "$job" 1200; then
-    echo "成功: job/${job}(所要時間: $(kc dev -n "wordpress-$rh" get job "$job" -o go-template='{{.status.startTime}} → {{.status.completionTime}}'))"
-    kc dev -n "wordpress-$rh" logs "job/$job" --tail=20 | sed 's/^/  /'
+  elif wait_job staging "wordpress-$site" "$job" 1200; then
+    echo "成功: job/${job}(所要時間: $(kc staging -n "wordpress-$site" get job "$job" -o go-template='{{.status.startTime}} → {{.status.completionTime}}'))"
+    kc staging -n "wordpress-$site" logs "job/$job" --tail=20 | sed 's/^/  /'
   else
     failed=1
   fi
@@ -588,12 +653,12 @@ cmd_rehearsal_upgrade() {
   echo ""
   echo "=== WordPressのDB更新(管理画面の「データベースの更新が必要です」に相当) ==="
   SECONDS=0
-  wp_cli dev "$rh" core update-db 2>&1 | tail -3 | sed 's/^/  /' || failed=1
+  wp_cli staging "$site" core update-db 2>&1 | tail -3 | sed 's/^/  /' || failed=1
   echo "所要時間: ${SECONDS}秒"
 
   echo ""
   echo "=== 切り替え後の状態 ==="
-  rh_snapshot "$site" after
+  stg_snapshot "$site" after
 
   echo ""
   echo "=== 基準(本番と同じ構成)との比較 ==="
@@ -613,52 +678,56 @@ cmd_rehearsal_upgrade() {
 
   echo ""
   echo "=== 切り替え後のPHPエラー(wordpressコンテナのログ) ==="
-  kc dev -n "wordpress-$rh" logs "deploy/wordpress-$rh" -c wordpress --since=1h 2>/dev/null \
+  kc staging -n "wordpress-$site" logs "deploy/wordpress-$site" -c wordpress --since=1h 2>/dev/null \
     | grep -iE 'PHP (Fatal|Parse|Warning)|Uncaught' | tail -30 | sed 's/^/  /' || echo "  なし"
 
   echo ""
-  echo "リハーサルサイト: $(site_url dev "$rh")"
+  echo "stagingのサイト: $(site_url staging "$site")"
   echo "表示・管理画面・プラグイン固有の画面をブラウザでも確認し、結果(所要時間・気づいた点)を昇格PRに書いてください。"
-  echo "終わったら rehearsal-cleanup ${site} でリハーサルサイトを削除します。"
-  [[ $failed -eq 0 ]] || die "リハーサルで問題が見つかりました(上の出力を確認してください)。devで修正して rehearsal-upgrade をやり直せます。"
+  echo "問題なければ promote-production ${site} で本番へ昇格し、終わったら staging-cleanup ${site} で削除します。"
+  [[ $failed -eq 0 ]] || die "stagingで問題が見つかりました(上の出力を確認してください)。devで修正して staging-upgrade をやり直せます。"
 }
 
-cmd_rehearsal_cleanup() {
+cmd_staging_cleanup() {
   [[ $# -eq 1 ]] || usage
-  local site="$1" rh="$1-rh" paths=()
+  local site="$1" paths=()
   check_site_name "$site"
-  [[ "$site" != *-rh ]] || die "リハーサル元のサイト名を指定してください: $site"
 
   pr_lock_repo
   pr_ensure_clean_worktree
   pr_require_main_uptodate
-  [[ -d "envs/dev/sites/$rh" ]] && paths+=("envs/dev/sites/$rh")
-  [[ -f "envs/dev/secrets/$rh.yaml" ]] && paths+=("envs/dev/secrets/$rh.yaml")
+  if [[ -d "envs/staging/sites/$site" && -d "envs/production/sites/$site" ]] \
+      && ! diff -rq "envs/staging/sites/$site" "envs/production/sites/$site" >/dev/null; then
+    echo "注意: stagingの ${site} の構成は本番へまだ昇格していません(昇格するなら、削除の前に promote-production ${site})。" >&2
+  fi
+  [[ -d "envs/staging/sites/$site" ]] && paths+=("envs/staging/sites/$site")
+  [[ -f "envs/staging/secrets/$site.yaml" ]] && paths+=("envs/staging/secrets/$site.yaml")
   if [[ ${#paths[@]} -gt 0 ]]; then
-    git checkout -b "rehearsal/${rh}-cleanup-$(date +%Y%m%d%H%M%S)"
+    git checkout -b "staging/${site}-cleanup-$(date +%Y%m%d%H%M%S)"
     git rm -r -q "${paths[@]}"
     pr_commit_push_create \
-      "chore: 本番データリハーサル用の${rh}をdevから削除" \
-      "\`scripts/wordpress-pipeline.sh rehearsal-cleanup ${site}\` で作成。マージ後、同スクリプトがdev1の \`wordpress-${rh}\` namespaceを削除します(\`keepResources: true\` のためGitの削除だけでは消えない)。"
+      "chore: 確認の終わった${site}をstagingから削除" \
+      "\`scripts/wordpress-pipeline.sh staging-cleanup ${site}\` で作成。マージ後、同スクリプトがstaging1の \`wordpress-${site}\` namespaceを削除します(\`keepResources: true\` のためGitの削除だけでは消えない)。"
     pr_automerge_and_wait "$PR_URL"
   else
-    echo "Git側には ${rh} がありません(削除済み)。"
+    echo "Git側には ${site} がありません(削除済み)。"
   fi
   pr_unlock_repo
 
-  # マージ後に消す(先に消すとFleetが作り直す)。本番のコピーが入っているので必ず消す
-  if kc dev get namespace "wordpress-$rh" >/dev/null 2>&1; then
-    echo "namespace wordpress-${rh} を削除します(PVCも削除されます)..."
-    kc dev delete namespace "wordpress-$rh" --wait=true --timeout=15m
+  # マージ後に消す(先に消すとFleetが作り直す)。本番データのコピーが入っているので必ず消す。
+  # stagingのStorageClassはDeleteなので、NFS上のwp-content・バックアップも一緒に消える
+  if kc staging get namespace "wordpress-$site" >/dev/null 2>&1; then
+    echo "namespace wordpress-${site} を削除します(PVCも削除されます)..."
+    kc staging delete namespace "wordpress-$site" --wait=true --timeout=15m
   fi
   local released
-  released="$(kc dev get pv --no-headers 2>/dev/null | grep "wordpress-$rh/" || true)"
+  released="$(kc staging get pv --no-headers 2>/dev/null | grep "wordpress-$site/" || true)"
   if [[ -n "$released" ]]; then
     echo "警告: 次のPVが残っています。harvester StorageClassのPVは既知の問題でReleasedのまま残ることがあります(docs/roadmap.md 項目8の手順で片付ける):" >&2
     echo "$released" >&2
   fi
-  rm -rf "$(rh_state_dir "$site")"
-  echo "リハーサルサイト ${rh} を削除しました。"
+  rm -rf "$(stg_state_dir "$site")"
+  echo "stagingから ${site} を削除しました。"
 }
 
 # ---------------------------------------------------------------------------
@@ -666,61 +735,59 @@ cmd_rehearsal_cleanup() {
 # ---------------------------------------------------------------------------
 
 cmd_promote_production() {
-  local s started run_id="" pr_url="" i names
+  local s names pr_url
   pr_lock_repo
   pr_ensure_clean_worktree
   pr_require_main_uptodate
 
-  # all は本番に既にあるサイトだけ(promote.yamlと同じ)。名前指定ならdevにしか無いサイトの新規追加もできる
+  # 本番へはstagingを通す。all は本番に既にあり、かつstagingに載っているサイト(promote.yamlと同じ)。
+  # 名前指定ならstagingにしか無いサイト(新規)の本番への追加もできる
+  local -a targets=()
   if [[ "$*" == "all" ]]; then
     resolve_sites production all
+    for s in "${SITES[@]}"; do
+      [[ -d "envs/staging/sites/$s" ]] && targets+=("$s")
+    done
+    [[ ${#targets[@]} -gt 0 ]] || { pr_unlock_repo; die "本番にあるサイトのうち、stagingに載っているものがありません(先に staging-start)。"; }
+    echo "stagingに載っていないサイトは対象外です(stagingに載っているもの: ${targets[*]})。"
   else
-    resolve_sites dev "$@"
+    for s in "$@"; do
+      check_site_name "$s"
+      [[ -d "envs/staging/sites/$s" ]] || { pr_unlock_repo; die "stagingに ${s} がありません。本番へはstagingで確認してから昇格します(staging-start ${s})。"; }
+      targets+=("$s")
+    done
   fi
   local -a changed=() existing=() added=()
-  for s in "${SITES[@]}"; do
-    if [[ ! -d "envs/dev/sites/$s" ]]; then
-      echo "警告: envs/dev/sites/${s} が無いため ${s} はスキップします(promote.yamlも同じ扱い)。" >&2
-    elif [[ ! -d "envs/production/sites/$s" ]]; then
-      [[ -f "envs/production/secrets/$s.yaml" ]] || die "本番に ${s} を新規追加するには、先に scripts/seal-site-secrets.sh production ${s} でSecretを作り、mainへマージしてください。"
+  for s in "${targets[@]}"; do
+    if [[ ! -d "envs/production/sites/$s" ]]; then
+      [[ -f "envs/production/secrets/$s.yaml" ]] || { pr_unlock_repo; die "本番に ${s} を新規追加するには、先に scripts/seal-site-secrets.sh production ${s} でSecretを作り、mainへマージしてください。"; }
       changed+=("$s")
       added+=("$s")
-    elif ! diff -rq "envs/dev/sites/$s" "envs/production/sites/$s" >/dev/null; then
+    elif ! diff -rq "envs/staging/sites/$s" "envs/production/sites/$s" >/dev/null; then
       changed+=("$s")
       existing+=("$s")
     fi
+    if [[ -d "envs/dev/sites/$s" ]] && ! diff -rq "envs/dev/sites/$s" "envs/staging/sites/$s" >/dev/null; then
+      echo "注意: devの ${s} にはstagingで未確認の変更があります(昇格するのはstagingの内容。devの変更も入れるなら先に staging-upgrade ${s})。" >&2
+    fi
   done
+  pr_unlock_repo
   if [[ ${#changed[@]} -eq 0 ]]; then
-    pr_unlock_repo
-    echo "devと本番に差分のあるサイトがありません。PRは作成せず、本番の確認だけ行います。"
-    cmd_check production "${SITES[@]}"
+    echo "stagingと本番に差分のあるサイトがありません。PRは作成せず、本番の確認だけ行います。"
+    cmd_check production "${targets[@]}"
     return
   fi
   echo "昇格するサイト: ${changed[*]}"
   for s in "${existing[@]}"; do
-    diff -u "envs/production/sites/$s/fleet.yaml" "envs/dev/sites/$s/fleet.yaml" | sed 's/^/  /' || true
+    diff -u "envs/production/sites/$s/fleet.yaml" "envs/staging/sites/$s/fleet.yaml" | sed 's/^/  /' || true
   done
 
   if [[ "$*" == "all" ]]; then names="all"; else names="${changed[*]}"; fi
-  started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  gh workflow run promote.yaml -f kind=sites -f name="$names"
-  echo "promoteワークフローを起動しました。実行を待っています..."
-  for ((i = 0; i < 30; i++)); do
-    run_id="$(gh run list --workflow=promote.yaml --event workflow_dispatch --limit 5 \
-      --json databaseId,createdAt -q "[.[] | select(.createdAt >= \"${started}\")] | last | .databaseId // empty")"
-    [[ -n "$run_id" ]] && break
-    sleep 5
-  done
-  [[ -n "$run_id" ]] || die "promoteワークフローの実行が見つかりません(gh run list --workflow=promote.yaml)。"
-  gh run watch "$run_id" --exit-status >/dev/null || die "promoteワークフローが失敗しました: gh run view ${run_id} --log-failed"
-  pr_url="$(gh pr list --state open --search "head:promote/dev-to-production-sites-" --json url,headRefName \
-    -q "[.[] | select(.headRefName | endswith(\"-${run_id}\"))][0].url // empty")"
-  [[ -n "$pr_url" ]] || die "昇格PRが見つかりません(run ${run_id})。"
-  echo "PR作成: ${pr_url}"
-  pr_comment_actor "$pr_url"
+  run_promote sites production "$names"
+  pr_url="$PROMOTE_PR_URL"
+  [[ -n "$pr_url" ]] || die "昇格PRが見つかりません。"
   echo "CIチェックを待っています..."
   gh pr checks "$pr_url" --watch || echo "警告: CIチェックが失敗、またはタイムアウトしました: ${pr_url}" >&2
-  pr_unlock_repo
 
   # 本番反映前のバックアップ(必須。docs/operations-flow.md「本番反映前のバックアップ」)。
   # マージ直前に近づけるため、PRができてから取る
@@ -759,7 +826,7 @@ EOF
   fi
 
   echo ""
-  echo "=== PRのdiffが、devで確認した変更(helm.version・pluginsのversion等)だけであることを見てマージしてください ==="
+  echo "=== PRのdiffが、stagingで確認した変更(helm.version・pluginsのversion等)だけであることを見てマージしてください ==="
   pr_wait_human_merge "$pr_url" "$MERGE_WAIT_MINUTES"
   pr_lock_repo
   git pull --ff-only origin main
@@ -779,6 +846,7 @@ EOF
   done
   [[ $failed -eq 0 ]] || die "本番の確認で問題があります(docs/runbook/troubleshooting.md)。戻すときはマージ前のバックアップから restore-wordpress.sh で。"
   echo "本番への昇格が完了しました: ${changed[*]}"
+  echo "stagingの片付け: 各サイトで staging-cleanup <site>(staging1のメモリを空けるため、確認が済んだら必ず行う)。"
 }
 
 # ---------------------------------------------------------------------------
@@ -789,9 +857,9 @@ shift
 
 case "$SUBCOMMAND" in
   dev-refresh)        cmd_dev_refresh "$@" ;;
-  rehearsal-start)    cmd_rehearsal_start "$@" ;;
-  rehearsal-upgrade)  cmd_rehearsal_upgrade "$@" ;;
-  rehearsal-cleanup)  cmd_rehearsal_cleanup "$@" ;;
+  staging-start)      cmd_staging_start "$@" ;;
+  staging-upgrade)    cmd_staging_upgrade "$@" ;;
+  staging-cleanup)    cmd_staging_cleanup "$@" ;;
   promote-production) cmd_promote_production "$@" ;;
   backup)
     [[ $# -ge 2 ]] || usage

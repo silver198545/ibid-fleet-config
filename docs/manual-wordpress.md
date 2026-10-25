@@ -174,7 +174,7 @@ Fleet側の適用状況はRancher UI(Continuous Delivery → Bundles)または
 ```
 
 - **プラグインの追加・バージョンアップ = PR** になり、promoteワークフローで
-  dev→production へ昇格できます(動作チェックを経て本番へ、が実現できます)。
+  dev→staging→production へ昇格できます(動作チェックを経て本番へ、が実現できます)。
 - **一覧から消しても自動削除はされません**(稼働中サイトの自動削除は危険なため)。
   削除する場合は手動で: `wp plugin deactivate <name> && wp plugin delete <name>`
   (実行方法はJobのログ、または `kubectl exec` でWordPress Podから)。

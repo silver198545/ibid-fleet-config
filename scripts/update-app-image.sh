@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
 # apps/配下の自作アプリ(brc-advanced-search, riken-diips等)のイメージ更新〜
-# dev→production昇格を補助するスクリプト(docs/manual-apps.md の手順をなぞる)。
+# dev→staging→production昇格を補助するスクリプト(docs/manual-apps.md の手順をなぞる)。
 #
-# 昇格は promote.yaml の対象外(sites/専用)のため、PR作成はこのスクリプトが行う。
-# 昇格はディレクトリの丸ごとコピー(envs/dev/apps/<app> → envs/production/apps/<app>)。
-# productionで変える値(ホスト名、レプリカ数等)はdev側のディレクトリ内の
-# overlays/production/ に置いてあるため、コピー後の書き換えは不要
+# 自作アプリはstagingに常駐させる(2026-10-25〜。WordPressサイトと違い軽く、Secretの封印に人手が要るため)。
+# 本番へは必ずstagingを通す(promoteワークフローの本番への昇格元はstaging)。
+# 昇格はディレクトリの丸ごとコピー(envs/dev/apps/<app> → envs/staging/apps/<app> → envs/production/apps/<app>)。
+# staging・productionで変える値(ホスト名、レプリカ数等)はdev側のディレクトリ内の
+# overlays/<env>/ に置いてあるため、コピー後の書き換えは不要
 # (docs/operations-flow.md「環境差分の書き方」)。
 # 以下は意図的に自動化していない:
-#   - SealedSecret(GHCR pull用)の再作成: kubeseal実行にPAT等の秘密情報と対象クラスタへの
-#     kubectlアクセスが要るため、コマンド例を表示して人手に委ねる。
+#   - SealedSecret(GHCR pull用等)の作成: kubeseal実行にPAT等の秘密情報と対象クラスタへの
+#     kubectlアクセスが要るため、コマンド例を表示して人手に委ねる(各環境への初回昇格のときだけ)。
 #   - productionに触れるPRのマージ: mainのブランチ保護は「承認数0 + Code Ownersレビュー必須」
-#     (CODEOWNERSは/envs/production/のみ)。dev・images/だけに触れるPR(set-image・deploy-dev)は
-#     validate通過後にこのスクリプトがauto-mergeするが、production向け(deploy-production・
+#     (CODEOWNERSは/envs/production/のみ)。dev・staging・images/だけに触れるPR(set-image・deploy-dev・
+#     deploy-staging)はvalidate通過後にauto-mergeされるが、production向け(deploy-production・
 #     promote-production-finish)はPR作成・CI待ちまでで止め、マージはレビューの上で手動
 #     (GitHub UIまたは`gh pr merge --squash --admin`)に委ねる。
 #
@@ -33,30 +34,32 @@
 #                                       envs/dev/apps/<app>/deployment.yamlのイメージタグを
 #                                       images/<app>/TAGに合わせて更新しPR作成 → auto-merge →
 #                                       check-devまで行う(通常はset-imageから自動で呼ばれる)。
-#   check-dev <app>                    devのrollout状況とWEBアクセス(readinessProbeのpathで200か)を確認。
+#   check-dev|check-staging|check-production <app>
+#                                       その環境のrollout状況とWEBアクセス(readinessProbeのpathで200か)を確認。
 #   sync-dev-data <app>                PVCで永続データを持つアプリ限定(persistent_data_dir_forに
 #                                       登録済みのアプリのみ。現状は登録なし)。productionの
-#                                       永続データ(例: repository/)をdevへコピーし、本番相当
-#                                       データでの確認を可能にする(WordPressの本番データリハーサル相当。
-#                                       docs/manual-apps.md「devでの本番データ確認」参照)。
+#                                       永続データ(例: repository/)をdevへコピーする。
 #                                       **dev側の内容は上書きされる**。
-#   promote-production <app>           【初回昇格専用】envs/dev/apps/<app> を envs/production/apps/<app> へ
-#                                       新規コピーする(ブランチ作成のみ、コミットはしない)。dev側に
-#                                       overlays/production/ が無ければエラー。SealedSecret作成コマンドを
+#   deploy-staging <app>               既にstagingにある<app>を、envs/dev/apps/<app>と同じ内容に同期するPRを
+#                                       promoteワークフロー(kind=apps、to=staging)で作り、auto-mergeを待って
+#                                       check-stagingまで行う(stagingだけのPRなので承認不要)。
+#   deploy-production <app>            既にproductionにある<app>を、envs/staging/apps/<app>と同じ内容に
+#                                       同期するPRを、promoteワークフロー(kind=apps、to=production)で作成する
+#                                       (stagingに入っている変更すべてが昇格対象。PRのdiffで内容を確認すること)。
+#   promote-staging <app>              【stagingへの初回昇格専用】envs/dev/apps/<app> を envs/staging/apps/<app> へ
+#   promote-production <app>           【productionへの初回昇格専用】envs/staging/apps/<app> を envs/production/apps/<app> へ
+#                                       新規コピーする(ブランチ作成のみ、コミットはしない)。昇格元に
+#                                       overlays/<昇格先>/ が無ければエラー。SealedSecret作成コマンドを
 #                                       表示して停止する。既にある場合はエラーになる
-#                                       (2回目以降はdeploy-productionを使うこと)。
-#   promote-production-finish <app>    promote-productionでSealedSecretを手動作成した後に実行。
-#                                       コミット・PR作成まで行う。
-#   deploy-production <app>            【2回目以降】既にproductionにある<app>を、envs/dev/apps/<app>と
-#                                       同じ内容に同期するPRを、promoteワークフロー(kind=apps)で作成する
-#                                       (イメージタグを含むdevの変更すべてが昇格対象。PRのdiffで内容を
-#                                       確認すること)。Actionsから直接 promote を起動しても同じ。
-#   check-production <app>             productionのWEBアクセスを確認。
+#                                       (2回目以降はdeploy-staging/deploy-productionを使うこと)。
+#   promote-staging-finish <app>       promote-staging/promote-productionでSealedSecretを手動作成した後に実行。
+#   promote-production-finish <app>    コミット・PR作成まで行う(stagingはauto-merge、productionは人がマージ)。
 #
 # パイプライン用(Rundeckの apps/<app> ジョブから呼ぶ。docs/manual-rundeck.md):
 #   dev-update <app> [src_ref] [tag]   src_refが空なら latest-src-ref の値を使い、現在の
 #                                       images/<app>/SRC_REFと同じなら何もせずcheck-devだけ行う。
 #                                       違えば set-image を行う(tagが空なら自動採番)。
+#   staging-update <app>               deploy-staging(差分が無ければcheck-stagingだけ)。
 #   release-production <app>           deploy-production → 人がPRをマージするのを待つ
 #                                       (MERGE_WAIT_MINUTES、既定240分。マージはしない) →
 #                                       mainをpull → check-production。差分が無ければ確認だけ行う。
@@ -71,18 +74,21 @@
 #    scripts/update-app-image.sh set-image brc-advanced-search 2.0.0-r6 <新SRC_REF>)
 #   (イメージPRのマージ・ビルド・devへの反映PRのマージ・check-devまで自動で進む)
 #   (devで動作確認)
+#   scripts/update-app-image.sh deploy-staging brc-advanced-search
+#   (stagingで動作確認)
 #   scripts/update-app-image.sh deploy-production brc-advanced-search
 #   (レビューの上、手動でPRをマージ)
 #   git pull
 #   scripts/update-app-image.sh check-production brc-advanced-search
 #
-# 新規アプリの初回昇格は、deploy-productionの代わりに次を使う:
-#   (devのディレクトリに overlays/production/ を用意してdevへマージ済みであること)
-#   scripts/update-app-image.sh promote-production <app>
-#   (表示されたkubesealコマンドを実行してenvs/production/secrets/<app>.yamlを作る)
-#   scripts/update-app-image.sh promote-production-finish <app>
+# 新規アプリの初回昇格は、deploy-staging/deploy-productionの代わりに次を使う:
+#   (devのディレクトリに overlays/staging/・overlays/production/ を用意してdevへマージ済みであること)
+#   scripts/update-app-image.sh promote-staging <app>
+#   (表示されたkubesealコマンドを実行してenvs/staging/secrets/<app>.yamlを作る)
+#   scripts/update-app-image.sh promote-staging-finish <app>
+#   (stagingで動作確認したら、同じように promote-production / promote-production-finish)
 #
-# 前提: gh CLIが認証済み、kubectl/kubesealのコンテキスト(dev1/prod1)が
+# 前提: gh CLIが認証済み、kubectl/kubesealのコンテキスト(dev1/staging1/prod1)が
 # ~/.kube/config にマージ済みであること(docs/manual-tooling-setup.md参照)。
 set -euo pipefail
 
@@ -178,6 +184,7 @@ persistent_data_dir_for() {
 context_for_env() {
   case "$1" in
     dev) echo "dev1" ;;
+    staging) echo "staging1" ;;
     production) echo "prod1" ;;
     *) echo "エラー: 不明な環境: $1" >&2; exit 1 ;;
   esac
@@ -185,6 +192,15 @@ context_for_env() {
 
 hostname_for_env() {
   echo "${APP}.$1.ibid.lan"
+}
+
+# 昇格先の環境から昇格元を決める(本番へは必ずstagingを通す)
+from_env_for() {
+  case "$1" in
+    staging) echo "dev" ;;
+    production) echo "staging" ;;
+    *) echo "エラー: 昇格先は staging / production のいずれか: $1" >&2; exit 1 ;;
+  esac
 }
 
 ensure_clean_worktree() { pr_ensure_clean_worktree; }
@@ -308,13 +324,15 @@ cmd_deploy_dev() {
   ensure_clean_worktree
   require_main_uptodate
 
-  # productionで別イメージ名(例: metadatabase-v2-bioresource。BASE_PATH違い)を使うアプリは
-  # overlays/production/deployment_patch.yaml にもimage行があるため、同じタグに揃える。
-  local patch_file="envs/${env}/apps/${APP}/overlays/production/deployment_patch.yaml"
+  # 環境によって別イメージ名(例: productionのmetadatabase-v2-bioresource。BASE_PATH違い)を使うアプリは
+  # overlays/<env>/deployment_patch.yaml にもimage行があるため、同じタグに揃える。
+  local patch_file
   local files=("$dep_file")
-  if [[ -f "$patch_file" ]] && grep -q "ghcr\.io/${GH_OWNER}/${APP}" "$patch_file"; then
-    files+=("$patch_file")
-  fi
+  for patch_file in "envs/${env}/apps/${APP}/overlays/"*/deployment_patch.yaml; do
+    if [[ -f "$patch_file" ]] && grep -q "ghcr\.io/${GH_OWNER}/${APP}" "$patch_file"; then
+      files+=("$patch_file")
+    fi
+  done
 
   open_branch "deploy-${env}/${APP}-${tag}"
   sed -i -E "s#(ghcr\.io/${GH_OWNER}/${APP}(-[a-z0-9]+)?):[^\"[:space:]]+#\1:${tag}#" "${files[@]}"
@@ -332,36 +350,46 @@ cmd_deploy_dev() {
   sleep 60
   if cmd_check "$env"; then
     echo ""
-    echo "devで動作確認後、productionへ昇格する: scripts/update-app-image.sh deploy-production ${APP}"
+    echo "devで動作確認後、stagingへ昇格する: scripts/update-app-image.sh deploy-staging ${APP}"
   else
     echo "devの確認に失敗しました。あとで再確認: scripts/update-app-image.sh check-${env} ${APP}" >&2
     exit 1
   fi
 }
 
-# productionの<app>をdevと同じ内容に同期する(昇格=丸ごとコピー)。productionで変える値は
-# dev側の overlays/production/ に入っているため、コピーだけで完結する。
+# 昇格先(staging/production)の<app>を昇格元(dev/staging)と同じ内容に同期する(昇格=丸ごとコピー)。
+# 環境で変える値は dev側の overlays/<env>/ に入っているため、コピーだけで完結する。
 # コピーとPR作成は promote ワークフロー(kind=apps)が行う(サイトと同じ仕組みに一本化)。
-# ここでは起動してPRができるのを待ち、CIの結果を表示する。マージは人が行う。
-cmd_deploy_production() {
-  local from_dir="envs/dev/apps/${APP}"
-  local to_dir="envs/production/apps/${APP}"
-  [[ -d "$from_dir" ]] || { echo "エラー: ${from_dir} がありません。" >&2; exit 1; }
+# ここでは起動してPRができるのを待ち、CIの結果を表示する。stagingはauto-merge、productionは人がマージする。
+# 引数: <staging|production>
+cmd_deploy() {
+  local to_env="$1" from_env
+  from_env="$(from_env_for "$to_env")"
+  local from_dir="envs/${from_env}/apps/${APP}"
+  local to_dir="envs/${to_env}/apps/${APP}"
+  [[ -d "$from_dir" ]] || {
+    echo "エラー: ${from_dir} がありません。" >&2
+    [[ "$from_env" == staging ]] && echo "本番へはstagingを通して昇格します(先に deploy-staging、stagingが初めてなら promote-staging)。" >&2
+    exit 1
+  }
   [[ -d "$to_dir" ]] || {
-    echo "エラー: ${to_dir} がありません。初回昇格は promote-production / promote-production-finish を使ってください。" >&2
+    echo "エラー: ${to_dir} がありません。初回昇格は promote-${to_env} / promote-${to_env}-finish を使ってください。" >&2
     exit 1
   }
   require_main_uptodate
   PR_URL=""
+  if [[ "$to_env" == production ]] && ! diff -rq "envs/dev/apps/${APP}" "$from_dir" >/dev/null; then
+    echo "注意: devの${APP}にはstagingで未確認の変更があります(昇格するのはstagingの内容。devの変更も入れるなら先に deploy-staging)。" >&2
+  fi
   if diff -rq "$from_dir" "$to_dir" >/dev/null; then
-    echo "devとproductionの${APP}に差分がありません。PRは作成しません。"
+    echo "${from_env}と${to_env}の${APP}に差分がありません。PRは作成しません。"
     return 0
   fi
 
   local started run_id="" pr_url="" i
   started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  gh workflow run promote.yaml -f kind=apps -f name="$APP"
-  echo "promoteワークフローを起動しました。実行を待っています..."
+  gh workflow run promote.yaml -f kind=apps -f to="$to_env" -f name="$APP"
+  echo "promoteワークフロー(${from_env}→${to_env})を起動しました。実行を待っています..."
   for ((i = 0; i < 30; i++)); do
     run_id="$(gh run list --workflow=promote.yaml --event workflow_dispatch --limit 5 \
       --json databaseId,createdAt -q "[.[] | select(.createdAt >= \"${started}\")] | last | .databaseId // empty")"
@@ -373,7 +401,7 @@ cmd_deploy_production() {
     echo "エラー: promoteワークフローが失敗しました: gh run view ${run_id} --log-failed" >&2
     exit 1
   fi
-  pr_url="$(gh pr list --state open --search "head:promote/dev-to-production-apps-${APP}-${run_id}" --json url -q '.[0].url // empty')"
+  pr_url="$(gh pr list --state all --search "head:promote/${from_env}-to-${to_env}-apps-${APP}-${run_id}" --json url -q '.[0].url // empty')"
   [[ -n "$pr_url" ]] || { echo "エラー: 昇格PRが見つかりません(run ${run_id})。" >&2; exit 1; }
   echo "PR作成: ${pr_url}"
   pr_comment_actor "$pr_url"
@@ -381,9 +409,42 @@ cmd_deploy_production() {
   echo "CIチェックを待っています..."
   gh pr checks "$pr_url" --watch || echo "警告: CIチェックが失敗、またはタイムアウトしました: ${pr_url}" >&2
 
+  if [[ "$to_env" == staging ]]; then
+    return 0
+  fi
   echo ""
   echo "PRのdiffを確認してマージしてください。マージ後、次で確認してください:"
   echo "  git pull && scripts/update-app-image.sh check-production ${APP}"
+}
+
+# stagingへの反映(auto-mergeを待つ)→ stagingの確認。パイプラインの staging-update もこれ。
+cmd_deploy_staging() {
+  local i state
+  cmd_deploy staging
+  if [[ -n "$PR_URL" ]]; then
+    echo "auto-mergeを待っています..."
+    for ((i = 0; i < 90; i++)); do
+      state="$(gh pr view "$PR_URL" --json state -q .state)"
+      case "$state" in
+        MERGED) break ;;
+        CLOSED) echo "エラー: PRがマージされずにcloseされました: ${PR_URL}" >&2; exit 1 ;;
+      esac
+      sleep 10
+    done
+    [[ "$state" == MERGED ]] || { echo "エラー: 15分待ってもマージされませんでした: ${PR_URL}" >&2; exit 1; }
+    git pull --ff-only origin main
+    pr_unlock_repo
+    echo "Fleetの適用を待っています(60秒)..."
+    sleep 60
+  fi
+  pr_unlock_repo
+  if cmd_check staging; then
+    echo ""
+    echo "stagingで動作確認後、productionへ昇格する: scripts/update-app-image.sh deploy-production ${APP}"
+  else
+    echo "stagingの確認に失敗しました。あとで再確認: scripts/update-app-image.sh check-staging ${APP}" >&2
+    exit 1
+  fi
 }
 
 # パイプライン用: 取り込み元の最新(またはsrc_ref指定)を、変更があるときだけdevへ入れる。
@@ -409,7 +470,7 @@ cmd_dev_update() {
 
 # パイプライン用: 本番への昇格PR作成 → 人のマージ待ち → 本番の確認。
 cmd_release_production() {
-  cmd_deploy_production
+  cmd_deploy production
   if [[ -n "$PR_URL" ]]; then
     pr_unlock_repo   # マージ待ちの間は他のジョブにクローンを譲る
     pr_wait_human_merge "$PR_URL" "${MERGE_WAIT_MINUTES:-240}"
@@ -441,9 +502,9 @@ cmd_check() {
   dep_file="envs/${env}/apps/${APP}/deployment.yaml"
   [[ -f "$dep_file" ]] || { echo "エラー: ${dep_file} が見つかりません。git pullでmainを最新化してから再実行してください。" >&2; exit 1; }
   probe_path="$(awk '/readinessProbe:/{f=1} f && /path:/{print $2; exit}' "$dep_file")"
-  # productionでパスを変えているアプリ(例: metadatabase-v2の/bioresource)はパッチ側を優先する。
-  local patch_file="envs/${env}/apps/${APP}/overlays/production/deployment_patch.yaml"
-  if [[ "$env" == "production" && -f "$patch_file" ]]; then
+  # 環境によってパスを変えているアプリ(例: productionのmetadatabase-v2の/bioresource)はパッチ側を優先する。
+  local patch_file="envs/${env}/apps/${APP}/overlays/${env}/deployment_patch.yaml"
+  if [[ "$env" != "dev" && -f "$patch_file" ]]; then
     local patch_path
     patch_path="$(awk '/readinessProbe:/{f=1} f && /path:/{print $2; exit}' "$patch_file")"
     probe_path="${patch_path:-$probe_path}"
@@ -503,14 +564,20 @@ cmd_sync_dev_data() {
   echo "同期しました。devで本番相当データでの動作を確認してください: https://$(hostname_for_env dev)/"
 }
 
+# 引数: <staging|production>
 cmd_promote_prepare() {
-  local from_env="dev" to_env="production"
+  local to_env="$1" from_env
+  from_env="$(from_env_for "$to_env")"
   local from_dir="envs/${from_env}/apps/${APP}"
   local to_dir="envs/${to_env}/apps/${APP}"
-  [[ -d "$from_dir" ]] || { echo "エラー: ${from_dir} がありません。" >&2; exit 1; }
-  [[ -d "${from_dir}/overlays/production" ]] || {
-    echo "エラー: ${from_dir}/overlays/production がありません。" >&2
-    echo "productionで変える値(ホスト名等)のパッチと、fleet.yamlのtargetCustomizationsを" >&2
+  [[ -d "$from_dir" ]] || {
+    echo "エラー: ${from_dir} がありません。" >&2
+    [[ "$from_env" == staging ]] && echo "本番へはstagingを通して昇格します。先に promote-staging ${APP} でstagingへ初回昇格してください。" >&2
+    exit 1
+  }
+  [[ -d "${from_dir}/overlays/${to_env}" ]] || {
+    echo "エラー: ${from_dir}/overlays/${to_env} がありません。" >&2
+    echo "${to_env}で変える値(ホスト名等)のパッチと、fleet.yamlのtargetCustomizationsを" >&2
     echo "devのディレクトリに用意してdevへマージしてから実行してください" >&2
     echo "(docs/operations-flow.md「環境差分の書き方」、既存のbrc-advanced-search等が参考になる)。" >&2
     exit 1
@@ -552,7 +619,8 @@ EOF
     if [[ "$APP" == "metadatabase-v2" ]]; then
       echo ""
       echo "=== 管理画面用SealedSecret(metadatabase-v2-admin)も${to_env}向けに作成してください ==="
-      echo "ADMIN_SECRET_KEY/ADMIN_INITIAL_PASSWORDは${to_env}用に新規生成、VIRTUOSO_ISQL_PASSWORDは${to_env}のVirtuosoのもの:"
+      echo "ADMIN_SECRET_KEY/ADMIN_INITIAL_PASSWORDは${to_env}用に新規生成、VIRTUOSO_ISQL_PASSWORDは${to_env}が使うVirtuosoのもの"
+      echo "(stagingはdevと同じVirtuosoを使う。overlays/stagingはVirtuosoの接続先を変えない):"
       cat <<EOF
 kubectl create secret generic metadatabase-v2-admin \\
   -n ${APP} \\
@@ -592,8 +660,10 @@ EOF
   echo "  scripts/update-app-image.sh promote-${to_env}-finish ${APP}"
 }
 
+# 引数: <staging|production>
 cmd_promote_finish() {
-  local from_env="dev" to_env="production"
+  local to_env="$1" from_env
+  from_env="$(from_env_for "$to_env")"
   local to_dir="envs/${to_env}/apps/${APP}"
   local secret_file="envs/${to_env}/secrets/${APP}.yaml"
 
@@ -636,19 +706,26 @@ cmd_promote_finish() {
     "feat: ${APP}を${to_env}環境へ昇格" \
     "$(cat <<EOF
 ## 昇格内容
-\`envs/${from_env}/apps/${APP}\` → \`envs/${to_env}/apps/${APP}\`(初回昇格。丸ごとコピー。promote.yamlはsites/のみ対象)
+\`envs/${from_env}/apps/${APP}\` → \`envs/${to_env}/apps/${APP}\`(初回昇格。丸ごとコピー。2回目以降はpromoteワークフロー)
 
-- productionで変える値(ホスト名 \`$(hostname_for_env "$to_env")\` 等)は \`overlays/production/\` で適用される
+- ${to_env}で変える値(ホスト名 \`$(hostname_for_env "$to_env")\` 等)は \`overlays/${to_env}/\` で適用される
 ${secret_line}
 
 ## マージ後の確認
 - [ ] scripts/update-app-image.sh check-${to_env} ${APP}
 EOF
 )"
+  if [[ "$to_env" == staging ]]; then
+    # stagingだけに触れるPRはCODEOWNERSの対象外。validateが通ればマージする
+    pr_automerge_and_wait "$PR_URL"
+    echo "Fleetの適用を待っています(60秒)..."
+    sleep 60
+    cmd_check staging || echo "stagingの確認に失敗しました。あとで再確認: scripts/update-app-image.sh check-staging ${APP}" >&2
+  fi
 }
 
 case "$SUBCOMMAND" in
-  set-image|deploy-dev|promote-production|promote-production-finish|deploy-production|dev-update|release-production)
+  set-image|deploy-dev|promote-staging|promote-staging-finish|promote-production|promote-production-finish|deploy-staging|deploy-production|dev-update|staging-update|release-production)
     pr_lock_repo ;;
 esac
 
@@ -657,11 +734,15 @@ case "$SUBCOMMAND" in
   set-image)                 cmd_set_image "$@" ;;
   deploy-dev)                cmd_deploy_dev ;;
   check-dev)                 cmd_check dev ;;
-  sync-dev-data)             cmd_sync_dev_data ;;
-  promote-production)        cmd_promote_prepare ;;
-  promote-production-finish) cmd_promote_finish ;;
-  deploy-production)         cmd_deploy_production ;;
+  check-staging)             cmd_check staging ;;
   check-production)          cmd_check production ;;
+  sync-dev-data)             cmd_sync_dev_data ;;
+  promote-staging)           cmd_promote_prepare staging ;;
+  promote-staging-finish)    cmd_promote_finish staging ;;
+  promote-production)        cmd_promote_prepare production ;;
+  promote-production-finish) cmd_promote_finish production ;;
+  deploy-staging|staging-update) cmd_deploy_staging ;;
+  deploy-production)         cmd_deploy production ;;
   dev-update)                cmd_dev_update "$@" ;;
   release-production)        cmd_release_production ;;
   *) usage ;;

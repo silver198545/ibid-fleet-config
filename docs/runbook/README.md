@@ -10,7 +10,7 @@
 | [app-update.md](app-update.md) | 自作アプリを更新する、本番へ反映する |
 | [troubleshooting.md](troubleshooting.md) | うまく動かないとき |
 | [rundeck-app-operator.md](rundeck-app-operator.md) | (オペレータ向け)Rundeckで自作アプリを更新する |
-| [rundeck-wordpress-operator.md](rundeck-wordpress-operator.md) | (オペレータ向け)RundeckでWordPressを運用する(本番コンテンツ→dev、リハーサル、本番昇格) |
+| [rundeck-wordpress-operator.md](rundeck-wordpress-operator.md) | (オペレータ向け)RundeckでWordPressを運用する(本番コンテンツ→dev、stagingでの確認、本番昇格) |
 
 オペレータ向けの2つは、Redmineに貼るTextile版も [textile/](textile/) にある(内容を変えるときは両方を直す)。
 

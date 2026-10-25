@@ -3,8 +3,12 @@
 対象: `envs/<env>/apps/` のアプリ(brc-advanced-search、riken-diips、sparqlist、metadatabase-v2、brc-cross-search-xsearch、brc-cross-search-resource、member-gateway)
 詳しい説明: [manual-apps.md](../manual-apps.md)、Rundeckから実行する場合: [manual-rundeck.md](../manual-rundeck.md)
 
-Rundeck(プロジェクト `Rancher-AppControll`)では、手順1〜2がジョブ `<app>/1-dev-update`(`src_ref` は空欄で最新)、手順3〜4が
-`<app>/2-production-update`(PRを作って人のマージを待ち、マージ後に本番を確認する)で1回ずつになる。
+更新は「devに入れる → devで確認 → stagingへ昇格して確認 → 本番へ昇格」の順。本番へは必ずstagingを通す
+(自作アプリはstagingに常駐している)。
+
+Rundeck(プロジェクト `Rancher-AppControll`)では、手順1〜2がジョブ `<app>/1-dev-update`(`src_ref` は空欄で最新)、
+手順3が `<app>/2-staging-update`、手順4〜5が `<app>/3-production-update`(PRを作って人のマージを待ち、
+マージ後に本番を確認する)で1回ずつになる。
 
 ## 1. 新しいソースをdevに入れる
 
@@ -35,16 +39,26 @@ scripts/update-app-image.sh set-image $APP <SHA>
 - sparqlist の SPARQLet(`repository/`)は dev と本番で同じものを共有しているので、dev でも本番と同じデータで確かめられる
   (dev では読むだけ。SPARQLet の作成・編集は本番の管理画面で行う)
 
-## 3. 本番へ昇格する
+## 3. stagingへ昇格して確認する
+
+```bash
+scripts/update-app-image.sh deploy-staging $APP
+```
+
+昇格PR(`gh workflow run promote.yaml -f kind=apps -f to=staging -f name=$APP` と同じ)が作られ、
+自動でマージされて、stagingの確認まで進む。ブラウザで `https://<app>.staging.ibid.lan/` を開いて動作を見る
+(stagingはproductionに近い設定。ただしmetadatabase-v2はdevと同じ設定、共有NFSは読み取り専用)。
+
+## 4. 本番へ昇格する
 
 ```bash
 scripts/update-app-image.sh deploy-production $APP
 ```
 
-昇格PRが作られる(`gh workflow run promote.yaml -f kind=apps -f name=$APP` と同じ)。
-PRの差分が、devで確認した変更(イメージのタグなど)だけであることを見てマージする。
+昇格PRが作られる(`gh workflow run promote.yaml -f kind=apps -f to=production -f name=$APP` と同じ。昇格元はstaging)。
+PRの差分が、stagingで確認した変更(イメージのタグなど)だけであることを見てマージする。
 
-## 4. 本番で確認する(マージの数分後)
+## 5. 本番で確認する(マージの数分後)
 
 ```bash
 git pull
@@ -56,8 +70,8 @@ scripts/update-app-image.sh check-production $APP
 
 ## マニフェスト(設定)だけを変えるとき
 
-1. `envs/dev/apps/<app>/` のファイルを編集する。本番だけ変える値は `overlays/production/` に書く
+1. `envs/dev/apps/<app>/` のファイルを編集する。stagingだけ・本番だけ変える値は `overlays/staging/`・`overlays/production/` に書く
 2. PRを作ってマージ → devで確認
-3. 手順3・4と同じ
+3. 手順3〜5と同じ
 
 問題があったら: [troubleshooting.md](troubleshooting.md)

@@ -11,7 +11,7 @@ DR復元など)をローカル端末から行うために必要なCLIツール�
 
 | ツール | 用途 | 使う場面 |
 |---|---|---|
-| `kubectl` | 各クラスタ(local/dev1/prod1)の操作 | 全般 |
+| `kubectl` | 各クラスタ(local/dev1/staging1/prod1)の操作 | 全般 |
 | `helm` | リリース状態の確認、break-glassデプロイ | [manual-multi-env.md](manual-multi-env.md)、`scripts/deploy-wordpress.sh` |
 | `kubeseal` | Secretの封印(SealedSecrets作成) | `scripts/seal-site-secrets.sh`、`scripts/seal-monitoring-secret.sh` |
 | `git` | このリポジトリの操作、ブランチ/PR作成 | 全般 |
