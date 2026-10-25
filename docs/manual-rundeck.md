@@ -317,7 +317,9 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
    新しいサイトを作ったとき(`new-wordpress-site.sh`)とDRのときは、namespaceを `Wordpress` へ移す。
    **staging1**(2026-10-25〜): stagingのサイトは確認のたびに作っては消すので、staging1に `Wordpress` プロジェクトを作って
    `wpadmins` を **Project Member** にし、そのプロジェクトID(`<クラスタID>:<プロジェクトID>`。staging1のクラスタIDは
-   `c-m-qqhsg9c2`)を `rundeck/generate-jobs.py` の `STAGING_PROJECT_ID` に書いて再生成する。パイプラインが
+   `c-m-qqhsg9c2`)を `rundeck/generate-jobs.py` の `STAGING_PROJECT_ID` に書いて再生成する
+   (2026-10-25に作成済み: `Wordpress` = `c-m-qqhsg9c2:p-vk6k8`、`APPs` = `c-m-qqhsg9c2:p-5ppgz`。
+   staging1の `APPs` は `publicdb_developer` を **Read-only**、7アプリのnamespaceを移動済み)。パイプラインが
    staging-startで作るnamespaceにその注釈を付ける(空ならプロジェクトの外に作られ、管理者しか触れない)
 2. **staging1のSealed Secretsの公開証明書を置く**(stagingのサイトのSecretを封印するため。オペレータは
    kube-systemのSealed Secretsのコントローラに届かない)。公開証明書なので秘密ではない:
