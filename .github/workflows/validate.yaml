@@ -1,4 +1,5 @@
 # PRごとの検証: YAML構文、Rundeckのジョブ定義の生成結果、GitHub Actionsワークフロー(actionlint)、サイトfleet.yamlの必須項目、
+# アプリのIngressのホスト名、
 # ラッパーチャートのlint/render。
 # ブランチ保護でこのチェックを必須にすること(docs/manual-multi-env.md 参照)。
 name: validate
@@ -90,6 +91,35 @@ jobs:
               for p in problems:
                   print(f"NG {path}: {p}")
                   failed = True
+          sys.exit(1 if failed else 0)
+          EOF
+
+      - name: アプリのIngressのホスト名チェック
+        # アプリは直下のマニフェストをdevの値で書き、staging・productionは overlays/<env>/ingress_patch.yaml で
+        # ホスト名を変える(docs/operations-flow.md「環境差分の書き方」)。overlayのコピー漏れで
+        # 別環境のホスト名のまま出ていくのを防ぐ。
+        run: |
+          python3 - <<'EOF'
+          import glob, os, sys, yaml
+
+          failed = False
+          for app_dir in sorted(glob.glob("envs/*/apps/*/")):
+              checks = [("dev", os.path.join(app_dir, "ingress.yaml"))]
+              checks += [(env, os.path.join(app_dir, "overlays", env, "ingress_patch.yaml")) for env in ("staging", "production")]
+              for env, path in checks:
+                  if not os.path.exists(path):
+                      # 変更はdevから入るので、overlayが揃っているべきなのはdev。staging・productionは昇格待ちのことがある
+                      if env != "dev" and app_dir.startswith("envs/dev/"):
+                          print(f"NG {path}: ありません(<app>.{env}.ibid.lan のホスト名を書いたパッチが必要)")
+                          failed = True
+                      continue
+                  spec = (yaml.safe_load(open(path)) or {}).get("spec") or {}
+                  hosts = [r.get("host", "") for r in spec.get("rules") or []]
+                  hosts += [h for t in spec.get("tls") or [] for h in t.get("hosts") or []]
+                  for h in hosts:
+                      if not h.endswith(f".{env}.ibid.lan"):
+                          print(f"NG {path}: ホスト名 {h} が .{env}.ibid.lan で終わっていない")
+                          failed = True
           sys.exit(1 if failed else 0)
           EOF
 

@@ -69,11 +69,18 @@ promoteワークフローは環境ディレクトリを丸ごとコピーする�
     (wp-contentの`nfs-external`は2026-10-09に全環境共通の値へ移した)
   - ひな形は`scripts/new-wordpress-site.sh`が生成する
 - **アプリ(`apps/`、raw YAML)**:
-  - 直下のマニフェストはdevの値で書き、productionで変える部分だけを
-    `overlays/production/<マニフェスト名>_patch.yaml`に置く(Fleetのyaml overlay機能。
-    `fleet.yaml`の`targetCustomizations`で`env: production`のクラスタにだけ適用される)
+  - 直下のマニフェストはdevの値で書き、staging・productionで変える部分だけを
+    `overlays/<env>/<マニフェスト名>_patch.yaml`に置く(Fleetのyaml overlay機能。
+    `fleet.yaml`の`targetCustomizations`で、`env`ラベルが一致するクラスタにだけ適用される)。
+    パッチではなく同名のファイルを置くと、直下のファイルを丸ごと置き換える
+  - overlayは環境ごとに1つだけ使い、重ねない(stagingのoverlayはproductionのものを参照しない)。
+    stagingは原則productionに近い設定(ホスト名、`RACK_ENV`等)にするが、**レプリカは1**、
+    **本番と共有するNFSは読み取り専用のまま**にする。本番のデータや外部サービスへ書き込める
+    設定はstagingに持ち込まない(例: metadatabase-v2はstagingでもdevの設定。fleet.yamlのコメント参照)
   - パッチ内のリスト(Ingressの`rules`/`tls`等)は丸ごと置き換わるため、リスト全体を書く。
-    直下の`ingress.yaml`のパス等を変えたら、パッチ側も合わせて直すこと
+    直下の`ingress.yaml`のパス等を変えたら、各環境のパッチ側も合わせて直すこと。
+    validateワークフローが、各環境のIngressのホスト名(`<app>.<env>.ibid.lan`)と、
+    devに`overlays/staging|production/ingress_patch.yaml`が揃っていることを確認する
 - 環境固有の値を変えたいとき(例: productionのレプリカ数)は、**devのファイルを編集して
   通常どおり昇格させる**。productionのファイルだけを直すと、次の昇格で上書きされる
 
