@@ -1,0 +1,24 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-external
+provisioner: nfs.csi.k8s.io
+parameters:
+  server: "192.168.1.1"
+  # NFSサーバー側のエクスポート設定は/data/nfs直下のみ(サブディレクトリへの
+  # 直接マウントは"Operation not permitted"で拒否される)。shareは必ず
+  # エクスポートされているパスそのものを指定し、その配下はsubDirで分ける。
+  share: "/data/nfs"
+  # PVCごとにサブディレクトリを自動作成して分離する。
+  subDir: "wordpress/staging/${pvc.metadata.namespace}/${pvc.metadata.name}"
+  # Bitnami WordPressコンテナ(非root、UID 1001)が書き込めるようにする。
+  mountPermissions: "0777"
+# stagingはDelete。検証中の一時的なサイト・アプリ(本番データのコピーを含む)しか置かず、
+# 片付け(namespace削除)でNFS上のデータも消えるようにする。
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+allowVolumeExpansion: true
+mountOptions:
+  # noresvportは付けない: このNFSサーバーのエクスポートは非特権ポートからの
+  # マウント要求を"Operation not permitted"で拒否する(insecureオプション無し)。
+  - nfsvers=4.1

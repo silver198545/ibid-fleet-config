@@ -1,0 +1,4 @@
+# csi-driver-nfs/ が提供するドライバに対するStorageClass定義。
+# longhorn-r1同様、単体バンドルに分離する(csi-driver-nfs本体の入れ替え・削除が
+# StorageClassの再作成を伴わないようにするため)。
+keepResources: true

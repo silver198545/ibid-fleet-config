@@ -14,13 +14,13 @@ kubectl --context <rancher-local> apply -f fleet-bootstrap/gitrepo-dev.yaml
 
 前提:
 
-- 対象クラスタにRancher上で `env=dev|production` のラベルが付与済みであること
+- 対象クラスタにRancher上で `env=dev|staging|production` のラベルが付与済みであること
   (このラベルはGitRepoのターゲット選択に加え、サイト・アプリのバンドル内の環境差分の
   選択とホスト名の展開にも使われる。docs/operations-flow.md「環境差分の書き方」)
 - production のGitRepoは、対応するクラスタを構築しラベル付けしてから適用すること
   (先に適用しても対象0台で待機するだけだが、紛らわしいので推奨しない)
-- 2026-10-08にstaging環境を廃止し、dev / production の2環境構成にした
-  (`gitrepo-staging.yaml`は削除済み。経緯は docs/roadmap.md)
+- staging環境は2026-10-08に一度廃止し、2026-10-25にstaging1クラスタで再導入した
+  (`gitrepo-staging.yaml`。経緯は docs/roadmap.md)
 - 旧GitRepo(`base-infra`)からの切り替え手順は
   [../docs/manual-multi-env.md](../docs/manual-multi-env.md) を参照
 - 本リポジトリは一時Private化していたが、2026-07-08にpublicへ戻した(理由は

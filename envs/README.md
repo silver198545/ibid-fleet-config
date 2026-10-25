@@ -1,8 +1,8 @@
 # envs/ — 環境別Fleetバンドル
 
-dev → production の2クラスタそれぞれに適用する内容を、環境ごとの
+dev → staging → production の3クラスタそれぞれに適用する内容を、環境ごとの
 ディレクトリで管理する(単一mainブランチ+環境別ディレクトリ方式)。
-Rancher側の2つのGitRepo([../fleet-bootstrap/](../fleet-bootstrap/)参照)が、
+Rancher側の3つのGitRepo([../fleet-bootstrap/](../fleet-bootstrap/)参照)が、
 それぞれ自分の環境のディレクトリだけを監視し、`env=<環境名>` ラベルの付いた
 クラスタへ適用する。
 
@@ -13,6 +13,7 @@ envs/
 │   ├── sites/    # WordPressサイト(1サイト=1ディレクトリ、fleet.yaml)
 │   ├── apps/     # WordPress以外の自作アプリ(1アプリ=1ディレクトリ、fleet.yaml)
 │   └── secrets/  # サイト・アプリのSealedSecret(環境ごとの鍵で封印。環境間コピー不可)
+├── staging/      # 同構成。sites/・apps/ は検証中のものだけを一時的に置く(2026-10-25に再導入)
 └── production/   # 同構成
 ```
 
@@ -23,6 +24,8 @@ envs/
 [../docs/manual-monitoring.md](../docs/manual-monitoring.md))。
 devのinfraの`helm.releaseName`が`base-infra-*`なのは、単一クラスタ時代のリリースを
 引き継いでいるため。変更しないこと([../docs/manual-multi-env.md](../docs/manual-multi-env.md)の3.)。
+stagingのinfraは軽量版で、Longhorn(`longhorn*`)を置かない。stagingのStorageClassは
+`reclaimPolicy: Delete`(検証が終わったらNFS上のデータも消す)。
 
 ## 運用ルール
 
