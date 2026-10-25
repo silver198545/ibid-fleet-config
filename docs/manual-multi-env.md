@@ -586,7 +586,9 @@ Git管理外の作業(実施したら[x]にする):
 - [ ] staging1のSealed Secrets鍵をオフラインにバックアップする(上記「6.」)
 - [ ] Rundeckに `rundeck/jobs/wordpress.yaml` を取り込み直し、旧ジョブ `2-rehearsal`・`2a-rehearsal-upgrade`・
   `2b-rehearsal-cleanup` を削除する([manual-rundeck.md](manual-rundeck.md))
-- [ ] WordPressのオペレータ用に、staging1の `Wordpress` プロジェクト・公開証明書
+- [x] staging1にRancherのプロジェクト `APPs`(`publicdb_developer` Read-only、7アプリのnamespace)・
+  `Wordpress`(`wpadmins` Project Member)を作り、`STAGING_PROJECT_ID` に設定する(2026-10-25)
+- [ ] WordPressのオペレータ用に、staging1の公開証明書
   `/var/lib/ibid-fleet-config/sealed-secrets-staging1.pem` を用意する([manual-rundeck.md](manual-rundeck.md)「WordPressのオペレータ」)
 - [ ] dev1のリハーサルサイトの残り: NFSの `backup/dev/wordpress-jmc-rh/`(本番データのコピー、`nfs-backup`はRetain)と、
   `Released` のまま残ったjmc-rhのPVを片付ける

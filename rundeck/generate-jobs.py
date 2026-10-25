@@ -39,7 +39,7 @@ MERGE_WAIT_VALUES = ["60", "120", "240", "480"]
 # staging1でWordPressのオペレータ(wpadmins)が触れるRancherのプロジェクト(<クラスタID>:<プロジェクトID>)。
 # staging-startが作るnamespaceにこの注釈を付ける。空ならプロジェクトの外に作られ、管理者しか触れない
 # (docs/manual-rundeck.md「WordPressのオペレータ」)。staging1のクラスタIDは c-m-qqhsg9c2
-STAGING_PROJECT_ID = ""
+STAGING_PROJECT_ID = "c-m-qqhsg9c2:p-vk6k8"  # staging1の Wordpress プロジェクト(2026-10-25作成)
 
 # 出力ファイル → 取り込み先のRundeckプロジェクト(2026-10-17に分けた。docs/manual-rundeck.md)
 PROJECTS = {

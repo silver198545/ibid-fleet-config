@@ -206,7 +206,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
-        FRESH_BACKUP=$([ '@option.fresh_backup@' = yes ] && echo 1 || echo 0) STAGING_PROJECT_ID='' scripts/wordpress-pipeline.sh staging-start '@option.site@'
+        FRESH_BACKUP=$([ '@option.fresh_backup@' = yes ] && echo 1 || echo 0) STAGING_PROJECT_ID='c-m-qqhsg9c2:p-vk6k8' scripts/wordpress-pipeline.sh staging-start '@option.site@'
       scriptInterpreter: /bin/bash
     - description: devの構成へ切り替え → 基準と比較(upgrade=yesのとき)
       script: |
