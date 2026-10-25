@@ -263,7 +263,9 @@ cmd_check() {
   resolve_sites "$env" "$@"
   for s in "${SITES[@]}"; do
     url="$(site_url "$env" "$s")"
-    code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 20 "$url" || echo 000)"
+    # 接続できないときもcurlは -w で 000 を出力して失敗する(|| echo 000 だと 000000 になる)
+    code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 20 "$url" || true)"
+    code="${code:-000}"
     # Terminating は入れ替え直後の古いPodの終了処理中で、異常ではない
     bad="$(kc "$env" -n "wordpress-$s" get pods --no-headers 2>/dev/null | grep -v -E 'Running|Completed|Terminating' || true)"
     printf '%-14s %s  %s\n' "$s" "$code" "$url"
@@ -455,7 +457,8 @@ stg_snapshot() {
   : >"$dir/$name-pages.txt"
   while read -r path; do
     if [[ "$path" == "/" ]]; then url="$(site_url staging "$site")"; else url="${base}${path}"; fi
-    code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 30 "$url" || echo 000)"
+    code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 30 "$url" || true)"
+    code="${code:-000}"
     echo "$code $path" >>"$dir/$name-pages.txt"
   done <"$dir/paths.txt"
   echo "--- ${name}: $(head -2 "$dir/$name-info.txt" | tr '\n' ' ')"

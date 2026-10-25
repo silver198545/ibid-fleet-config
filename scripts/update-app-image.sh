@@ -514,7 +514,9 @@ cmd_check() {
 
   echo ""
   echo "== WEBアクセス確認: https://${host}${path} =="
-  code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "https://${host}${path}" || echo "000")"
+  # 接続できないときもcurlは -w で 000 を出力して失敗する(|| echo 000 だと 000000 になる)
+  code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "https://${host}${path}" || true)"
+  code="${code:-000}"
   echo "HTTPステータス: ${code}"
   if [[ "$code" == "200" ]]; then
     echo "OK: ${host}${path} は200を返しました。"
