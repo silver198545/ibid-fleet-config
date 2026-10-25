@@ -7,15 +7,16 @@ code in this repository. It is the single source of truth: `CLAUDE.md` imports i
 ## What this repository is
 
 This is a **Fleet (Rancher GitOps) configuration repository** — not application code. It contains YAML
-manifests that Rancher's Fleet controller applies to **two RKE2 guest clusters on Harvester**
-(dev → production; staging was retired on 2026-10-08 for lack of HW resources), plus a wrapper Helm
+manifests that Rancher's Fleet controller applies to **three RKE2 guest clusters on Harvester**
+(dev1 → staging1 → prod1; staging was retired on 2026-10-08 and reintroduced on 2026-10-25 once SSD-backed
+nodes made the cluster viable), plus a wrapper Helm
 chart and a custom image build. There is no unit-test tooling; PRs are validated by `.github/workflows/validate.yaml` (YAML syntax, fleet.yaml required keys,
 helm lint/template), and changes are ultimately "tested" by letting Fleet sync them and verifying
 resource state with `kubectl`.
 
 ## Multi-environment architecture (core design)
 
-- **Single `main` branch + per-environment directories** under `envs/dev|production`. Two
+- **Single `main` branch + per-environment directories** under `envs/dev|staging|production`. Three
   GitRepo CRs on the Rancher local cluster (copies kept in `fleet-bootstrap/`, applied manually) each
   watch only their environment's directory and target clusters labeled `env=<name>`.
 - **Promotion is controlled through GitHub PRs**, not cluster-side tooling: the `promote` workflow
@@ -34,9 +35,12 @@ resource state with `kubectl`.
   per-site *and per-environment* and never shared or committed.
 - `diff -r envs/dev/sites envs/production/sites` (and `apps`) should only show promotions in flight
   (`helm.version`, `plugins`, image tags) — bundles are environment-agnostic (see below).
-- Production-data testing (formerly staging's job) is done on a **temporary rehearsal site
-  `<site>-rh` on dev1** (`scripts/rehearsal-site.sh`, `docs/operations-flow.md` 「本番データリハーサル」),
-  deleted afterwards. Do not reintroduce a staging environment or other promotion paths.
+- **Staging (reintroduction in progress, 2026-10-25).** Decided: staging holds only what is being verified
+  (sites/apps are added, tested with restored production data, promoted, then removed); it replaces the
+  dev1 rehearsal sites `<site>-rh`; everything goes dev → staging → production; staging infra is a light
+  version (no Longhorn, `reclaimPolicy: Delete` StorageClasses); PRs touching only `envs/staging/` may
+  auto-merge. Until the staging pipeline lands, the promote workflow and scripts below still describe
+  dev → production and the `<site>-rh` rehearsal. Do not invent other promotion paths.
 
 ## Repository structure
 

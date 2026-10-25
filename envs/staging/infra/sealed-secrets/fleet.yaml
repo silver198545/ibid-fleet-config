@@ -1,0 +1,17 @@
+defaultNamespace: kube-system
+targetNamespace: kube-system
+
+# コントローラの封印鍵(kube-systemのSecret)が消えると、Gitにコミット済みの
+# 全SealedSecretが復号不能になる。バンドル削除でもリソースを残す。
+# 鍵のバックアップ手順は docs/manual-multi-env.md 参照。
+keepResources: true
+
+helm:
+  releaseName: sealed-secrets
+  chart: sealed-secrets
+  repo: https://bitnami.github.io/sealed-secrets
+  version: 2.19.1
+  values:
+    # kubeseal CLIのデフォルト(--controller-name sealed-secrets-controller
+    # --controller-namespace kube-system)に合わせて名前を固定する
+    fullnameOverride: sealed-secrets-controller

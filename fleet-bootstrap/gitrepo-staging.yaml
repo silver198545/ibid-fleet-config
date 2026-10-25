@@ -1,0 +1,22 @@
+# staging環境用GitRepo。Rancher localクラスタの fleet-default namespaceへ手動適用する。
+# envs/staging/ 配下のみを監視し、env=staging ラベルのクラスタ(staging1)へ適用する。
+# stagingは2026-10-08に一度廃止し、2026-10-25に再導入した(docs/roadmap.md)。
+# 検証中のサイト・アプリだけを一時的に置く環境で、infraは軽量版(Longhorn無し)。
+apiVersion: fleet.cattle.io/v1alpha1
+kind: GitRepo
+metadata:
+  name: ibid-staging
+  namespace: fleet-default
+spec:
+  repo: https://github.com/silver198545/ibid-fleet-config
+  # リポジトリはpublicのため認証は不要だが、他環境のGitRepoと揃えて残してある
+  # (fleet-bootstrap/README.md)。
+  clientSecretName: auth-55znx
+  branch: main
+  paths:
+    - envs/staging
+  targets:
+    - name: staging
+      clusterSelector:
+        matchLabels:
+          env: staging

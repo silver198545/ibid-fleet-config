@@ -1,0 +1,24 @@
+# Alertmanager用Slack Webhook URLのSealedSecretバンドル。
+#
+# - defaultNamespaceを指定することでFleetがnamespaceを自動作成する
+#   (monitoring本体より先に適用されてよい。Alertmanager Podはこの
+#   Secretをマウントするため、むしろ先に存在するのが望ましい)。
+# - dependsOnは付けないこと。monitoring本体に依存させると
+#   「Secretが無い→Alertmanagerが起動しない→本体がReadyにならない→
+#   Secretが適用されない」のデッドロックになる。
+# - SealedSecret本体は scripts/seal-monitoring-secret.sh <env> で生成する
+#   (封印は環境ごと。他環境のファイルはコピーしても復号できない)。
+defaultNamespace: cattle-monitoring-system
+
+# productionはパス由来のバンドル名が53文字制限で切り詰められ、monitoring本体からの
+# dependsOnが完全名で参照できない。stagingは制限内だが、productionと同じくラベル
+# (dependsOn.selector)で参照させる。
+# ibid-envはfleet-default上の全環境のバンドルが同居するため必須。
+labels:
+  ibid-role: monitoring-secrets
+  ibid-env: staging
+
+keepResources: true
+
+helm:
+  releaseName: monitoring-secrets
