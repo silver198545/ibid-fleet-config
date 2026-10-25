@@ -1,0 +1,21 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-external-apps
+provisioner: nfs.csi.k8s.io
+parameters:
+  server: "192.168.1.1"
+  share: "/data/nfs"
+  # nfs-external(wordpress/配下)とは別系統にして、apps/配下の自作アプリが
+  # WordPressサイトや他アプリのデータを見れないように隔離する。
+  subDir: "apps/staging/${pvc.metadata.namespace}/${pvc.metadata.name}"
+  mountPermissions: "0777"
+# stagingはDelete。検証中の一時的なサイト・アプリ(本番データのコピーを含む)しか置かず、
+# 片付け(namespace削除)でNFS上のデータも消えるようにする。
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+allowVolumeExpansion: true
+mountOptions:
+  # noresvportは付けない: このNFSサーバーのエクスポートは非特権ポートからの
+  # マウント要求を"Operation not permitted"で拒否する(insecureオプション無し)。
+  - nfsvers=4.1
