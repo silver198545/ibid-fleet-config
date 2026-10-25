@@ -587,11 +587,11 @@ Git管理外の作業(実施したら[x]にする):
 - [x] Rundeckに `rundeck/jobs/apps.yaml`・`wordpress.yaml` を取り込み直し、旧ジョブ(各アプリの `2-production-update`・
   `3-first-promote-prepare`・`4-first-promote-finish`、WordPressの `2-rehearsal`・`2a-rehearsal-upgrade`・
   `2b-rehearsal-cleanup`)を削除する(2026-10-25、Rundeck UI。[manual-rundeck.md](manual-rundeck.md))
-- [ ] Rundeckのオペレータ(`publicdb_developer`・`wpadmins`)が、kubeconfigを取り直して `staging1` を含める
+- [x] Rundeckのオペレータ(`publicdb_developer`・`wpadmins`)が、kubeconfigを取り直して `staging1` を含める(2026-10-25)
 - [x] staging1にRancherのプロジェクト `APPs`(`publicdb_developer` Read-only、7アプリのnamespace)・
   `Wordpress`(`wpadmins` Project Member)を作り、`STAGING_PROJECT_ID` に設定する(2026-10-25)
-- [ ] WordPressのオペレータ用に、staging1の公開証明書
-  `/var/lib/ibid-fleet-config/sealed-secrets-staging1.pem` を用意する([manual-rundeck.md](manual-rundeck.md)「WordPressのオペレータ」)
+- [x] WordPressのオペレータ用に、staging1の公開証明書
+  `/var/lib/ibid-fleet-config/sealed-secrets-staging1.pem` を用意する(2026-10-25)([manual-rundeck.md](manual-rundeck.md)「WordPressのオペレータ」)
 - [ ] dev1のリハーサルサイトの残り: NFSの `backup/dev/wordpress-jmc-rh/`(本番データのコピー、`nfs-backup`はRetain)と、
   `Released` のまま残ったjmc-rhのPVを片付ける
 
