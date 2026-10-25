@@ -128,9 +128,10 @@ metadata:
 | レコード | 値(2026-10-09) |
 |---|---|
 | `*.dev.ibid.lan` | `192.168.1.33`(dev1のTraefik) |
+| `*.staging.ibid.lan` | `192.168.1.50`(staging1のTraefik。2026-10-25〜) |
 | `*.production.ibid.lan` | `192.168.1.99`(prod1のTraefik) |
 
-- **サイトやアプリを追加しても、DNSの作業は無い**(リハーサルサイト`<site>-rh`も同じ)。
+- **サイトやアプリを追加しても、DNSの作業は無い**(stagingに置くサイトも同じ)。
 - **TraefikのIPが変わったとき**(クラスタの作り直し等)は、このレコードを1件書き換える:
   ```bash
   kinit admin

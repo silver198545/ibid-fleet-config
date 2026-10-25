@@ -101,20 +101,19 @@
         export PIPELINE_ACTOR='@job.username@'
         FRESH_BACKUP=$([ '@option.fresh_backup@' = yes ] && echo 1 || echo 0) scripts/wordpress-pipeline.sh dev-refresh @option.sites@
       scriptInterpreter: /bin/bash
-- name: 2-rehearsal
-  uuid: c9a8843f-2955-509f-9599-957fc2884643
+- name: 2-staging
+  uuid: 15be4bb2-afc2-5020-90eb-495a36f60946
   description: |
-    【本番データのリハーサル】
+    【stagingで本番データを使って確認する】
 
-    dev1に一時サイト <site>-rh を本番と同じ構成で作り(devだけのPRなのでauto-merge)、本番の最新
+    選んだサイトを本番と同じ構成でstaging1に置き(stagingだけのPRなのでauto-merge)、本番の最新
     コンテンツをリストアして比較の基準(各ページのHTTPステータス・WordPress/プラグインの版)を記録する。
-    upgrade=yes なら続けて <site>-rh をdevの構成(昇格予定の helm.version・plugins)へ切り替え、
-    プラグイン同期Job・DB更新(wp core update-db)の所要時間、MariaDBのアップグレード、
-    ページの表示、PHPエラーを基準と比べて報告する。
+    upgrade=yes なら続けてdevの構成(昇格予定の helm.version・plugins)をpromoteワークフローでstagingへ昇格し
+    (auto-merge)、プラグイン同期Job・DB更新(wp core update-db)の所要時間、MariaDBのアップグレード、
+    ページの表示、PHPエラーを基準と比べて報告する。本番にまだ無い新規サイトはdevの構成で置くだけ。
 
-    WordPress本体のメジャー更新・MariaDBのメジャー更新・プラグインの大きな更新の前に行う
-    (docs/operations-flow.md「本番データリハーサル」)。dev1のメモリの都合で同時に1サイトまで。
-    結果は昇格PRに書き、終わったら「2b-rehearsal-cleanup」で必ず削除する。
+    本番へはstagingを通して昇格する(docs/operations-flow.md「stagingでの確認」)。staging1のメモリの都合で
+    同時に4サイトまで。結果は昇格PRに書き、本番へ昇格したら「4-staging-cleanup」で必ず削除する。
   loglevel: INFO
   executionEnabled: true
   scheduleEnabled: true
@@ -125,7 +124,7 @@
   nodesSelectedByDefault: true
   options:
   - name: site
-    description: リハーサルする本番のサイト
+    description: stagingで確認するサイト
     required: true
     values:
     - abc
@@ -174,7 +173,7 @@
     valuesListDelimiter: ','
     enforced: true
   - name: upgrade
-    description: 'yes: 続けてdevの構成へ切り替えて確認する / no: 本番のコピーを作るところまで'
+    description: 'yes: 続けてdevの構成へ切り替えて確認する / no: 本番のコピーを置くところまで'
     required: true
     value: 'yes'
     values:
@@ -202,12 +201,12 @@
         git pull -q --ff-only origin main
         echo "main: $(git log -1 --format='%h %s')"
       scriptInterpreter: /bin/bash
-    - description: リハーサルサイト作成 → 本番データのリストア → 基準の記録
+    - description: stagingへ追加 → 本番データのリストア → 基準の記録
       script: |
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
-        FRESH_BACKUP=$([ '@option.fresh_backup@' = yes ] && echo 1 || echo 0) scripts/wordpress-pipeline.sh rehearsal-start '@option.site@'
+        FRESH_BACKUP=$([ '@option.fresh_backup@' = yes ] && echo 1 || echo 0) STAGING_PROJECT_ID='' scripts/wordpress-pipeline.sh staging-start '@option.site@'
       scriptInterpreter: /bin/bash
     - description: devの構成へ切り替え → 基準と比較(upgrade=yesのとき)
       script: |
@@ -215,18 +214,18 @@
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
         if [ '@option.upgrade@' = yes ]; then
-          scripts/wordpress-pipeline.sh rehearsal-upgrade '@option.site@'
+          scripts/wordpress-pipeline.sh staging-upgrade '@option.site@'
         else
-          echo 'upgrade=no のため切り替えません。あとで 2a-rehearsal-upgrade を実行できます。'
+          echo 'upgrade=no のため切り替えません。あとで 2a-staging-upgrade を実行できます。'
         fi
       scriptInterpreter: /bin/bash
-- name: 2a-rehearsal-upgrade
-  uuid: 9e736bfa-24ab-5a4b-8027-c16cfd506afd
+- name: 2a-staging-upgrade
+  uuid: 31065463-4212-55cb-bcf7-26e8bdf22dd7
   description: |
-    【本番データのリハーサル: 切り替えのやり直し】
+    【stagingで確認する: 切り替えのやり直し】
 
-    既にある <site>-rh を、devの現在の構成へ切り替えて基準と比べる。リハーサルで見つかった問題を
-    devで直したあとや、2-rehearsal を upgrade=no で実行したあとに使う。
+    stagingにあるサイトを、devの現在の構成へ切り替えて基準と比べる。stagingで見つかった問題を
+    devで直したあとや、2-staging を upgrade=no で実行したあとに使う。
   loglevel: INFO
   executionEnabled: true
   scheduleEnabled: true
@@ -237,7 +236,7 @@
   nodesSelectedByDefault: true
   options:
   - name: site
-    description: リハーサル中のサイト(<site>-rh の <site>)
+    description: stagingで確認中のサイト
     required: true
     values:
     - abc
@@ -301,105 +300,23 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
-        scripts/wordpress-pipeline.sh rehearsal-upgrade '@option.site@'
-      scriptInterpreter: /bin/bash
-- name: 2b-rehearsal-cleanup
-  uuid: 33133a87-31a3-5ba2-81a6-8e80e23a5fc5
-  description: |
-    【本番データのリハーサル: 後片付け】
-
-    <site>-rh をGitから削除するPRを作ってauto-mergeし、マージ後にdev1の wordpress-<site>-rh
-    namespace(本番データのコピー)を削除する。harvesterのPVがReleasedで残ったら警告を出す。
-  loglevel: INFO
-  executionEnabled: true
-  scheduleEnabled: true
-  multipleExecutions: false
-  timeout: 1h
-  nodefilters:
-    filter: 'tags: rancher'
-  nodesSelectedByDefault: true
-  options:
-  - name: site
-    description: 削除するリハーサルサイトの元のサイト名(<site>-rh の <site>)
-    required: true
-    values:
-    - abc
-    - abc-en
-    - acd
-    - acd-en
-    - cell
-    - cell-en
-    - dgprt
-    - dgprt-en
-    - dna
-    - dna-en
-    - epd
-    - epd-en
-    - hdm
-    - hdm-en
-    - iddd
-    - iddd-en
-    - info
-    - info-en
-    - jcm
-    - jcm-en
-    - jmc
-    - jmc-en
-    - kougaku
-    - kougaku-en
-    - mgen
-    - mgen-en
-    - mus
-    - mus-en
-    - pms
-    - pms-en
-    - tet
-    - tet-en
-    - web
-    - web-en
-    valuesListDelimiter: ','
-    enforced: true
-  sequence:
-    keepgoing: false
-    strategy: node-first
-    commands:
-    - description: mainを最新化
-      script: |
-        set -euo pipefail
-        cd "$HOME/ibid-fleet-config"
-        export PIPELINE_ACTOR='@job.username@'
-        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
-        flock -w 3600 9
-        if [ -n "$(git status --porcelain)" ]; then
-          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
-          git status --short >&2
-          exit 1
-        fi
-        git checkout -q main
-        git pull -q --ff-only origin main
-        echo "main: $(git log -1 --format='%h %s')"
-      scriptInterpreter: /bin/bash
-    - description: Gitから削除 → namespace削除
-      script: |
-        set -euo pipefail
-        cd "$HOME/ibid-fleet-config"
-        export PIPELINE_ACTOR='@job.username@'
-        scripts/wordpress-pipeline.sh rehearsal-cleanup '@option.site@'
+        scripts/wordpress-pipeline.sh staging-upgrade '@option.site@'
       scriptInterpreter: /bin/bash
 - name: 3-production-promote
   uuid: 8f2bcfd1-7e89-5b25-befb-af7ea1f65605
   description: |
     【本番昇格パイプライン】
 
-    devと本番で差分のあるサイトの昇格PRを promote ワークフローで作り、CI通過後に対象サイトの
-    本番バックアップを取って(結果はPRにコメントする。本番の権限が無いオペレータが実行した場合は取らず、
+    stagingと本番で差分のあるサイトの昇格PR(staging→production)を promote ワークフローで作り、CI通過後に
+    対象サイトの本番バックアップを取って(結果はPRにコメントする。本番の権限が無いオペレータが実行した場合は取らず、
     「承認する管理者がマージ直前に tools/backup で取る」とPRにコメントする)、**人がPRをレビュー・マージするのを待つ
     (このジョブはマージしない)**。マージされたらFleetの適用(Helmリビジョンの更新とrollout)を待ち、
     本番のHTTP 200・Pod・MariaDBのアップグレード状況を確認する。差分が無ければ確認だけ行う。
 
-    all は本番に既にあるサイトだけが対象。devにしか無いサイトを本番へ追加するときはサイト名を選ぶ
+    **本番へはstagingに載っている内容を昇格する**(先に「2-staging」で確認しておく)。all はstagingに載っている、
+    本番にある全サイトが対象。本番に無いサイトを追加するときはサイト名を選ぶ
     (先に scripts/seal-site-secrets.sh production <site> のSecretをmainへ入れておくこと)。
-    DBマイグレーションを伴う更新なら、先に「2-rehearsal」を済ませておく。
+    終わったら「4-staging-cleanup」でstagingから削除する。
   loglevel: INFO
   executionEnabled: true
   scheduleEnabled: true
@@ -491,6 +408,90 @@
         export PIPELINE_ACTOR='@job.username@'
         MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/wordpress-pipeline.sh promote-production @option.sites@
       scriptInterpreter: /bin/bash
+- name: 4-staging-cleanup
+  uuid: 302baddf-e7e6-59cf-bc19-523a3a327cb4
+  description: |
+    【stagingの後片付け】
+
+    サイトをstagingのGitから削除するPRを作ってauto-mergeし、マージ後にstaging1の wordpress-<site>
+    namespace(本番データのコピー)を削除する。本番へまだ昇格していなければ注意を出す。
+    harvesterのPVがReleasedで残ったら警告を出す。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 1h
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: site
+    description: stagingから削除するサイト
+    required: true
+    values:
+    - abc
+    - abc-en
+    - acd
+    - acd-en
+    - cell
+    - cell-en
+    - dgprt
+    - dgprt-en
+    - dna
+    - dna-en
+    - epd
+    - epd-en
+    - hdm
+    - hdm-en
+    - iddd
+    - iddd-en
+    - info
+    - info-en
+    - jcm
+    - jcm-en
+    - jmc
+    - jmc-en
+    - kougaku
+    - kougaku-en
+    - mgen
+    - mgen-en
+    - mus
+    - mus-en
+    - pms
+    - pms-en
+    - tet
+    - tet-en
+    - web
+    - web-en
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: Gitから削除 → namespace削除
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        scripts/wordpress-pipeline.sh staging-cleanup '@option.site@'
+      scriptInterpreter: /bin/bash
 - name: backup
   group: tools
   uuid: 9288616e-4c38-5a04-9530-55774d94a473
@@ -511,6 +512,7 @@
     value: production
     values:
     - production
+    - staging
     - dev
     valuesListDelimiter: ','
     enforced: true
@@ -605,6 +607,7 @@
     value: production
     values:
     - production
+    - staging
     - dev
     valuesListDelimiter: ','
     enforced: true

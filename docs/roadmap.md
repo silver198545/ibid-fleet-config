@@ -1,13 +1,13 @@
 # 今後の開発方針(ロードマップ)
 
-2026-07-05に作成し、以後更新している(最終更新: 2026-10-09)。到達点と、数十サイトの本番運用に向けて残る課題の整理。
+2026-07-05に作成し、以後更新している(最終更新: 2026-10-25)。到達点と、数十サイトの本番運用に向けて残る課題の整理。
 優先度と「いつまでに決めるべきか」のトリガーを明記する。
 完了した項目は消さず「済」に更新し、この文書を意思決定の記録として育てる。
 
 ## 到達点(完了済みの基盤)
 
-- 2クラスタ(dev1 / prod1)+ 単一mainブランチ・環境別ディレクトリのGitOps
-  (当初の3クラスタ構成からstaging1を2026-10-08に廃止。下記「環境構成の見直し」)
+- 3クラスタ(dev1 / staging1 / prod1)+ 単一mainブランチ・環境別ディレクトリのGitOps
+  (staging1は2026-10-08に一度廃止し、2026-10-25に再導入。下記「環境構成の見直し」と項目9)
 - 環境非依存のサイト・アプリバンドル(昇格=丸ごとコピー。環境差分はクラスタラベルで選択)
 - PR承認ゲート付きの昇格フロー(promoteワークフロー、本番はCODEOWNERS必須)
 - 全サイト共通のラッパーチャート(GHCR公開、digest固定イメージ)
@@ -32,8 +32,8 @@
      (過去の作業記録としての言及は残す)
   2. stagingが担っていた「本番相当データでのDBマイグレーション確認」は、**dev1上の
      一時的なリハーサルサイト `<site>-rh`** で代替する(本番バックアップをリストア→
-     昇格予定の変更を適用→確認→削除)。手順は
-     [operations-flow.md](operations-flow.md)「本番データリハーサル」
+     昇格予定の変更を適用→確認→削除)。(2026-10-25にstagingを再導入し、この役割はstagingへ移した。
+     [operations-flow.md](operations-flow.md)「stagingでの確認」、下記項目9)
   3. 昇格PRで環境固有の差分(ingressホスト名、production冗長化設定)が消える問題を
      同時に解消する。サイト・アプリのバンドルを全環境で同一内容にし、環境差分は
      Fleetの`targetCustomizations`(サイト: `helm.values`、アプリ: `yaml.overlays`)と
@@ -299,18 +299,20 @@
 - **恒久対応(未着手)**: ゲストクラスタにデプロイされているharvester-csi-driver/
   harvester-cloud-providerのバージョンと、Harvester管理クラスタ本体のAPIバージョンとの
   互換性を調査し、スキューを解消する(アップグレードまたはダウングレード)。
-  `docs/operations-flow.md`の「本番データリハーサル」でリハーサルサイトを削除するたびに、
-  この詰まりに都度対応が必要な点に注意(2026-10-08以前はstagingサイトの削除で発生していた)。
+  `docs/operations-flow.md`の「stagingでの確認」でstagingのサイトを削除するたびに(`staging-cleanup`)、
+  この詰まりに都度対応が必要な点に注意(2026-10-08〜25はdev1のリハーサルサイトの削除で発生していた)。
 
-### 9. 環境構成の再検討(staging再導入の可否)
+### 9. 環境構成の再検討(staging再導入の可否) 【済(2026-10-25)】
 
 - 2026-10-08にHWリソース(Harvesterホストのメモリ)を理由にstagingを廃止した(上記「環境構成の見直し」)。
-  etcd遅延・時刻ずれの対策(SSD限定・chrony)が確立したため、クラスタ作成自体は安定してできる見込み。
-  ただし、廃止の理由だったメモリの制約は変わっていない。
-- 検討するときの順序: (1)Harvesterホストのメモリの空きを確認、(2)小さい構成で`staging1`クラスタだけを
-  作り(GitOpsにはまだ入れない)、dev1/prod1への影響を数日観察、(3)問題なければGit側の再導入
-  (`envs/staging/`、GitRepo、promoteワークフローの3段階化、`targetCustomizations`等)を設計する。
-  クラスタの作り方は[manual-multi-env.md](manual-multi-env.md)の「2. クラスタの新規作成」。
+- **2026-10-25に再導入した**。維持できなかった主因はcontrol-planeのetcdがHDD上にあったことで、SSDイメージで
+  staging1(3台 × 8GiB、全役割兼任)をすぐに作れた(Harvesterホストのメモリ使用率は約70%)。
+  決めたこと: stagingには**確認中のものだけ**を一時的に置く(常駐させない。WordPressは同時に4サイトまで)、
+  dev1のリハーサルサイトを**stagingで置き換える**、サイトもアプリも**すべて dev → staging → production**、
+  infraは**軽量版**(Longhorn無し)、stagingだけに触れるPRは**auto-merge**。
+  記録: [manual-multi-env.md](manual-multi-env.md)「10.」、運用: [operations-flow.md](operations-flow.md)「stagingでの確認」
+- 次の課題: stagingを対象にしたQAゲート(stagingで自動テストが通ったものだけ本番へ昇格できるようにする。
+  テストは踏み台から実行し、結果をcommit statusとして昇格PRの必須チェックにする案)
 
 ## 🟡 優先度・低: 小さいが効く宿題
 
@@ -361,9 +363,6 @@
 - **DB層の冗長化**(mariadb-galera等)— 現在は単体MariaDB。可用性要件が上がったら。
 - **昇格の自動化深化**(dev→productionのPR自動生成、Kargo再評価)— 昇格頻度が
   上がって手動dispatchが煩雑になったら。
-- **本番データリハーサルのスクリプト化** — 現状は
-  [operations-flow.md](operations-flow.md)の手順書+`scripts/rehearsal-site.sh`(名前置換のみ)。
-  実運用で数回回して手順が固まったら、本番バックアップ取得〜リストアまでの自動化を検討。
 - **Bitnamiチャート依存からの脱却** — イメージはBitnami公式の`latest`をdigest固定、
   チャートもbitnami/wordpress依存。提供形態が再度変わった場合は公式イメージ+
   汎用チャートへの移行を検討。

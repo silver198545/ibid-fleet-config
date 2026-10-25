@@ -1,18 +1,21 @@
 # 環境間プロモーションPRの自動生成(手動起動)。
-# サイト(sites/)またはアプリ(apps/)の設定を dev→production へ丸ごとコピーし、PRを作成する。
-# PRのdiffがそのまま変更レビューになり、マージが昇格の承認になる。
+# サイト(sites/)またはアプリ(apps/)の設定を dev→staging、または staging→production へ丸ごとコピーし、
+# PRを作成する。PRのdiffがそのまま変更レビューになり、マージが昇格の承認になる。
+# 本番へは必ずstagingを通す(stagingで確かめた内容そのものを本番へコピーする)。
 # 環境ごとに変わる値は各バンドルの中で書き分けてあるため、コピー後の手直しは不要
 # (docs/operations-flow.md「環境差分の書き方」)。
 #
-# 使い方:
-#   gh workflow run promote.yaml -f name=all                  # 本番にある全サイト
-#   gh workflow run promote.yaml -f name=<site>               # 1サイト(本番への新規追加も可)
-#   gh workflow run promote.yaml -f name="abc-en cell-en"     # 複数サイト(空白かカンマ区切り。1つのPRにまとめる)
-#   gh workflow run promote.yaml -f kind=apps -f name=all     # 本番にある全アプリ
-#   gh workflow run promote.yaml -f kind=apps -f name=<app>   # 1アプリ(本番にあるもののみ)
-# アプリの本番への初回昇格は、SealedSecretをkubesealで作る必要があるため
-# scripts/update-app-image.sh promote-production で行う(docs/manual-apps.md)。
-# scripts/update-app-image.sh deploy-production もこのワークフローを起動する。
+# 使い方(to を省略すると staging):
+#   gh workflow run promote.yaml -f to=staging -f name=<site>       # dev→staging(stagingに載っているサイトの更新)
+#   gh workflow run promote.yaml -f to=production -f name=all       # staging→production(stagingに載っている、本番にある全サイト)
+#   gh workflow run promote.yaml -f to=production -f name=<site>    # 1サイト(本番への新規追加も可)
+#   gh workflow run promote.yaml -f to=production -f name="abc-en cell-en"  # 複数(空白かカンマ区切り。1つのPRにまとめる)
+#   gh workflow run promote.yaml -f kind=apps -f to=production -f name=<app>
+# stagingには検証中のものだけを一時的に置く。stagingへの新規追加(Secretの封印と本番データの復元を伴う)は
+# scripts/wordpress-pipeline.sh staging-start(サイト)・scripts/update-app-image.sh(アプリ)で行い、
+# このワークフローは既にstagingにあるものだけを更新する。
+# dev→stagingのPRはauto-mergeを設定する(stagingはCODEOWNERSの対象外で承認不要)。
+# staging→productionのPRはCode Ownerの承認が要るので、人がレビュー・マージする。
 #
 # 注意: github.token で作成されたPRでは validate ワークフローが自動起動しない
 # (GitHub Actionsの再帰防止仕様)。ブランチ保護で validate を必須チェックにする場合は、
@@ -28,8 +31,13 @@ on:
         type: choice
         options: [sites, apps]
         default: sites
+      to:
+        description: "昇格先(staging: dev→staging / production: staging→production)"
+        type: choice
+        options: [staging, production]
+        default: staging
       name:
-        description: "サイト名・アプリ名(空白かカンマ区切りで複数可。all で本番に既にある全件を更新)"
+        description: "サイト名・アプリ名(空白かカンマ区切りで複数可。all で昇格先に既にある全件を更新)"
         type: string
         required: true
         default: all
@@ -49,8 +57,7 @@ jobs:
       - name: 昇格内容をコピーしてPRを作成
         env:
           GH_TOKEN: ${{ secrets.PROMOTE_TOKEN || github.token }}
-          FROM_ENV: dev
-          TO_ENV: production
+          TO_ENV: ${{ inputs.to }}
           KIND: ${{ inputs.kind }}
           NAME: ${{ inputs.name }}
         run: |
@@ -73,6 +80,11 @@ jobs:
             fi
           done
           NAME="${NAMES[*]}"
+          case "$TO_ENV" in
+            staging) FROM_ENV=dev ;;
+            production) FROM_ENV=staging ;;
+            *) echo "エラー: 不明なto: $TO_ENV" >&2; exit 1 ;;
+          esac
           case "$KIND" in
             sites) LABEL="サイト" ;;
             apps) LABEL="アプリ" ;;
@@ -82,9 +94,10 @@ jobs:
           DST="envs/$TO_ENV/$KIND"
 
           if [ "$NAME" = "all" ]; then
-            # 本番に既にあるものだけを昇格元と同期する。devにしか無いもの(本番未展開)は
-            # 対象外で、本番への新規追加は名前を指定して行う(SealedSecret等の準備が要るため)。
-            # devから消えたものも本番からは消さない(削除は各手順書の手動手順)。
+            # 昇格先に既にあるものだけを昇格元と同期する。昇格元にしか無いもの(昇格先に未展開)は
+            # 対象外で、新規追加は名前を指定して行う(SealedSecret等の準備が要るため)。
+            # 昇格元から消えたものも昇格先からは消さない(削除は各手順書の手動手順)。
+            # to=productionでは、stagingに載っていない(検証中でない)ものは警告してスキップする。
             # --checksum: checkout直後はmtimeが揃うため、同サイズの変更(0.4.0→0.5.0等)をrsyncの
             # quick checkが取りこぼす。内容比較を強制する。
             for dir in "$DST/"*/; do
@@ -95,17 +108,30 @@ jobs:
                 echo "警告: $SRC/$item が無いため $item はスキップします" >&2
               fi
             done
-            SUBJECT="本番の全${LABEL}を${FROM_ENV}から${TO_ENV}へ昇格"
+            SUBJECT="${TO_ENV}の全${LABEL}を${FROM_ENV}から${TO_ENV}へ昇格"
           else
             # 先に全件を確かめてから(途中で失敗して一部だけコピーされないように)
             for n in "${NAMES[@]}"; do
               if [ ! -d "$SRC/$n" ]; then
                 echo "エラー: $SRC/$n がありません" >&2
+                if [ "$FROM_ENV" = staging ]; then
+                  echo "本番へはstagingを通して昇格します。先にstagingへ載せて確認してください" >&2
+                  echo "(サイト: scripts/wordpress-pipeline.sh staging-start、アプリ: scripts/update-app-image.sh)。" >&2
+                fi
                 exit 1
               fi
               if [ "$KIND" = "apps" ] && [ ! -d "$DST/$n" ]; then
-                echo "エラー: $DST/$n がありません。アプリの本番への初回昇格は" >&2
-                echo "scripts/update-app-image.sh promote-production $n で行ってください(SealedSecretの作成が要るため)。" >&2
+                echo "エラー: $DST/$n がありません。アプリの${TO_ENV}への初回昇格は" >&2
+                echo "scripts/update-app-image.sh で行ってください(SealedSecretの作成が要るため。docs/manual-apps.md)。" >&2
+                exit 1
+              fi
+              if [ "$KIND" = "sites" ] && [ ! -d "$DST/$n" ] && [ ! -f "envs/$TO_ENV/secrets/$n.yaml" ]; then
+                echo "エラー: envs/$TO_ENV/secrets/$n.yaml がありません。${TO_ENV}への新規追加は先にSecretを封印してmainへ入れてください" >&2
+                if [ "$TO_ENV" = staging ]; then
+                  echo "(stagingは scripts/wordpress-pipeline.sh staging-start $n がSecretの封印から行う)。" >&2
+                else
+                  echo "(scripts/seal-site-secrets.sh $TO_ENV $n)。" >&2
+                fi
                 exit 1
               fi
             done
@@ -142,16 +168,19 @@ jobs:
             git diff --stat HEAD~1 HEAD
             echo '```'
             echo
+            if [ "$TO_ENV" = staging ]; then
+              echo "stagingへの昇格のため、validateが通ればauto-mergeでマージされる(承認不要)。"
+            else
             echo "## マージ前チェックリスト"
             echo
             echo "- [ ] diffが昇格させたい変更だけで、環境固有の値の直書きが混ざっていない"
-            echo "- [ ] devで対象が正常稼働していることを確認した"
+            echo "- [ ] stagingで対象が正常稼働していることを確認した"
             if [ "$KIND" = "sites" ]; then
               echo "- [ ] チャート/イメージ更新を含む場合、changelogに破壊的変更(DBマイグレーション等)がないか確認した"
-              echo "- [ ] コア/プラグイン更新でDBマイグレーションを伴う場合、dev1の本番データリハーサルで確認した(docs/operations-flow.md)"
+              echo "- [ ] コア/プラグイン更新でDBマイグレーションを伴う場合、stagingで本番データを入れて確認した(docs/operations-flow.md)"
               echo "- [ ] 対象サイトの本番バックアップ(日次バックアップCronJobから今すぐ1つ)を取得した"
             else
-              echo "- [ ] PVCで永続データを持つアプリは、必要なら \`update-app-image.sh sync-dev-data\` で本番相当データを確認した"
+              echo "- [ ] PVCで永続データを持つアプリは、stagingで本番相当データを確認した"
               echo
               echo "## マージ後の確認"
               echo
@@ -161,12 +190,18 @@ jobs:
                 for n in "${NAMES[@]}"; do echo "- [ ] \`scripts/update-app-image.sh check-production $n\`"; done
               fi
             fi
+            fi
             echo
             echo "🤖 Generated with promote.yaml"
           } > "$BODY_FILE"
 
-          gh pr create \
+          PR_URL="$(gh pr create \
             --title "chore: ${SUBJECT}" \
             --body-file "$BODY_FILE" \
             --base main \
-            --head "$BRANCH"
+            --head "$BRANCH")"
+          echo "$PR_URL"
+          if [ "$TO_ENV" = staging ]; then
+            # stagingだけに触れるPRはCODEOWNERSの対象外。validateが通ればそのままマージされる
+            gh pr merge "$PR_URL" --auto --squash
+          fi

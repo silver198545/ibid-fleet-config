@@ -100,8 +100,8 @@ grep -n '^CREATE DATABASE\|^USE `' backup.dump
 DBとwp-contentを丸ごと上書きするため、復元先サイトの現状をバックアップしてから進めてください。
 wp-content（`nfs-external`）とDB（`harvester`）はゲストLonghorn上に無いため、Longhorn UIの
 スナップショットは使えません。上記「日次バックアップ」の「今すぐ1つ取る」で取ります
-（CronJobの無い古いチャートのサイトでは、[operations-flow.md](operations-flow.md)
-「本番データリハーサル」1.の手動の方法）。`scripts/restore-wordpress.sh`でそのまま戻せるので、
+（CronJobの無い古いチャートのサイトは、mysqldumpとwp-contentのtarを手で取る。
+2026-10時点で全サイトにCronJobがある）。`scripts/restore-wordpress.sh`でそのまま戻せるので、
 失敗しても切り戻せます。
 新規の空サイトへ復元する場合は不要です（スクリプトの確認プロンプトには`y`で答える）。
 

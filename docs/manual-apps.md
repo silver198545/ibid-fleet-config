@@ -140,8 +140,8 @@ productionで変える値(ホスト名、レプリカ数、アフィニティ等
 ## 本番反映のサイクル
 
 WordPressサイトと同じサイクル([operations-flow.md](operations-flow.md)参照)で運用する。
-DBを持たないアプリの場合はWordPressより単純で、devで動作確認できればそのまま
-productionへ昇格してよい(本番データのリハーサルは基本不要)。
+本番へは、WordPressと同じく必ずstagingを通す(dev → staging → production)。
+DBを持たないアプリはWordPressより単純で、stagingでの確認は動作確認(WEB疎通・主要な画面)が中心になる。
 
 PVCで永続データを持つアプリは、`update-app-image.sh`の`persistent_data_dir_for`に登録すれば
 本番の永続データをdevへコピーして本番相当データで確認できる(`update-app-image.sh sync-dev-data <app>`。

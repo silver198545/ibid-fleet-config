@@ -1,11 +1,12 @@
-# マルチ環境(dev → production)セットアップ・移行手順
+# マルチ環境(dev → staging → production)セットアップ・移行手順
 
-数十のWordPressサイトを dev → production の2つのRKE2クラスタで運用するための
+数十のWordPressサイトを dev → staging → production の3つのRKE2クラスタで運用するための
 セットアップ手順と、既存の単一クラスタ(dev1)からの移行手順。
 
 当初はdev → staging → productionの3環境で構築したが、HWリソースの制約から
-**2026-10-08にstagingを廃止**した(後片付けは下記「9. staging環境の廃止」)。
-本文中のstagingへの言及のうち、過去の作業記録・実例はそのまま残している。
+**2026-10-08にstagingを廃止**し(下記「9.」)、SSDを使ったstaging1で**2026-10-25に再導入**した
+(下記「10.」)。stagingは常設の環境ではなく、確認中のサイト・アプリだけを一時的に置く
+([operations-flow.md](operations-flow.md)「stagingでの確認」)。
 
 作業端末にkubectl等のCLIツールがまだ無い場合は先に
 [manual-tooling-setup.md](manual-tooling-setup.md)を参照。
@@ -113,7 +114,7 @@ wp-contentの実データは昇格せず、必要な場合は [manual-wordpress-
    - `harvester-cloud-provider`の`global.cattle.clusterName`(無いとLBが`kubernetes-*`名で作られ、IPが付かない)
    - `rke2-traefik`の`service.spec.type: LoadBalancer`(キーは`service.type`ではない)
 2. Harvester**管理クラスタ**に、そのクラスタ用の`IPPool`を作る。レンジは環境ごとに分け、
-   Harvester UIのVIPと重ねない(現在: pool1=dev1 `.30-.49`、pool3=prod1 `.90-.100`)。
+   Harvester UIのVIPと重ねない(現在: pool1=dev1 `.30-.49`、pool2=staging1 `.50-.60`、pool3=prod1 `.90-.100`)。
 3. ラベル `env=<環境名>` を付ける(Cluster Management → 対象クラスタ → Labels & Annotations)。
 4. kubeconfigを`~/.kube/config`にマージする。同名で作り直した場合は、先に古いcontext/clusterを消す
    ([manual-dr-troubleshooting.md](manual-dr-troubleshooting.md)の1.)。
@@ -241,9 +242,10 @@ Rancher UI(Continuous Delivery → Git Repos → base-infra)で `paths` を確�
   昇格で production へ展開する。
 - **設定変更・バージョンアップ**: devの `envs/dev/sites/<site>/fleet.yaml` または
   `charts/ibid-wordpress/` を変更 → PR → マージ → devで動作確認 →
-  (DBマイグレーションを伴う変更ならdev1で本番データリハーサル。
+  stagingで本番データを使って確認(`scripts/wordpress-pipeline.sh staging-start`/`staging-upgrade`。
   [operations-flow.md](operations-flow.md)) →
-  Actionsの `promote`(dev→production)を手動起動 → CODEOWNERS承認を経てマージ。
+  Actionsの `promote`(`to=production`。staging→production)を起動 → CODEOWNERS承認を経てマージ →
+  stagingから削除(`staging-cleanup`)。
 - **チャート更新**: `charts/ibid-wordpress/` を変更(未コミットのまま)→
   `scripts/bump-chart.sh "<種類>: <説明>"` を実行。`Chart.yaml` のversion上げ・PR・auto-merge・
   `release-chart.yaml` の公開待ち・devの全サイトの `helm.version` を上げるPR・auto-mergeまで
@@ -252,7 +254,7 @@ Rancher UI(Continuous Delivery → Git Repos → base-infra)で `paths` を確�
   Bitnami公式イメージ(`docker.io/bitnami/{wordpress,mariadb}:latest`)の現在のdigestを
   [values.yaml](../charts/ibid-wordpress/values.yaml) に書き込み、上記「チャート更新」と同じ流れでdevまで反映する。
   PRの本文にはイメージ内のバージョン変化(例: WordPress 7.0 → 7.1.3)が書かれ、
-  メジャー更新なら「本番データリハーサル必須」と明記される。
+  メジャー更新なら「stagingで本番データでの確認必須」と明記される。
 - **プラグイン更新**: `scripts/bump-plugins.sh`(`--dry-run` で書き換えだけ)。devの全サイトの
   `plugins:` をWordPress.orgの最新版(今のWordPressで動くもの)へ上げるPRを作りauto-mergeする。
 - **自動実行**: 上の2つは [auto-update.yaml](../.github/workflows/auto-update.yaml) が**毎週月曜9:00(JST)**に
@@ -267,8 +269,8 @@ WordPressコア/プラグインのイメージはdigest固定(= セキュリテ�
 (前後にずれても良いが月を跨がないこと)。初回は2026-08-01。
 
 1. **WordPressコア・プラグインの確認**: devへの更新は毎週の `auto-update` が済ませているので、
-   その間のPR(Actionsの実行履歴)とdevの状態を確認し、問題なければproductionへ昇格する
-   (メジャー更新を含むなら本番データリハーサル)。`auto-update` が失敗していないかも見る。
+   その間のPR(Actionsの実行履歴)とdevの状態を確認し、問題なければstagingで確認してからproductionへ昇格する
+   (4サイトずつ。[runbook/wordpress-update.md](runbook/wordpress-update.md))。`auto-update` が失敗していないかも見る。
    自動更新から外れたプラグイン(WordPress.orgで公開停止、新しいWordPressが必要等。
    実行ログに警告が出る)は個別に判断する。
    `wp-file-manager`(過去に重大脆弱性の履歴あり)は特に、その時点で必要かどうかを
@@ -521,11 +523,10 @@ kubeletのマウントバックオフ、Fleetの所有権drift等)は
    Readyを確認する。手動で取った復元用バックアップは適宜整理する
    (RecurringJobの保持世代管理は自動作成分にしか効かない)。
 
-## 9. staging環境の廃止(2026-10-08)
+## 9. staging環境の廃止(2026-10-08)【記録。2026-10-25に再導入(10.)】
 
 HWリソース(Harvesterホストのメモリ)の制約からstagingを廃止し、dev / production の
-2環境にした。本番相当データでの確認は、dev1上の一時的なリハーサルサイトで代替する
-([operations-flow.md](operations-flow.md)「本番データリハーサル」)。
+2環境にした。本番相当データでの確認は、dev1上の一時的なリハーサルサイト `<site>-rh` で代替していた。
 
 Git側(`envs/staging/`、`fleet-bootstrap/gitrepo-staging.yaml`、promoteワークフロー・
 スクリプトのstaging対応)は削除済み。staging1クラスタ自体は廃止時点で既にRancherから
@@ -551,6 +552,37 @@ Git側(`envs/staging/`、`fleet-bootstrap/gitrepo-staging.yaml`、promoteワー�
 
 なお、Rancher localの `fleet-default` に残る `fleet-agent-staging1` バンドルはRancherが
 クラスタごとに自動生成するエージェント用のもので、本リポジトリのGitRepoとは無関係。
+
+## 10. staging環境の再導入(2026-10-25)
+
+stagingを維持できなかった主因はcontrol-planeのetcdがHDD上にあったことで、SSDイメージ
+(上記「2.」のチェックリスト)でstaging1を作れるようになったため、stagingを再導入した。
+dev1のリハーサルサイト(`<site>-rh`)はstagingで置き換えた。
+
+- **役割**: 本番へ出す前の本番データでの確認。確認中のサイト・アプリだけを一時的に置き、本番へ昇格したら消す。
+  本番へは必ずstagingを通す(promoteワークフローの本番への昇格元はstaging)
+- **staging1**: 3台(control-plane/etcd/worker兼任、4CPU・8GiB・60GB、SSDイメージ、anti-affinity)。
+  クラスタID `c-m-qqhsg9c2`、IPPool `pool2`(`.50-.60`、Traefikは `192.168.1.50`)、DNS `*.staging.ibid.lan`
+- **infraは軽量版**: Longhornを置かない。StorageClassは`reclaimPolicy: Delete`(NFS上は `wordpress|apps|backup/staging/`)。
+  監視はPrometheusを短期保存(3日)・小メモリにしたもの。infraだけでノードのメモリを43〜59%使うため、
+  **WordPressサイトは同時に4つまで**
+- **stagingだけに触れるPRはauto-merge**(CODEOWNERSは `/envs/production/` だけ)
+
+Git管理外の作業(実施したら[x]にする):
+
+- [x] staging1をSSDイメージ・User Data・第2NIC・anti-affinityで作成し、`env=staging` ラベルを付ける
+- [x] Harvester管理クラスタにIPPool `pool2`(staging1、`192.168.1.50-60`)を作る
+- [x] FreeIPAのDNSに `*.staging.ibid.lan` → `192.168.1.50` を登録する
+- [x] 作業端末の `~/.kube/config` に `staging1` を追加する
+- [x] Rancher localに `fleet-bootstrap/gitrepo-staging.yaml` を適用する
+- [x] cert-managerのTSIG鍵・AlertmanagerのSlack Webhookをstaging1の鍵で封印する(PR#356)
+- [ ] staging1のSealed Secrets鍵をオフラインにバックアップする(上記「6.」)
+- [ ] Rundeckに `rundeck/jobs/wordpress.yaml` を取り込み直し、旧ジョブ `2-rehearsal`・`2a-rehearsal-upgrade`・
+  `2b-rehearsal-cleanup` を削除する([manual-rundeck.md](manual-rundeck.md))
+- [ ] WordPressのオペレータ用に、staging1の `Wordpress` プロジェクト・公開証明書
+  `/var/lib/ibid-fleet-config/sealed-secrets-staging1.pem` を用意する([manual-rundeck.md](manual-rundeck.md)「WordPressのオペレータ」)
+- [ ] dev1のリハーサルサイトの残り: NFSの `backup/dev/wordpress-jmc-rh/`(本番データのコピー、`nfs-backup`はRetain)と、
+  `Released` のまま残ったjmc-rhのPVを片付ける
 
 ## 補足: 将来の拡張
 

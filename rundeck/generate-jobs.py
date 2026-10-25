@@ -36,6 +36,11 @@ UUID_NS = uuid.UUID("6f1c0d7e-3b51-4f6a-9a51-6f1b8a2c9d40")
 
 MERGE_WAIT_VALUES = ["60", "120", "240", "480"]
 
+# staging1でWordPressのオペレータ(wpadmins)が触れるRancherのプロジェクト(<クラスタID>:<プロジェクトID>)。
+# staging-startが作るnamespaceにこの注釈を付ける。空ならプロジェクトの外に作られ、管理者しか触れない
+# (docs/manual-rundeck.md「WordPressのオペレータ」)。staging1のクラスタIDは c-m-qqhsg9c2
+STAGING_PROJECT_ID = ""
+
 # 出力ファイル → 取り込み先のRundeckプロジェクト(2026-10-17に分けた。docs/manual-rundeck.md)
 PROJECTS = {
     "rundeck/jobs/apps.yaml": "Rancher-AppControll",
@@ -292,68 +297,58 @@ backup/dev/wordpress-<site>/ に残る)。全34サイトを選ぶと数時間か
                  fresh_env + " scripts/wordpress-pipeline.sh dev-refresh @option.sites@"),
         ], "12h"),
 
-        job(group, "2-rehearsal", """
-【本番データのリハーサル】
+        job(group, "2-staging", """
+【stagingで本番データを使って確認する】
 
-dev1に一時サイト <site>-rh を本番と同じ構成で作り(devだけのPRなのでauto-merge)、本番の最新
+選んだサイトを本番と同じ構成でstaging1に置き(stagingだけのPRなのでauto-merge)、本番の最新
 コンテンツをリストアして比較の基準(各ページのHTTPステータス・WordPress/プラグインの版)を記録する。
-upgrade=yes なら続けて <site>-rh をdevの構成(昇格予定の helm.version・plugins)へ切り替え、
-プラグイン同期Job・DB更新(wp core update-db)の所要時間、MariaDBのアップグレード、
-ページの表示、PHPエラーを基準と比べて報告する。
+upgrade=yes なら続けてdevの構成(昇格予定の helm.version・plugins)をpromoteワークフローでstagingへ昇格し
+(auto-merge)、プラグイン同期Job・DB更新(wp core update-db)の所要時間、MariaDBのアップグレード、
+ページの表示、PHPエラーを基準と比べて報告する。本番にまだ無い新規サイトはdevの構成で置くだけ。
 
-WordPress本体のメジャー更新・MariaDBのメジャー更新・プラグインの大きな更新の前に行う
-(docs/operations-flow.md「本番データリハーサル」)。dev1のメモリの都合で同時に1サイトまで。
-結果は昇格PRに書き、終わったら「2b-rehearsal-cleanup」で必ず削除する。
+本番へはstagingを通して昇格する(docs/operations-flow.md「stagingでの確認」)。staging1のメモリの都合で
+同時に4サイトまで。結果は昇格PRに書き、本番へ昇格したら「4-staging-cleanup」で必ず削除する。
 """, [
-            sites_opt(both, "リハーサルする本番のサイト", multi=False),
+            sites_opt(both, "stagingで確認するサイト", multi=False),
             fresh,
-            yes_no("upgrade", "yes: 続けてdevの構成へ切り替えて確認する / no: 本番のコピーを作るところまで", "yes"),
+            yes_no("upgrade", "yes: 続けてdevの構成へ切り替えて確認する / no: 本番のコピーを置くところまで", "yes"),
         ], [
             SYNC_MAIN,
-            step("リハーサルサイト作成 → 本番データのリストア → 基準の記録",
-                 fresh_env + " scripts/wordpress-pipeline.sh rehearsal-start '@option.site@'"),
+            step("stagingへ追加 → 本番データのリストア → 基準の記録",
+                 fresh_env + " STAGING_PROJECT_ID='" + STAGING_PROJECT_ID + "'"
+                 " scripts/wordpress-pipeline.sh staging-start '@option.site@'"),
             step("devの構成へ切り替え → 基準と比較(upgrade=yesのとき)",
                  "if [ '@option.upgrade@' = yes ]; then\n"
-                 "  scripts/wordpress-pipeline.sh rehearsal-upgrade '@option.site@'\n"
+                 "  scripts/wordpress-pipeline.sh staging-upgrade '@option.site@'\n"
                  "else\n"
-                 "  echo 'upgrade=no のため切り替えません。あとで 2a-rehearsal-upgrade を実行できます。'\n"
+                 "  echo 'upgrade=no のため切り替えません。あとで 2a-staging-upgrade を実行できます。'\n"
                  "fi"),
         ], "6h"),
 
-        job(group, "2a-rehearsal-upgrade", """
-【本番データのリハーサル: 切り替えのやり直し】
+        job(group, "2a-staging-upgrade", """
+【stagingで確認する: 切り替えのやり直し】
 
-既にある <site>-rh を、devの現在の構成へ切り替えて基準と比べる。リハーサルで見つかった問題を
-devで直したあとや、2-rehearsal を upgrade=no で実行したあとに使う。
-""", [sites_opt(both, "リハーサル中のサイト(<site>-rh の <site>)", multi=False)], [
+stagingにあるサイトを、devの現在の構成へ切り替えて基準と比べる。stagingで見つかった問題を
+devで直したあとや、2-staging を upgrade=no で実行したあとに使う。
+""", [sites_opt(both, "stagingで確認中のサイト", multi=False)], [
             SYNC_MAIN,
             step("devの構成へ切り替え → 基準と比較",
-                 "scripts/wordpress-pipeline.sh rehearsal-upgrade '@option.site@'"),
+                 "scripts/wordpress-pipeline.sh staging-upgrade '@option.site@'"),
         ], "3h"),
-
-        job(group, "2b-rehearsal-cleanup", """
-【本番データのリハーサル: 後片付け】
-
-<site>-rh をGitから削除するPRを作ってauto-mergeし、マージ後にdev1の wordpress-<site>-rh
-namespace(本番データのコピー)を削除する。harvesterのPVがReleasedで残ったら警告を出す。
-""", [sites_opt(both, "削除するリハーサルサイトの元のサイト名(<site>-rh の <site>)", multi=False)], [
-            SYNC_MAIN,
-            step("Gitから削除 → namespace削除",
-                 "scripts/wordpress-pipeline.sh rehearsal-cleanup '@option.site@'"),
-        ], "1h"),
 
         job(group, "3-production-promote", """
 【本番昇格パイプライン】
 
-devと本番で差分のあるサイトの昇格PRを promote ワークフローで作り、CI通過後に対象サイトの
-本番バックアップを取って(結果はPRにコメントする。本番の権限が無いオペレータが実行した場合は取らず、
+stagingと本番で差分のあるサイトの昇格PR(staging→production)を promote ワークフローで作り、CI通過後に
+対象サイトの本番バックアップを取って(結果はPRにコメントする。本番の権限が無いオペレータが実行した場合は取らず、
 「承認する管理者がマージ直前に tools/backup で取る」とPRにコメントする)、**人がPRをレビュー・マージするのを待つ
 (このジョブはマージしない)**。マージされたらFleetの適用(Helmリビジョンの更新とrollout)を待ち、
 本番のHTTP 200・Pod・MariaDBのアップグレード状況を確認する。差分が無ければ確認だけ行う。
 
-all は本番に既にあるサイトだけが対象。devにしか無いサイトを本番へ追加するときはサイト名を選ぶ
+**本番へはstagingに載っている内容を昇格する**(先に「2-staging」で確認しておく)。all はstagingに載っている、
+本番にある全サイトが対象。本番に無いサイトを追加するときはサイト名を選ぶ
 (先に scripts/seal-site-secrets.sh production <site> のSecretをmainへ入れておくこと)。
-DBマイグレーションを伴う更新なら、先に「2-rehearsal」を済ませておく。
+終わったら「4-staging-cleanup」でstagingから削除する。
 """, [
             sites_opt(["all"] + dev_sites, "昇格するサイト(all、または複数選択)", default="all"),
             merge_wait_opt(),
@@ -364,10 +359,22 @@ DBマイグレーションを伴う更新なら、先に「2-rehearsal」を済�
                  "scripts/wordpress-pipeline.sh promote-production @option.sites@"),
         ], "10h"),
 
+        job(group, "4-staging-cleanup", """
+【stagingの後片付け】
+
+サイトをstagingのGitから削除するPRを作ってauto-mergeし、マージ後にstaging1の wordpress-<site>
+namespace(本番データのコピー)を削除する。本番へまだ昇格していなければ注意を出す。
+harvesterのPVがReleasedで残ったら警告を出す。
+""", [sites_opt(both, "stagingから削除するサイト", multi=False)], [
+            SYNC_MAIN,
+            step("Gitから削除 → namespace削除",
+                 "scripts/wordpress-pipeline.sh staging-cleanup '@option.site@'"),
+        ], "1h"),
+
         job(group + "/tools", "backup", """
 日次バックアップのCronJobから今すぐ1つ取る(完了まで待つ)。出力はNFSの backup/<env>/wordpress-<site>/。
 """, [
-            opt("env", "環境", value="production", values=["production", "dev"], required=True, enforced=True),
+            opt("env", "環境", value="production", values=["production", "staging", "dev"], required=True, enforced=True),
             sites_opt(["all"] + every, "サイト(all、または複数選択)", default="all"),
         ], [
             SYNC_MAIN,
@@ -377,7 +384,7 @@ DBマイグレーションを伴う更新なら、先に「2-rehearsal」を済�
         job(group + "/tools", "check", """
 各サイトのHTTPステータス(200か)と、正常でないPodが無いかを確認する(読み取りのみ)。
 """, [
-            opt("env", "環境", value="production", values=["production", "dev"], required=True, enforced=True),
+            opt("env", "環境", value="production", values=["production", "staging", "dev"], required=True, enforced=True),
             sites_opt(["all"] + every, "サイト(all、または複数選択)", default="all"),
         ], [
             SYNC_MAIN,
@@ -408,7 +415,7 @@ def main():
     for app in dirs("envs/dev/apps"):
         apps += app_jobs(app, app in data_apps)
 
-    dev_sites = [s for s in dirs("envs/dev/sites") if not s.endswith("-rh")]
+    dev_sites = dirs("envs/dev/sites")
 
     outputs = {
         "rundeck/jobs/apps.yaml": render(apps, "rundeck/jobs/apps.yaml"),

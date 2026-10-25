@@ -5,7 +5,7 @@ WordPressサイトと自作アプリを動かしているIBID基盤が、どう�
 図はGitHub上でそのまま表示される(Mermaid)。図の中の `{site}`・`{app}` はサイト名・アプリ名。2026-10-20時点の構成。
 
 1. [全体構成](#1-全体構成)
-2. [2つの環境とバンドル](#2-2つの環境とバンドル)
+2. [3つの環境とバンドル](#2-3つの環境とバンドル)
 3. [GitOps: Gitが正、Fleetが適用する](#3-gitops-gitが正fleetが適用する)
 4. [変更の流れ: dev → 本番](#4-変更の流れ-dev--本番)
 5. [WordPressサイトの中身](#5-wordpressサイトの中身)
@@ -39,6 +39,7 @@ flowchart LR
     end
     subgraph HV["Harvester (hrvest1〜4)"]
       DEV["dev1 クラスタ<br>(RKE2)"]
+      STG["staging1 クラスタ<br>(RKE2、確認中のものだけ)"]
       PROD["prod1 クラスタ<br>(RKE2)"]
     end
     NFS["NFS サーバー 192.168.1.1<br>wp-content・バックアップ"]
@@ -52,49 +53,56 @@ flowchart LR
   REPO --> ACT --> GHCR
   REPO -->|監視| RANCHER
   RANCHER -->|適用| DEV
+  RANCHER -->|適用| STG
   RANCHER -->|適用| PROD
   DEV --- NFS
+  STG --- NFS
   PROD --- NFS
   GHCR -->|pull| DEV
+  GHCR -->|pull| STG
   GHCR -->|pull| PROD
   IPA -.-> RANCHER
   IPA -.-> RUNDECK
 ```
 
-- 本番(prod1)と開発(dev1)の2つのKubernetesクラスタが、Harvester(4台の物理ホスト)のVMの上で動く
-- Rancherが2つのクラスタを管理し、その中のFleetがGitHubのリポジトリを見て、クラスタに設定を適用する
+- 開発(dev1)・確認(staging1)・本番(prod1)の3つのKubernetesクラスタが、Harvester(4台の物理ホスト)のVMの上で動く
+- Rancherが3つのクラスタを管理し、その中のFleetがGitHubのリポジトリを見て、クラスタに設定を適用する
 - 公開ドメインへのアクセスは、RIKEN側のnginxから各クラスタの入口(Traefik)に届く
 - 人の作業は、Rundeckのジョブ(またはrancherホストでのスクリプト)からPRを作る形で行う。クラスタを直接変更しない
 - ログインはFreeIPAのアカウント(Rancher・Rundeck・サーバー)
 
 詳しく: [manual-multi-env.md](manual-multi-env.md)、[manual-harvester-loadbalancer.md](manual-harvester-loadbalancer.md)
 
-## 2. 2つの環境とバンドル
+## 2. 3つの環境とバンドル
 
 ```mermaid
 flowchart TB
   subgraph Git["リポジトリ envs/"]
     D["envs/dev/sites/abc/fleet.yaml"]
+    S["envs/staging/sites/abc/fleet.yaml<br>(確認中だけ)"]
     P["envs/production/sites/abc/fleet.yaml"]
   end
-  D -. "昇格 = 丸ごとコピー" .-> P
+  D -. "昇格 = 丸ごとコピー" .-> S
+  S -. "昇格 = 丸ごとコピー" .-> P
   D -->|"Fleet が適用(env=dev)"| DEV["dev1<br>abc.dev.ibid.lan<br>レプリカ1"]
+  S -->|"Fleet が適用(env=staging)"| STG["staging1<br>abc.staging.ibid.lan<br>レプリカ1・本番データのコピー"]
   P -->|"Fleet が適用(env=production)"| PROD["prod1<br>abc.production.ibid.lan<br>レプリカ2"]
 ```
 
-| | dev1(`env=dev`) | prod1(`env=production`) |
-|---|---|---|
-| 役割 | 更新の互換性テスト、本番データのリハーサル | dev で確かめた変更の反映だけ |
-| WordPressサイト | 34(17サイト × 日本語版・英語版) | 34(同じ) |
-| 自作アプリ | 6 | 6 |
-| 入口(Traefik)のIP | `192.168.1.33` | `192.168.1.99` |
-| ホスト名 | `*.dev.ibid.lan` | `*.production.ibid.lan` |
+| | dev1(`env=dev`) | staging1(`env=staging`) | prod1(`env=production`) |
+|---|---|---|---|
+| 役割 | 更新の互換性テスト | 本番へ出す前の、本番データでの確認 | staging で確かめた変更の反映だけ |
+| WordPressサイト | 34(17サイト × 日本語版・英語版) | 確認中のものだけ(同時に4つまで) | 34(同じ) |
+| 自作アプリ | 7 | 確認中のものだけ | 6 |
+| 入口(Traefik)のIP | `192.168.1.33` | `192.168.1.50` | `192.168.1.99` |
+| ホスト名 | `*.dev.ibid.lan` | `*.staging.ibid.lan` | `*.production.ibid.lan` |
 
 - サイト・アプリの設定ファイル(バンドル)は、**dev と本番で同じ内容**にする。環境で変わる値
   (ホスト名、レプリカ数、公開ドメイン)は、ファイルの中でクラスタの `env` ラベルを見て選ぶ
-- だから昇格は「dev のディレクトリを本番へ丸ごとコピーする」だけで済み、PR の差分は昇格させたい変更
+- だから昇格は「dev → staging → 本番 とディレクトリを丸ごとコピーする」だけで済み、PR の差分は昇格させたい変更
   (チャートの版・プラグインの版・イメージのタグ)だけになる
-- 本番のデータでの確認は、dev1 に一時的に作るリハーサルサイト `<site>-rh` で行う(staging 環境は2026-10-08に廃止)
+- 本番へは必ず staging を通す。staging には確認中のサイト・アプリだけを置き、本番データを入れて確かめ、
+  本番へ昇格したら消す(staging は2026-10-08に一度廃止し、2026-10-25に staging1 で再導入)
 
 詳しく: [operations-flow.md](operations-flow.md)「環境差分の書き方」
 
@@ -103,8 +111,10 @@ flowchart TB
 ```mermaid
 flowchart LR
   MAIN["GitHub main ブランチ"] --> GRD["GitRepo ibid-dev<br>envs/dev だけを見る"]
+  MAIN --> GRS["GitRepo ibid-staging<br>envs/staging だけを見る"]
   MAIN --> GRP["GitRepo ibid-production<br>envs/production だけを見る"]
   GRD --> BD["バンドル<br>infra / sites / apps / secrets"] --> DEV["dev1"]
+  GRS --> BS["バンドル<br>infra / sites / apps / secrets"] --> STG["staging1"]
   GRP --> BP["バンドル<br>infra / sites / apps / secrets"] --> PROD["prod1"]
 ```
 
@@ -116,7 +126,7 @@ flowchart LR
 
 詳しく: [envs/README.md](../envs/README.md)、[fleet-bootstrap/README.md](../fleet-bootstrap/README.md)
 
-## 4. 変更の流れ: dev → 本番
+## 4. 変更の流れ: dev → staging → 本番
 
 ```mermaid
 sequenceDiagram
@@ -125,6 +135,7 @@ sequenceDiagram
   participant GH as GitHub
   participant F as Fleet
   participant D as dev1
+  participant S as staging1
   actor A as 承認者(管理者)
   participant P as prod1
 
@@ -132,16 +143,22 @@ sequenceDiagram
   GH->>GH: validate(CI)が通れば自動マージ
   GH-->>F: main が更新
   F->>D: dev に適用
-  W->>D: dev で確認(必要なら本番データでリハーサル)
-  W->>GH: promote ワークフローで本番 PR を作る(作成者 ibid-ops-bot)
+  W->>D: dev で確認
+  W->>GH: staging へ置く PR(自動マージ)→ 本番データを入れる
+  F->>S: staging に適用
+  W->>GH: promote ワークフローで dev → staging の PR(自動マージ)
+  F->>S: 昇格予定の変更を適用
+  W->>S: staging で本番データに対して確認
+  W->>GH: promote ワークフローで staging → 本番の PR を作る(作成者 ibid-ops-bot)
   A->>P: マージ直前に本番のバックアップ
   A->>GH: Approve → マージ
   GH-->>F: main が更新
   F->>P: 本番に適用
   W->>P: 本番の確認(Rundeck のジョブが自動で行う)
+  W->>GH: staging から消す PR(自動マージ)
 ```
 
-- **dev への変更は自動でマージされる**(CI が通れば)。WordPress 本体・プラグインの新しい版は、毎週月曜 9:00 に
+- **dev・staging への変更は自動でマージされる**(CI が通れば)。WordPress 本体・プラグインの新しい版は、毎週月曜 9:00 に
   `auto-update` ワークフローが dev へ入れる
 - **本番への変更は、必ず人(Code Owner)が承認してマージする**。スクリプトやジョブは本番の PR をマージしない
 - Git で本番に出るのは**構成だけ**(チャートの版、設定値、イメージのタグ)。記事などのコンテンツは本番から dev への一方向
@@ -185,7 +202,7 @@ flowchart LR
   CJ --> BK["NFS backup/production/<br>wordpress-{site}/"]
   BK --> BAC["Bacula<br>(組織のバックアップ。二次コピー)"]
   BK -->|"1-dev-refresh"| DEVS["dev の同名サイト<br>(上書き)"]
-  BK -->|"2-rehearsal"| RH["dev1 の一時サイト<br>{site}-rh"]
+  BK -->|"2-staging"| RH["staging の同名サイト<br>(確認中だけ)"]
   BK -.->|"障害時に戻す"| PRODS
 ```
 
@@ -196,10 +213,10 @@ flowchart LR
 
 - 本番を変える前(本番昇格のマージの直前)にも、同じ仕組みで「今すぐ」1つ取る
 - Git の revert ではDBは戻らない(プラグイン更新などでDBの形が変わるため)。戻すときはこのバックアップから
-- 本番のコンテンツを dev に持ってくるのは、`1-dev-refresh`(dev の同名サイトを上書き)と、
-  リハーサル(一時サイト。終わったら消す)の2通り
+- 本番のコンテンツを持ってくるのは、`1-dev-refresh`(dev の同名サイトを上書き)と、
+  `2-staging`(staging に置いたサイト。本番へ昇格したら消す)の2通り
 
-詳しく: [manual-wordpress-restore.md](manual-wordpress-restore.md)「日次バックアップ」、[operations-flow.md](operations-flow.md)「本番データリハーサル」
+詳しく: [manual-wordpress-restore.md](manual-wordpress-restore.md)「日次バックアップ」、[operations-flow.md](operations-flow.md)「stagingでの確認」
 
 ## 7. 自作アプリのイメージ
 
