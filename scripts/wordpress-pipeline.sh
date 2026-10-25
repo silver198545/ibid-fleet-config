@@ -431,6 +431,21 @@ stg_require_state_root() {
   umask 002
 }
 
+# stagingのサイトがHTTPで応答する(000以外を返す)まで待つ。置いた直後は証明書の発行中で、DNS-01の
+# _acme-challengeのTXTがある間は <site>.staging.ibid.lan にワイルドカードが効かず名前が引けない
+# (この端末のDNSが否定応答をキャッシュすることもある)。待たずに基準を記録すると 000 になり、
+# 比較で「変わったページ」と誤判定される(2026-10-26、pmsで発生)。
+stg_wait_reachable() {
+  local site="$1" url code i
+  url="$(site_url staging "$site")"
+  for ((i = 0; i < 40; i++)); do
+    code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 "$url" || true)"
+    [[ -n "$code" && "$code" != "000" ]] && return 0
+    sleep 15
+  done
+  echo "警告: 10分待っても ${url} に接続できません(証明書・DNSを確認してください)。基準はこのまま記録します。" >&2
+}
+
 # stagingのサイトの状態を記録する(<dir>/<name>-info.txt と <name>-pages.txt)。
 # ページの一覧は基準の記録時(before)に作り、以降は同じページを見る。
 stg_snapshot() {
@@ -581,6 +596,7 @@ EOF
     kc staging -n "wordpress-$site" exec "deploy/wordpress-$site" -c wordpress -- rm -rf /bitnami/wordpress/wp-content.orig
     echo ""
     echo "=== 比較の基準(本番と同じ構成・本番データ)を記録します ==="
+    stg_wait_reachable "$site"
     stg_snapshot "$site" before
     echo "production/${site} ${ts}" >"$(stg_state_dir "$site")/source.txt"
     echo ""
@@ -589,6 +605,7 @@ EOF
   else
     echo ""
     echo "=== 状態を記録します(本番にまだ無い新規サイトのため、本番データは入れない) ==="
+    stg_wait_reachable "$site"
     stg_snapshot "$site" before
     echo ""
     echo "新規サイトをdevの構成でstagingに置きました: $(site_url staging "$site")"
