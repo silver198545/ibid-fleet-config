@@ -576,6 +576,13 @@ Git管理外の作業(実施したら[x]にする):
 - [x] 作業端末の `~/.kube/config` に `staging1` を追加する
 - [x] Rancher localに `fleet-bootstrap/gitrepo-staging.yaml` を適用する
 - [x] cert-managerのTSIG鍵・AlertmanagerのSlack Webhookをstaging1の鍵で封印する(PR#356)
+- [x] 自作アプリ7つをstagingへ初回昇格する(PR#367。Secretはdev1の値からstaging1の鍵で封印し直し、
+  metadatabase-v2の管理画面のSECRET_KEY・初期パスワードだけstaging用に新規生成)
+- [x] 前回のstaging時代(2026-07)に作った個別Aレコード `brc-advanced-search.staging`・`riken-diips.staging`・
+  `sparqlist.staging`(→ 旧staging1の `192.168.1.63`)を削除する。個別レコードはワイルドカードより優先されるため、
+  残っていると新しいstaging1に届かない(2026-10-25に発覚・削除)
+- [x] cert-managerのDNS-01確認をFreeIPAのDNSだけに問い合わせる(staging #360・dev #364・production #365)。
+  ノードの上流DNSにFreeIPAと外部のDNS(134.160.64.241/242)が混在し、`_acme-challenge` のTXTが残る原因だった
 - [ ] staging1のSealed Secrets鍵をオフラインにバックアップする(上記「6.」)
 - [ ] Rundeckに `rundeck/jobs/wordpress.yaml` を取り込み直し、旧ジョブ `2-rehearsal`・`2a-rehearsal-upgrade`・
   `2b-rehearsal-cleanup` を削除する([manual-rundeck.md](manual-rundeck.md))
