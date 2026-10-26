@@ -127,28 +127,45 @@ pr_commit_push_create() {
   done
 }
 
+# auto-mergeを設定したPRがマージされるまで待つ(最大15分)。マージされたら0、closeされたら1、時間切れは2。
+# mainのルールセットは「ブランチが最新であること」を要求するため(strict)、同時に進んだ別のPRが先に
+# マージされるとこのPRは BEHIND になり、auto-mergeが止まったままになる(2026-10-26、stagingの#420)。
+# BEHIND を見つけたらmainを取り込み直して(update-branch)、validateをやり直させる。
+# 引数: <pr_url>
+pr_wait_automerged() {
+  local pr_url="$1" i st state merge_state
+  for ((i = 0; i < 90; i++)); do
+    st="$(gh pr view "$pr_url" --json state,mergeStateStatus -q '.state + " " + .mergeStateStatus')"
+    state="${st%% *}"
+    merge_state="${st#* }"
+    case "$state" in
+      MERGED) return 0 ;;
+      CLOSED) return 1 ;;
+    esac
+    if [[ "$merge_state" == "BEHIND" ]]; then
+      echo "mainが先に進んだため、PRのブランチにmainを取り込み直します: ${pr_url}"
+      gh api -X PUT "repos/{owner}/{repo}/pulls/${pr_url##*/}/update-branch" >/dev/null || true
+    fi
+    sleep 10
+  done
+  return 2
+}
+
 # PRをauto-merge(squash)し、マージされるまで待つ。マージ後はmainをpullし、
 # 作業ブランチを(ローカル・リモートとも名前指定で)削除する。
 # マージコミットのSHAを MERGE_SHA に入れる。
 # production(CODEOWNERS対象)に触れるPRには使わないこと(承認待ちで止まるため)。
 # 引数: <pr_url>
 pr_automerge_and_wait() {
-  local pr_url="$1" branch state i
+  local pr_url="$1" branch
   branch="$(gh pr view "$pr_url" --json headRefName -q .headRefName)"
   gh pr merge "$pr_url" --auto --squash
   echo "auto-mergeを設定しました。マージを待っています..."
-  for ((i = 0; i < 90; i++)); do
-    state="$(gh pr view "$pr_url" --json state -q .state)"
-    case "$state" in
-      MERGED) break ;;
-      CLOSED) echo "エラー: PRがマージされずにcloseされました: $pr_url" >&2; exit 1 ;;
-    esac
-    sleep 10
-  done
-  if [[ "$state" != "MERGED" ]]; then
+  pr_wait_automerged "$pr_url" || {
+    [[ $? -eq 1 ]] && { echo "エラー: PRがマージされずにcloseされました: $pr_url" >&2; exit 1; }
     echo "エラー: 15分待ってもマージされませんでした(承認待ち・チェック失敗等を確認してください): $pr_url" >&2
     exit 1
-  fi
+  }
   MERGE_SHA="$(gh pr view "$pr_url" --json mergeCommit -q .mergeCommit.oid)"
   echo "マージされました: ${MERGE_SHA}"
   git checkout main
