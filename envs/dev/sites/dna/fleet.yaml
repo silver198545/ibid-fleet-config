@@ -59,7 +59,7 @@ helm:
       - name: wp-file-manager
         version: "8.0.6"
       - name: wp-multibyte-patch
-        version: "2.9.3"
+        version: "2.9.4"
       - name: wp-revisions-control
         version: "1.4.4"
     # 同じホスト名の /ja と /en を別々のWordPress(dna と dna-en)で運用する。
