@@ -514,8 +514,14 @@ run_promote() {
   done
   [[ -n "$run_id" ]] || die "promoteワークフローの実行が見つかりません(gh run list --workflow=promote.yaml)。"
   gh run watch "$run_id" --exit-status >/dev/null || die "promoteワークフローが失敗しました: gh run view ${run_id} --log-failed"
-  PROMOTE_PR_URL="$(gh pr list --state all --search "head:promote/${from}-to-${to}-${kind}-" --json url,headRefName \
-    -q "[.[] | select(.headRefName | endswith(\"-${run_id}\"))][0].url // empty")"
+  # 新しいPRがGitHubの検索に出るまで数十秒かかることがあるので、見つかるまで待つ(2026-10-26、tetで発生)。
+  # ワークフローが「差分なし」でPRを作らなかったときは見つからないまま終わる
+  for ((i = 0; i < 12; i++)); do
+    PROMOTE_PR_URL="$(gh pr list --state all --search "head:promote/${from}-to-${to}-${kind}-" --json url,headRefName \
+      -q "[.[] | select(.headRefName | endswith(\"-${run_id}\"))][0].url // empty")"
+    [[ -n "$PROMOTE_PR_URL" ]] && break
+    sleep 10
+  done
   if [[ -n "$PROMOTE_PR_URL" ]]; then
     echo "PR作成: ${PROMOTE_PR_URL}"
     pr_comment_actor "$PROMOTE_PR_URL"
@@ -524,17 +530,14 @@ run_promote() {
 
 # auto-mergeを設定したPR(stagingだけに触れるもの)のマージを待つ。引数: <pr_url>
 wait_automerged() {
-  local pr_url="$1" i state
+  local pr_url="$1" rc=0
   echo "auto-mergeを待っています: ${pr_url}"
-  for ((i = 0; i < 90; i++)); do
-    state="$(gh pr view "$pr_url" --json state -q .state)"
-    case "$state" in
-      MERGED) echo "マージされました。"; return 0 ;;
-      CLOSED) die "PRがマージされずにcloseされました: ${pr_url}" ;;
-    esac
-    sleep 10
-  done
-  die "15分待ってもマージされませんでした(validateの失敗等を確認してください): ${pr_url}"
+  pr_wait_automerged "$pr_url" || rc=$?
+  case "$rc" in
+    0) echo "マージされました。" ;;
+    1) die "PRがマージされずにcloseされました: ${pr_url}" ;;
+    *) die "15分待ってもマージされませんでした(validateの失敗等を確認してください): ${pr_url}" ;;
+  esac
 }
 
 cmd_staging_start() {

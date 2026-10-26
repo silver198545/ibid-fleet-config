@@ -401,7 +401,12 @@ cmd_deploy() {
     echo "エラー: promoteワークフローが失敗しました: gh run view ${run_id} --log-failed" >&2
     exit 1
   fi
-  pr_url="$(gh pr list --state all --search "head:promote/${from_env}-to-${to_env}-apps-${APP}-${run_id}" --json url -q '.[0].url // empty')"
+  # 新しいPRがGitHubの検索に出るまで数十秒かかることがあるので、見つかるまで待つ
+  for ((i = 0; i < 12; i++)); do
+    pr_url="$(gh pr list --state all --search "head:promote/${from_env}-to-${to_env}-apps-${APP}-${run_id}" --json url -q '.[0].url // empty')"
+    [[ -n "$pr_url" ]] && break
+    sleep 10
+  done
   [[ -n "$pr_url" ]] || { echo "エラー: 昇格PRが見つかりません(run ${run_id})。" >&2; exit 1; }
   echo "PR作成: ${pr_url}"
   pr_comment_actor "$pr_url"
@@ -419,19 +424,17 @@ cmd_deploy() {
 
 # stagingへの反映(auto-mergeを待つ)→ stagingの確認。パイプラインの staging-update もこれ。
 cmd_deploy_staging() {
-  local i state
+  local rc
   cmd_deploy staging
   if [[ -n "$PR_URL" ]]; then
     echo "auto-mergeを待っています..."
-    for ((i = 0; i < 90; i++)); do
-      state="$(gh pr view "$PR_URL" --json state -q .state)"
-      case "$state" in
-        MERGED) break ;;
-        CLOSED) echo "エラー: PRがマージされずにcloseされました: ${PR_URL}" >&2; exit 1 ;;
-      esac
-      sleep 10
-    done
-    [[ "$state" == MERGED ]] || { echo "エラー: 15分待ってもマージされませんでした: ${PR_URL}" >&2; exit 1; }
+    rc=0
+    pr_wait_automerged "$PR_URL" || rc=$?
+    case "$rc" in
+      0) ;;
+      1) echo "エラー: PRがマージされずにcloseされました: ${PR_URL}" >&2; exit 1 ;;
+      *) echo "エラー: 15分待ってもマージされませんでした: ${PR_URL}" >&2; exit 1 ;;
+    esac
     git pull --ff-only origin main
     pr_unlock_repo
     echo "Fleetの適用を待っています(60秒)..."
