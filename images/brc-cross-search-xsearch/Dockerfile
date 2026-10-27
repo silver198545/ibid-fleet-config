@@ -38,8 +38,12 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY app/Gemfile app/Gemfile.lock ./
-RUN bundle install
+# Ruby本体に同梱のjsonより新しい版(2.xのパッチ版)をbundleに入れて使う(2026-10-27〜)。上流のGemfileに
+# 無いのでここで足す。COPY app/ . がGemfileを上流のものに戻すので、その後にもう一度足す。
+# 上流のGemfile.lockが json 2.19.2 以上を含むようになったら、この2つの bundle add を外す
+RUN bundle add json --version '~> 2.19, >= 2.19.2' --skip-install && bundle install
 COPY app/ .
+RUN bundle add json --version '~> 2.19, >= 2.19.2'
 # actions/checkoutが取得したapp/の.gitを最終イメージに持ち込まない。
 RUN rm -rf .git
 

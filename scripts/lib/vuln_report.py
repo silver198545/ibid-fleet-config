@@ -39,14 +39,17 @@ def load_policy(path):
     return p, p.get("ignore") or []
 
 
-def ignored(rules, name, vid, pkg, expired):
-    """除外に当たれば理由を返す。期限切れの除外は効かせず expired に積む"""
+def ignored(rules, name, vid, pkg, path, expired):
+    """除外に当たれば理由を返す。期限切れの除外は効かせず expired に積む。
+    path はイメージ内のパッケージの場所(Trivyの PkgPath)の前方一致"""
     for r in rules:
         if r.get("id") != vid:
             continue
         if r.get("targets") and name not in r["targets"]:
             continue
         if r.get("pkg") and r["pkg"] != pkg:
+            continue
+        if r.get("path") and not (path or "").startswith(r["path"]):
             continue
         until = r.get("until")
         if isinstance(until, str):
@@ -157,8 +160,8 @@ class Report:
         self.ng, self.warn, self.lines, self.findings = 0, 0, [], []
         self.expired, self.skipped = set(), {"ignored": 0, "os_nofix": 0, "low": 0}
 
-    def add(self, level, source, pkg, version, fixed, vid, title, where=""):
-        reason = ignored(self.rules, self.name, vid, pkg, self.expired)
+    def add(self, level, source, pkg, version, fixed, vid, title, where="", path=""):
+        reason = ignored(self.rules, self.name, vid, pkg, path, self.expired)
         if reason is not None:
             self.skipped["ignored"] += 1
             return
@@ -215,7 +218,7 @@ def check_trivy(rep, trivy, cache_dir, eol_warn_days):
     for r in trivy.get("Results") or []:
         cls = r.get("Class")
         for v in r.get("Vulnerabilities") or []:
-            k = (cls, v["PkgName"], v["InstalledVersion"], v["VulnerabilityID"])
+            k = (cls, v["PkgName"], v["InstalledVersion"], v["VulnerabilityID"], v.get("PkgPath", ""))
             if k in seen:
                 continue
             seen.add(k)
@@ -237,7 +240,7 @@ def check_trivy(rep, trivy, cache_dir, eol_warn_days):
             else:
                 continue
             rep.add(level, source, v["PkgName"], v["InstalledVersion"], fixed,
-                    v["VulnerabilityID"], f"{sev} {v.get('Title') or ''}".strip())
+                    v["VulnerabilityID"], f"{sev} {v.get('Title') or ''}".strip(), path=v.get("PkgPath", ""))
 
 
 def check_wp(rep, wp, feed_path):

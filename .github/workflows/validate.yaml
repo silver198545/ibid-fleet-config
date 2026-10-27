@@ -168,7 +168,7 @@ jobs:
               if not isinstance(r, dict) or not r.get("id") or not r.get("reason") or not r.get("until"):
                   ng(f"除外には id・reason・until が要ります: {r}")
                   continue
-              if set(r) - {"id", "targets", "pkg", "reason", "until"}:
+              if set(r) - {"id", "targets", "pkg", "path", "reason", "until"}:
                   ng(f"除外に不明な項目: {r}")
               until = r["until"]
               if isinstance(until, str):
