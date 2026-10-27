@@ -67,7 +67,8 @@ Debian・Photonのパッケージは修正版の無いHIGHが常に数十件あ�
    ( umask 077; read -rs -p 'Wordfence API key: ' v; echo; printf '%s\n' "$v" > ~/.config/ibid-fleet-config/wordfence-api-key )
    ```
 
-   - `slack-webhook` は週次の通知(`--notify`)に必要。無いと `--notify` はエラーで止まる
+   - `slack-webhook` は週次の通知(`--notify`)に必要。無いと `--notify` はエラーで止まる。
+     `https://hooks.slack.com/services/T…/B…/…` の形で書く(`T…/B…/…` の部分だけでもよい。先頭を補う)
    - `wordfence-api-key` が無いと、WordPressのコア・プラグイン・テーマの検査を飛ばし、警告を出す
      (フィードは12時間キャッシュする: `~/.cache/ibid-fleet-config/vuln/`)
    - 非公開のGHCRイメージを読めず「検査できませんでした」になるときは、`read:packages` だけのclassic PATを
