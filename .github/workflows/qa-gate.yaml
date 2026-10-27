@@ -1,0 +1,80 @@
+# 本番への昇格PRのQAゲート(docs/operations-flow.md「QAゲート」)。
+# envs/production/{apps,sites}/<name> を変えるPRは、次の2つを満たすときだけ通る:
+#   1. PRの envs/production/<kind>/<name> が、mainの envs/staging/<kind>/<name> と同じ内容
+#      (stagingで確かめたものをそのまま昇格している)
+#   2. その内容のstagingがQAに通っている(scripts/qa.sh が、envs/staging/<kind>/<name> を最後に変更した
+#      mainのコミットへ記録するcommit status「qa/<kind>/<name>」がsuccess)
+# stagingは社内からしか見えないため、QAそのものは踏み台(Rundeck)で行い、ここでは記録を確かめるだけ。
+# 本番のapps・sitesに触れないPR(dev・staging・infra等)は何もせず通る(必須チェックにしても止まらない)。
+# 削除(本番からのサイト・アプリの削除)は対象外。break-glassの直接修正はこのチェックが落ちるので、
+# 管理者がブランチ保護を迂回してマージする(docs/manual-multi-env.md「break-glass」)。
+# qa.sh は記録が通ると、失敗していたこのワークフローをやり直させる。
+name: qa-gate
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  statuses: read
+
+jobs:
+  qa-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: stagingのQA結果を確認
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # やり直し(qa.shから)のときもPRの情報は作成時のままなので、stagingの状態は最新のmainで見る
+          git fetch -q origin main
+          mapfile -t targets < <(git diff --name-only "${BASE_SHA}...${HEAD_SHA}" -- envs/production/apps envs/production/sites \
+            | awk -F/ 'NF >= 4 { print $3 "/" $4 }' | sort -u)
+          if [[ ${#targets[@]} -eq 0 ]]; then
+            echo "本番のapps・sitesに触れないPRのため、確認は不要です。"
+            exit 0
+          fi
+
+          failed=0
+          {
+            echo "### stagingのQA結果"
+            echo ""
+            echo "| 対象 | 結果 |"
+            echo "|---|---|"
+          } >>"$GITHUB_STEP_SUMMARY"
+          for t in "${targets[@]}"; do
+            kind="${t%%/*}"
+            name="${t#*/}"
+            if ! git cat-file -e "${HEAD_SHA}:envs/production/${t}" 2>/dev/null; then
+              msg="本番から削除(対象外)"
+            elif ! git cat-file -e "origin/main:envs/staging/${t}" 2>/dev/null; then
+              msg="NG: mainのstagingにありません(stagingで確認してから昇格します。片付け済みなら staging-start からやり直し)"
+            elif [[ "$(git rev-parse "${HEAD_SHA}:envs/production/${t}")" != "$(git rev-parse "origin/main:envs/staging/${t}")" ]]; then
+              msg="NG: stagingの内容と違います(stagingで確かめた内容をそのまま昇格してください)"
+            else
+              commit="$(git log -1 --format=%H origin/main -- "envs/staging/${t}")"
+              result="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${commit}/statuses?per_page=100" \
+                --jq "[.[] | select(.context == \"qa/${kind}/${name}\")][0] // empty | \"\(.state)\t\(.description)\"")"
+              state="${result%%$'\t'*}"
+              desc="${result#*$'\t'}"
+              case "$state" in
+                success) msg="OK: ${desc}" ;;
+                "") msg="NG: stagingのQAが未実施です(scripts/qa.sh staging ${kind} ${name}。コミット ${commit:0:7})" ;;
+                *) msg="NG: stagingのQAが ${state} です: ${desc}" ;;
+              esac
+            fi
+            echo "${t}: ${msg}"
+            echo "| \`${t}\` | ${msg} |" >>"$GITHUB_STEP_SUMMARY"
+            [[ "$msg" == NG* ]] && failed=1
+          done
+          if [[ $failed -ne 0 ]]; then
+            echo "::error::stagingでQAに通っていない内容があります。scripts/qa.sh(RundeckのQAジョブ)をstagingで実行すると、通ったときにこのチェックがやり直されます。"
+            exit 1
+          fi

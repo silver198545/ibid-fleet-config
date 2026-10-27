@@ -83,6 +83,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -99,6 +100,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         FRESH_BACKUP=$([ '@option.fresh_backup@' = yes ] && echo 1 || echo 0) scripts/wordpress-pipeline.sh dev-refresh @option.sites@
       scriptInterpreter: /bin/bash
 - name: 2-staging
@@ -190,6 +192,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -206,6 +209,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         FRESH_BACKUP=$([ '@option.fresh_backup@' = yes ] && echo 1 || echo 0) STAGING_PROJECT_ID='c-m-qqhsg9c2:p-vk6k8' scripts/wordpress-pipeline.sh staging-start '@option.site@'
       scriptInterpreter: /bin/bash
     - description: devの構成へ切り替え → 基準と比較(upgrade=yesのとき)
@@ -213,6 +217,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         if [ '@option.upgrade@' = yes ]; then
           scripts/wordpress-pipeline.sh staging-upgrade '@option.site@'
         else
@@ -224,7 +229,7 @@
   description: |
     【stagingで確認する: 切り替えのやり直し】
 
-    stagingにあるサイトを、devの現在の構成へ切り替えて基準と比べる。stagingで見つかった問題を
+    stagingにあるサイトを、devの現在の構成へ切り替えて基準と比べ、QA(本番との比較)を行う。stagingで見つかった問題を
     devで直したあとや、2-staging を upgrade=no で実行したあとに使う。
   loglevel: INFO
   executionEnabled: true
@@ -284,6 +289,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -300,6 +306,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/wordpress-pipeline.sh staging-upgrade '@option.site@'
       scriptInterpreter: /bin/bash
 - name: 3-production-promote
@@ -307,7 +314,8 @@
   description: |
     【本番昇格パイプライン】
 
-    stagingと本番で差分のあるサイトの昇格PR(staging→production)を promote ワークフローで作り、CI通過後に
+    stagingと本番で差分のあるサイトをstagingでQAし(通らなければPRを作らない)、
+    昇格PR(staging→production)を promote ワークフローで作り、CI通過後に
     対象サイトの本番バックアップを取って(結果はPRにコメントする。本番の権限が無いオペレータが実行した場合は取らず、
     「承認する管理者がマージ直前に tools/backup で取る」とPRにコメントする)、**人がPRをレビュー・マージするのを待つ
     (このジョブはマージしない)**。マージされたらFleetの適用(Helmリビジョンの更新とrollout)を待ち、
@@ -390,6 +398,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -406,6 +415,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/wordpress-pipeline.sh promote-production @option.sites@
       scriptInterpreter: /bin/bash
 - name: 4-staging-cleanup
@@ -474,6 +484,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -490,6 +501,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/wordpress-pipeline.sh staging-cleanup '@option.site@'
       scriptInterpreter: /bin/bash
 - name: backup
@@ -569,6 +581,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -585,7 +598,108 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/wordpress-pipeline.sh backup '@option.env@' @option.sites@
+      scriptInterpreter: /bin/bash
+- name: qa
+  group: tools
+  uuid: 5d8e28fc-b223-5727-b265-f8ad1418dd41
+  description: |
+    QA(反映の確認と qa/checks.yaml のチェック。docs/operations-flow.md「QAゲート」)。
+    本番にあるサイトは、本番の同じサイトとタイトル等を比べる。env=staging では結果をGitHubに記録し、
+    本番への昇格PRの qa-gate がそれを見る(通ると、失敗していた qa-gate をやり直させる)。
+    「2a-staging-upgrade」「3-production-promote」も同じQAを自動で行うので、これは再確認用。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 30m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: env
+    description: 環境(結果を記録するのはstagingだけ)
+    required: true
+    value: staging
+    values:
+    - staging
+    - dev
+    - production
+    valuesListDelimiter: ','
+    enforced: true
+  - name: sites
+    description: サイト(all、または複数選択)
+    required: true
+    value: all
+    values:
+    - all
+    - abc
+    - abc-en
+    - acd
+    - acd-en
+    - cell
+    - cell-en
+    - dgprt
+    - dgprt-en
+    - dna
+    - dna-en
+    - epd
+    - epd-en
+    - hdm
+    - hdm-en
+    - iddd
+    - iddd-en
+    - info
+    - info-en
+    - jcm
+    - jcm-en
+    - jmc
+    - jmc-en
+    - kougaku
+    - kougaku-en
+    - mgen
+    - mgen-en
+    - mus
+    - mus-en
+    - pms
+    - pms-en
+    - tet
+    - tet-en
+    - web
+    - web-en
+    valuesListDelimiter: ','
+    enforced: true
+    multivalued: true
+    delimiter: ' '
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: QA
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        scripts/qa.sh '@option.env@' sites @option.sites@
       scriptInterpreter: /bin/bash
 - name: check
   group: tools
@@ -664,6 +778,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -680,5 +795,6 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/wordpress-pipeline.sh check '@option.env@' @option.sites@
       scriptInterpreter: /bin/bash

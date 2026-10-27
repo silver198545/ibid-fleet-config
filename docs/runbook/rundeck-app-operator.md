@@ -126,9 +126,10 @@ OK: sparqlist.dev.ibid.lan/sparqlist/ は200を返しました。
 | ジョブ | 内容 | 使う場面 |
 |---|---|---|
 | `1-dev-update` | 取り込み元の最新コミットでイメージを作り直し、dev に反映して確認する | 開発環境を更新するとき |
-| `2-staging-update` | dev と同じ内容にする staging の PR を作り(自動でマージされる)、staging を確認する | dev で確認できたあと |
+| `2-staging-update` | dev と同じ内容にする staging の PR を作り(自動でマージされる)、staging を確認して QA する | dev で確認できたあと |
 | `3-production-update` | staging と同じ内容にする本番 PR を作り、管理者の承認とマージを待って、本番を確認する | staging で確認できたあと、本番を更新するとき |
 | `4-first-promote-prepare` / `5-first-promote-finish` | 新しいアプリを初めて staging・本番に出す | **管理者が行います**(使わないでください) |
+| `8-qa` | 決めておいた URL の応答と中身を確かめる(QA)。staging の結果は GitHub に記録され、本番 PR の `qa-gate` が見る | 本番 PR の `qa-gate` が落ちたとき、直したあとの再確認 |
 | `9-check` | dev・staging・本番の稼働状況と WEB の応答を確認する(読むだけ) | いつでも |
 
 ### オプション
@@ -138,6 +139,7 @@ OK: sparqlist.dev.ibid.lan/sparqlist/ は200を返しました。
 | `1-dev-update` | `src_ref` | 空欄 | 取り込むコミットの SHA。**空欄なら取り込み元の最新**。特定のコミットを入れたいときだけ指定 |
 | `1-dev-update` | `tag` | 空欄 | 新しいイメージのタグ。空欄なら自動で採番(例: `2.0.0-r7` → `2.0.0-r8`) |
 | `3-production-update` | `merge_wait_minutes` | `240` | 本番 PR の承認・マージを待つ時間(分) |
+| `8-qa` | `env` | `staging` | QA する環境(結果を記録するのは `staging` だけ) |
 | `9-check` | `env` | `dev` | 確認する環境(`dev` / `staging` / `production`) |
 
 ## 実行方法
@@ -162,7 +164,7 @@ OK: sparqlist.dev.ibid.lan/sparqlist/ は200を返しました。
 1. `<アプリ名>/2-staging-update` を開き、「Run Job Now」
 2. 数分で終わる(PR は自動でマージされる)。最後に次の行が出れば成功
    ```
-   OK: <アプリ名>.staging.ibid.lan/... は200を返しました。
+   QAはすべて通りました(staging: <アプリ名>)。
    ```
 3. `https://<アプリ名>.staging.ibid.lan/` をブラウザで開き、動作を確認する
 
@@ -203,11 +205,12 @@ staging と本番に差分が無いときは、PR は作らず本番の確認だ
 1. `~/ibid-fleet-config` を最新に揃える
 2. dev と staging に差分があれば、promote ワークフローで staging の PR を作り(作成者は `ibid-ops-bot`)、自動でマージされるのを待つ
 3. Fleet の反映を待って(60 秒)、staging の rollout と WEB の応答を確認する
+4. QA(決めておいた URL の応答と中身。`qa/checks.yaml`)。結果を GitHub に記録する
 
 ### `3-production-update`
 
 1. `~/ibid-fleet-config` を最新に揃える
-2. staging と本番に差分があれば、promote ワークフローで本番 PR を作る(作成者は `ibid-ops-bot`)
+2. staging と本番に差分があれば、staging で QA し(通らなければ止まる)、promote ワークフローで本番 PR を作る(作成者は `ibid-ops-bot`)
 3. **人が PR を承認・マージするのを待つ**(このジョブはマージしない)
 4. マージされたら最新を取り込み、Fleet の反映を待って(60 秒)、本番の rollout と WEB の応答を確認する
 
@@ -222,6 +225,8 @@ Rundeck のジョブの実行画面(Log Output)に、すべての出力が残り
 | `PR作成: https://...` | 作った PR |
 | `マージされました: <SHA>` | PR がマージされた |
 | `OK: ... は200を返しました。` | WEB の応答が正常 |
+| `=== QA: staging apps/<app> ===` の下の `OK` / `NG` の行 | QA の各 URL の結果。`NG` の行に理由が出る |
+| `結果をGitHubに記録しました: qa/apps/<app> = success` | QA の結果を GitHub に記録した(本番 PR の `qa-gate` が見る) |
 | `images/<app>/SRC_REF は既に ... です` | 新しいコミットが無いので dev の確認だけ行った |
 
 作られた PR は GitHub の Pull requests でも見られます。本文の最後に「実行者: <あなた>(Rundeck、...)」と入ります。
@@ -246,6 +251,8 @@ Rundeck のジョブの実行画面(Log Output)に、すべての出力が残り
 | `このクローンは他のジョブが使用中です。空くのを待っています` | 自分の別のジョブが動いています。終わるまで待つ |
 | `エラー: ...分待ってもマージされませんでした` | PR はそのまま残っています。管理者に承認・マージを依頼し、マージ後に `9-check`(`env=production`)で確認する |
 | `警告: 200以外です。` | ブラウザで確認先を開き、管理者に連絡する |
+| `QAに通らなかったもの: ...` / `stagingのQAに通らないため、...` | `NG` の行の URL をブラウザで開いて確認する。アプリの不具合なら直して `1-dev-update` から。分からなければ管理者に連絡する |
+| 本番 PR の `qa-gate` が赤い | staging の QA がまだ、または失敗している。`8-qa`(`env=staging`)を実行し、通れば `qa-gate` は自動でやり直される |
 | `forbidden`(本番) | 本番は見るだけです。本番を操作する作業は管理者に依頼する |
 | `Permission denied (publickey)` | Rundeck の SSH 鍵の設定。管理者に連絡する |
 | `gh: To get started with GitHub CLI, please run: gh auth login` | GitHub 認証が切れています。「初回設定 2」の `gh auth login` をやり直す |

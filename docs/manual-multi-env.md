@@ -42,6 +42,9 @@ wp-contentの実データは昇格せず、必要な場合は [manual-wordpress-
      削除/force push禁止)。ブランチ保護とルールセットは両方が適用されるため、承認数などを
      変えるときは**両方**を変えること(2026-10-10にブランチ保護だけ変えてPRが止まったままになった)
    - Require status checks to pass: `validate`
+     (`qa-gate`(本番への昇格PRにstagingのQAを求める。[operations-flow.md](operations-flow.md)「QAゲート」)は
+     2026-10-27に追加し、しばらく必須にせず結果だけ見る。必須にするときは、ブランチ保護とルールセットの**両方**に足す。
+     本番のapps・sitesに触れないPRでは何もせず通るので、必須にしても他のPRは止まらない)
    - `enforce_admins`(Do not allow bypassing the above settings)は**無効のまま**にする。
      現状collaboratorが `@silver198545` 一人のため、有効化すると
      GitHubが自分自身のPRへのApproveを許可しない仕様により、`main`へ何もマージできなくなる

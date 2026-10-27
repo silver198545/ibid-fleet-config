@@ -37,6 +37,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -53,6 +54,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh dev-update brc-advanced-search '@option.src_ref@' '@option.tag@'
       scriptInterpreter: /bin/bash
 - name: 2-staging-update
@@ -62,7 +64,7 @@
     【staging更新パイプライン】brc-advanced-search
 
     envs/staging/apps/brc-advanced-search を dev と同じ内容にする昇格PRを promote ワークフロー(to=staging)で作り、
-    auto-mergeを待って(stagingだけのPRなので承認不要)、stagingのrollout・WEB疎通を確認する。
+    auto-mergeを待って(stagingだけのPRなので承認不要)、stagingのrollout・WEB疎通とQAを確認する。
     devとstagingに差分が無ければPRは作らず、確認だけ行う。
 
     stagingでブラウザ確認したら「3-production-update」で本番へ。本番へは必ずstagingを通す。
@@ -85,6 +87,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -101,6 +104,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh staging-update brc-advanced-search
       scriptInterpreter: /bin/bash
 - name: 3-production-update
@@ -109,6 +113,7 @@
   description: |
     【本番環境更新パイプライン】brc-advanced-search
 
+    stagingでQAし(通らなければPRを作らない)、
     envs/production/apps/brc-advanced-search を staging と同じ内容にする昇格PRを promote ワークフロー(to=production)で作り、
     **人がPRをレビュー・マージするのを待つ(このジョブはマージしない)**。マージされたら
     mainを取り込み、Fleetの適用を待って本番のrollout・WEB疎通を確認する。
@@ -146,6 +151,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -162,6 +168,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/update-app-image.sh release-production brc-advanced-search
       scriptInterpreter: /bin/bash
 - name: 4-first-promote-prepare
@@ -202,6 +209,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -218,6 +226,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh promote-@option.env@ brc-advanced-search
       scriptInterpreter: /bin/bash
 - name: 5-first-promote-finish
@@ -256,7 +265,64 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh promote-@option.env@-finish brc-advanced-search
+      scriptInterpreter: /bin/bash
+- name: 8-qa
+  group: brc-advanced-search
+  uuid: c7b526a8-bf67-5da1-819e-ebe5f52fa66a
+  description: |
+    brc-advanced-search のQA(反映の確認と qa/checks.yaml のチェック。docs/operations-flow.md「QAゲート」)。
+    env=staging では結果をGitHubに記録し、本番への昇格PRの qa-gate がそれを見る
+    (通ると、失敗していた qa-gate をやり直させる)。「2-staging-update」「3-production-update」も
+    同じQAを自動で行うので、これは直した後の再確認や、本番PRのqa-gateが落ちたとき用。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 30m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: env
+    description: QAする環境(結果を記録するのはstagingだけ)
+    required: true
+    value: staging
+    values:
+    - staging
+    - dev
+    - production
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: QA
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        scripts/qa.sh '@option.env@' apps brc-advanced-search
       scriptInterpreter: /bin/bash
 - name: 9-check
   group: brc-advanced-search
@@ -291,6 +357,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh check-@option.env@ brc-advanced-search
       scriptInterpreter: /bin/bash
 - name: 1-dev-update
@@ -328,6 +395,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -344,6 +412,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh dev-update brc-cross-search-resource '@option.src_ref@' '@option.tag@'
       scriptInterpreter: /bin/bash
 - name: 2-staging-update
@@ -353,7 +422,7 @@
     【staging更新パイプライン】brc-cross-search-resource
 
     envs/staging/apps/brc-cross-search-resource を dev と同じ内容にする昇格PRを promote ワークフロー(to=staging)で作り、
-    auto-mergeを待って(stagingだけのPRなので承認不要)、stagingのrollout・WEB疎通を確認する。
+    auto-mergeを待って(stagingだけのPRなので承認不要)、stagingのrollout・WEB疎通とQAを確認する。
     devとstagingに差分が無ければPRは作らず、確認だけ行う。
 
     stagingでブラウザ確認したら「3-production-update」で本番へ。本番へは必ずstagingを通す。
@@ -376,6 +445,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -392,6 +462,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh staging-update brc-cross-search-resource
       scriptInterpreter: /bin/bash
 - name: 3-production-update
@@ -400,6 +471,7 @@
   description: |
     【本番環境更新パイプライン】brc-cross-search-resource
 
+    stagingでQAし(通らなければPRを作らない)、
     envs/production/apps/brc-cross-search-resource を staging と同じ内容にする昇格PRを promote ワークフロー(to=production)で作り、
     **人がPRをレビュー・マージするのを待つ(このジョブはマージしない)**。マージされたら
     mainを取り込み、Fleetの適用を待って本番のrollout・WEB疎通を確認する。
@@ -437,6 +509,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -453,6 +526,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/update-app-image.sh release-production brc-cross-search-resource
       scriptInterpreter: /bin/bash
 - name: 4-first-promote-prepare
@@ -493,6 +567,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -509,6 +584,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh promote-@option.env@ brc-cross-search-resource
       scriptInterpreter: /bin/bash
 - name: 5-first-promote-finish
@@ -547,7 +623,64 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh promote-@option.env@-finish brc-cross-search-resource
+      scriptInterpreter: /bin/bash
+- name: 8-qa
+  group: brc-cross-search-resource
+  uuid: 8520320a-7f5c-5307-b57d-34d35dca80b9
+  description: |
+    brc-cross-search-resource のQA(反映の確認と qa/checks.yaml のチェック。docs/operations-flow.md「QAゲート」)。
+    env=staging では結果をGitHubに記録し、本番への昇格PRの qa-gate がそれを見る
+    (通ると、失敗していた qa-gate をやり直させる)。「2-staging-update」「3-production-update」も
+    同じQAを自動で行うので、これは直した後の再確認や、本番PRのqa-gateが落ちたとき用。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 30m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: env
+    description: QAする環境(結果を記録するのはstagingだけ)
+    required: true
+    value: staging
+    values:
+    - staging
+    - dev
+    - production
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: QA
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        scripts/qa.sh '@option.env@' apps brc-cross-search-resource
       scriptInterpreter: /bin/bash
 - name: 9-check
   group: brc-cross-search-resource
@@ -582,6 +715,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh check-@option.env@ brc-cross-search-resource
       scriptInterpreter: /bin/bash
 - name: 1-dev-update
@@ -619,6 +753,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -635,6 +770,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh dev-update brc-cross-search-xsearch '@option.src_ref@' '@option.tag@'
       scriptInterpreter: /bin/bash
 - name: 2-staging-update
@@ -644,7 +780,7 @@
     【staging更新パイプライン】brc-cross-search-xsearch
 
     envs/staging/apps/brc-cross-search-xsearch を dev と同じ内容にする昇格PRを promote ワークフロー(to=staging)で作り、
-    auto-mergeを待って(stagingだけのPRなので承認不要)、stagingのrollout・WEB疎通を確認する。
+    auto-mergeを待って(stagingだけのPRなので承認不要)、stagingのrollout・WEB疎通とQAを確認する。
     devとstagingに差分が無ければPRは作らず、確認だけ行う。
 
     stagingでブラウザ確認したら「3-production-update」で本番へ。本番へは必ずstagingを通す。
@@ -667,6 +803,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -683,6 +820,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh staging-update brc-cross-search-xsearch
       scriptInterpreter: /bin/bash
 - name: 3-production-update
@@ -691,6 +829,7 @@
   description: |
     【本番環境更新パイプライン】brc-cross-search-xsearch
 
+    stagingでQAし(通らなければPRを作らない)、
     envs/production/apps/brc-cross-search-xsearch を staging と同じ内容にする昇格PRを promote ワークフロー(to=production)で作り、
     **人がPRをレビュー・マージするのを待つ(このジョブはマージしない)**。マージされたら
     mainを取り込み、Fleetの適用を待って本番のrollout・WEB疎通を確認する。
@@ -728,6 +867,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -744,6 +884,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/update-app-image.sh release-production brc-cross-search-xsearch
       scriptInterpreter: /bin/bash
 - name: 4-first-promote-prepare
@@ -784,6 +925,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -800,6 +942,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh promote-@option.env@ brc-cross-search-xsearch
       scriptInterpreter: /bin/bash
 - name: 5-first-promote-finish
@@ -838,7 +981,64 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh promote-@option.env@-finish brc-cross-search-xsearch
+      scriptInterpreter: /bin/bash
+- name: 8-qa
+  group: brc-cross-search-xsearch
+  uuid: c9fed218-6878-5faa-8628-071686782f2d
+  description: |
+    brc-cross-search-xsearch のQA(反映の確認と qa/checks.yaml のチェック。docs/operations-flow.md「QAゲート」)。
+    env=staging では結果をGitHubに記録し、本番への昇格PRの qa-gate がそれを見る
+    (通ると、失敗していた qa-gate をやり直させる)。「2-staging-update」「3-production-update」も
+    同じQAを自動で行うので、これは直した後の再確認や、本番PRのqa-gateが落ちたとき用。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 30m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: env
+    description: QAする環境(結果を記録するのはstagingだけ)
+    required: true
+    value: staging
+    values:
+    - staging
+    - dev
+    - production
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: QA
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        scripts/qa.sh '@option.env@' apps brc-cross-search-xsearch
       scriptInterpreter: /bin/bash
 - name: 9-check
   group: brc-cross-search-xsearch
@@ -873,6 +1073,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh check-@option.env@ brc-cross-search-xsearch
       scriptInterpreter: /bin/bash
 - name: 1-dev-update
@@ -910,6 +1111,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -926,6 +1128,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh dev-update member-gateway '@option.src_ref@' '@option.tag@'
       scriptInterpreter: /bin/bash
 - name: 2-staging-update
@@ -935,7 +1138,7 @@
     【staging更新パイプライン】member-gateway
 
     envs/staging/apps/member-gateway を dev と同じ内容にする昇格PRを promote ワークフロー(to=staging)で作り、
-    auto-mergeを待って(stagingだけのPRなので承認不要)、stagingのrollout・WEB疎通を確認する。
+    auto-mergeを待って(stagingだけのPRなので承認不要)、stagingのrollout・WEB疎通とQAを確認する。
     devとstagingに差分が無ければPRは作らず、確認だけ行う。
 
     stagingでブラウザ確認したら「3-production-update」で本番へ。本番へは必ずstagingを通す。
@@ -958,6 +1161,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -974,6 +1178,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh staging-update member-gateway
       scriptInterpreter: /bin/bash
 - name: 3-production-update
@@ -982,6 +1187,7 @@
   description: |
     【本番環境更新パイプライン】member-gateway
 
+    stagingでQAし(通らなければPRを作らない)、
     envs/production/apps/member-gateway を staging と同じ内容にする昇格PRを promote ワークフロー(to=production)で作り、
     **人がPRをレビュー・マージするのを待つ(このジョブはマージしない)**。マージされたら
     mainを取り込み、Fleetの適用を待って本番のrollout・WEB疎通を確認する。
@@ -1019,6 +1225,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -1035,6 +1242,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/update-app-image.sh release-production member-gateway
       scriptInterpreter: /bin/bash
 - name: 4-first-promote-prepare
@@ -1075,6 +1283,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -1091,6 +1300,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh promote-@option.env@ member-gateway
       scriptInterpreter: /bin/bash
 - name: 5-first-promote-finish
@@ -1129,7 +1339,64 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh promote-@option.env@-finish member-gateway
+      scriptInterpreter: /bin/bash
+- name: 8-qa
+  group: member-gateway
+  uuid: b110374e-7639-579f-8693-57ffa3219b4e
+  description: |
+    member-gateway のQA(反映の確認と qa/checks.yaml のチェック。docs/operations-flow.md「QAゲート」)。
+    env=staging では結果をGitHubに記録し、本番への昇格PRの qa-gate がそれを見る
+    (通ると、失敗していた qa-gate をやり直させる)。「2-staging-update」「3-production-update」も
+    同じQAを自動で行うので、これは直した後の再確認や、本番PRのqa-gateが落ちたとき用。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 30m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: env
+    description: QAする環境(結果を記録するのはstagingだけ)
+    required: true
+    value: staging
+    values:
+    - staging
+    - dev
+    - production
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: QA
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        scripts/qa.sh '@option.env@' apps member-gateway
       scriptInterpreter: /bin/bash
 - name: 9-check
   group: member-gateway
@@ -1164,6 +1431,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh check-@option.env@ member-gateway
       scriptInterpreter: /bin/bash
 - name: 1-dev-update
@@ -1201,6 +1469,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -1217,6 +1486,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh dev-update metadatabase-v2 '@option.src_ref@' '@option.tag@'
       scriptInterpreter: /bin/bash
 - name: 2-staging-update
@@ -1226,7 +1496,7 @@
     【staging更新パイプライン】metadatabase-v2
 
     envs/staging/apps/metadatabase-v2 を dev と同じ内容にする昇格PRを promote ワークフロー(to=staging)で作り、
-    auto-mergeを待って(stagingだけのPRなので承認不要)、stagingのrollout・WEB疎通を確認する。
+    auto-mergeを待って(stagingだけのPRなので承認不要)、stagingのrollout・WEB疎通とQAを確認する。
     devとstagingに差分が無ければPRは作らず、確認だけ行う。
 
     stagingでブラウザ確認したら「3-production-update」で本番へ。本番へは必ずstagingを通す。
@@ -1249,6 +1519,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -1265,6 +1536,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh staging-update metadatabase-v2
       scriptInterpreter: /bin/bash
 - name: 3-production-update
@@ -1273,6 +1545,7 @@
   description: |
     【本番環境更新パイプライン】metadatabase-v2
 
+    stagingでQAし(通らなければPRを作らない)、
     envs/production/apps/metadatabase-v2 を staging と同じ内容にする昇格PRを promote ワークフロー(to=production)で作り、
     **人がPRをレビュー・マージするのを待つ(このジョブはマージしない)**。マージされたら
     mainを取り込み、Fleetの適用を待って本番のrollout・WEB疎通を確認する。
@@ -1310,6 +1583,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -1326,6 +1600,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/update-app-image.sh release-production metadatabase-v2
       scriptInterpreter: /bin/bash
 - name: 4-first-promote-prepare
@@ -1366,6 +1641,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -1382,6 +1658,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh promote-@option.env@ metadatabase-v2
       scriptInterpreter: /bin/bash
 - name: 5-first-promote-finish
@@ -1420,7 +1697,64 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh promote-@option.env@-finish metadatabase-v2
+      scriptInterpreter: /bin/bash
+- name: 8-qa
+  group: metadatabase-v2
+  uuid: e4496413-2f6a-5a1a-9d3e-fb2a4ad65b1d
+  description: |
+    metadatabase-v2 のQA(反映の確認と qa/checks.yaml のチェック。docs/operations-flow.md「QAゲート」)。
+    env=staging では結果をGitHubに記録し、本番への昇格PRの qa-gate がそれを見る
+    (通ると、失敗していた qa-gate をやり直させる)。「2-staging-update」「3-production-update」も
+    同じQAを自動で行うので、これは直した後の再確認や、本番PRのqa-gateが落ちたとき用。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 30m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: env
+    description: QAする環境(結果を記録するのはstagingだけ)
+    required: true
+    value: staging
+    values:
+    - staging
+    - dev
+    - production
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: QA
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        scripts/qa.sh '@option.env@' apps metadatabase-v2
       scriptInterpreter: /bin/bash
 - name: 9-check
   group: metadatabase-v2
@@ -1455,6 +1789,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh check-@option.env@ metadatabase-v2
       scriptInterpreter: /bin/bash
 - name: 1-dev-update
@@ -1492,6 +1827,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -1508,6 +1844,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh dev-update riken-diips '@option.src_ref@' '@option.tag@'
       scriptInterpreter: /bin/bash
 - name: 2-staging-update
@@ -1517,7 +1854,7 @@
     【staging更新パイプライン】riken-diips
 
     envs/staging/apps/riken-diips を dev と同じ内容にする昇格PRを promote ワークフロー(to=staging)で作り、
-    auto-mergeを待って(stagingだけのPRなので承認不要)、stagingのrollout・WEB疎通を確認する。
+    auto-mergeを待って(stagingだけのPRなので承認不要)、stagingのrollout・WEB疎通とQAを確認する。
     devとstagingに差分が無ければPRは作らず、確認だけ行う。
 
     stagingでブラウザ確認したら「3-production-update」で本番へ。本番へは必ずstagingを通す。
@@ -1540,6 +1877,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -1556,6 +1894,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh staging-update riken-diips
       scriptInterpreter: /bin/bash
 - name: 3-production-update
@@ -1564,6 +1903,7 @@
   description: |
     【本番環境更新パイプライン】riken-diips
 
+    stagingでQAし(通らなければPRを作らない)、
     envs/production/apps/riken-diips を staging と同じ内容にする昇格PRを promote ワークフロー(to=production)で作り、
     **人がPRをレビュー・マージするのを待つ(このジョブはマージしない)**。マージされたら
     mainを取り込み、Fleetの適用を待って本番のrollout・WEB疎通を確認する。
@@ -1601,6 +1941,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -1617,6 +1958,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/update-app-image.sh release-production riken-diips
       scriptInterpreter: /bin/bash
 - name: 4-first-promote-prepare
@@ -1657,6 +1999,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -1673,6 +2016,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh promote-@option.env@ riken-diips
       scriptInterpreter: /bin/bash
 - name: 5-first-promote-finish
@@ -1711,7 +2055,64 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh promote-@option.env@-finish riken-diips
+      scriptInterpreter: /bin/bash
+- name: 8-qa
+  group: riken-diips
+  uuid: f7475c66-8937-5371-8299-3de5d80f629b
+  description: |
+    riken-diips のQA(反映の確認と qa/checks.yaml のチェック。docs/operations-flow.md「QAゲート」)。
+    env=staging では結果をGitHubに記録し、本番への昇格PRの qa-gate がそれを見る
+    (通ると、失敗していた qa-gate をやり直させる)。「2-staging-update」「3-production-update」も
+    同じQAを自動で行うので、これは直した後の再確認や、本番PRのqa-gateが落ちたとき用。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 30m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: env
+    description: QAする環境(結果を記録するのはstagingだけ)
+    required: true
+    value: staging
+    values:
+    - staging
+    - dev
+    - production
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: QA
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        scripts/qa.sh '@option.env@' apps riken-diips
       scriptInterpreter: /bin/bash
 - name: 9-check
   group: riken-diips
@@ -1746,6 +2147,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh check-@option.env@ riken-diips
       scriptInterpreter: /bin/bash
 - name: 1-dev-update
@@ -1783,6 +2185,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -1799,6 +2202,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh dev-update sparqlist '@option.src_ref@' '@option.tag@'
       scriptInterpreter: /bin/bash
 - name: 2-staging-update
@@ -1808,7 +2212,7 @@
     【staging更新パイプライン】sparqlist
 
     envs/staging/apps/sparqlist を dev と同じ内容にする昇格PRを promote ワークフロー(to=staging)で作り、
-    auto-mergeを待って(stagingだけのPRなので承認不要)、stagingのrollout・WEB疎通を確認する。
+    auto-mergeを待って(stagingだけのPRなので承認不要)、stagingのrollout・WEB疎通とQAを確認する。
     devとstagingに差分が無ければPRは作らず、確認だけ行う。
 
     stagingでブラウザ確認したら「3-production-update」で本番へ。本番へは必ずstagingを通す。
@@ -1831,6 +2235,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -1847,6 +2252,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh staging-update sparqlist
       scriptInterpreter: /bin/bash
 - name: 3-production-update
@@ -1855,6 +2261,7 @@
   description: |
     【本番環境更新パイプライン】sparqlist
 
+    stagingでQAし(通らなければPRを作らない)、
     envs/production/apps/sparqlist を staging と同じ内容にする昇格PRを promote ワークフロー(to=production)で作り、
     **人がPRをレビュー・マージするのを待つ(このジョブはマージしない)**。マージされたら
     mainを取り込み、Fleetの適用を待って本番のrollout・WEB疎通を確認する。
@@ -1892,6 +2299,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -1908,6 +2316,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/update-app-image.sh release-production sparqlist
       scriptInterpreter: /bin/bash
 - name: 4-first-promote-prepare
@@ -1948,6 +2357,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
         flock -w 3600 9
         if [ -n "$(git status --porcelain)" ]; then
@@ -1964,6 +2374,7 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh promote-@option.env@ sparqlist
       scriptInterpreter: /bin/bash
 - name: 5-first-promote-finish
@@ -2002,7 +2413,64 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh promote-@option.env@-finish sparqlist
+      scriptInterpreter: /bin/bash
+- name: 8-qa
+  group: sparqlist
+  uuid: fedf163c-c944-53bc-b239-249b7ec089ce
+  description: |
+    sparqlist のQA(反映の確認と qa/checks.yaml のチェック。docs/operations-flow.md「QAゲート」)。
+    env=staging では結果をGitHubに記録し、本番への昇格PRの qa-gate がそれを見る
+    (通ると、失敗していた qa-gate をやり直させる)。「2-staging-update」「3-production-update」も
+    同じQAを自動で行うので、これは直した後の再確認や、本番PRのqa-gateが落ちたとき用。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 30m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: env
+    description: QAする環境(結果を記録するのはstagingだけ)
+    required: true
+    value: staging
+    values:
+    - staging
+    - dev
+    - production
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: QA
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        scripts/qa.sh '@option.env@' apps sparqlist
       scriptInterpreter: /bin/bash
 - name: 9-check
   group: sparqlist
@@ -2037,5 +2505,6 @@
         set -euo pipefail
         cd "$HOME/ibid-fleet-config"
         export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh check-@option.env@ sparqlist
       scriptInterpreter: /bin/bash

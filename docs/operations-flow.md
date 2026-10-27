@@ -174,6 +174,46 @@ gh workflow run promote.yaml -f to=staging -f name=$SITE   # devの構成(helm.v
    PV(NFSのディレクトリ・mariadbのHarvesterのボリューム)は数十秒〜数分遅れて消える
    (2026-08にHarvesterをv1.8系へ上げてから、[roadmap.md](roadmap.md) 項目8のCSIの問題は起きていない)
 
+## QAゲート
+
+本番への昇格PR(`envs/production/apps/<app>`・`envs/production/sites/<site>` を変えるPR)は、
+**同じ内容がstagingでQAに通っていること**を `qa-gate` ワークフロー(`.github/workflows/qa-gate.yaml`)が確かめる
+(2026-10-27〜)。
+
+QA(`scripts/qa.sh <env> <apps|sites> <name...|all>`)が見ること:
+
+- **反映**: Gitに書いた版が動いているか(アプリはDeploymentのイメージ、サイトはHelmリリースのチャートの版)と、rolloutの完了。
+  まだなら最大5分待つ
+- **L1(HTTPの応答)・L2(中身)**: [qa/checks.yaml](../qa/checks.yaml) のチェック。アプリごとの代表URL
+  (検索結果の件数、JSONの要素数、画面の決まった文言等)と、WordPressサイト共通のチェック
+  (トップページと `wp-json/` が、**本番の同じサイトとタイトル・サイト名が一致する**か)。
+  どのHTMLにもPHP・アプリのエラー表示が無いことも確かめる
+
+stagingでの結果は、GitHubのcommit status `qa/<kind>/<name>` として、`envs/staging/<kind>/<name>` を最後に変更した
+mainのコミットに記録される(Rundeckから実行したときは、ログへのリンク付き)。`qa-gate` は、PRの
+`envs/production/<kind>/<name>` がmainの `envs/staging/<kind>/<name>` と同じ内容で、その記録がsuccessなら通す。
+stagingの内容がその後変わったら(staging-upgrade・deploy-staging)、QAもやり直しになる。
+
+QAは次のパイプラインに組み込んである。通らなければ本番へのPRは作られない:
+
+| 場面 | QAするところ |
+|---|---|
+| アプリ: `update-app-image.sh deploy-staging`(Rundeck `2-staging-update`) | staging反映の確認の後 |
+| アプリ: `deploy-production`・`release-production`(`3-production-update`)・本番への初回昇格 | PRを作る前 |
+| WordPress: `wordpress-pipeline.sh staging-upgrade`(`2-staging`・`2a-staging-upgrade`) | 基準との比較の後 |
+| WordPress: `promote-production`(`3-production-promote`) | PRを作る前 |
+
+単独では `scripts/qa.sh staging apps <app>`(Rundeck: アプリの `8-qa`、WordPressの `tools/qa`)。
+本番PRの `qa-gate` が落ちたときは、stagingで直してからこれを実行すると、通った時点で `qa-gate` がやり直される。
+`QA_NO_STATUS=1` を付けると記録せずに試せる。dev・productionでも実行できる(記録はしない)。
+
+- アプリを追加したら、`qa/checks.yaml` にも代表URLを追加する(`validate` が漏れを止める)
+- `qa-gate` はstagingを通らない変更(break-glassの本番の直接修正、本番からの削除以外の手書き変更)を止める。
+  break-glassでは管理者がブランチ保護を迂回してマージする([manual-multi-env.md](manual-multi-env.md))
+- stagingは社内からしか見えないため、QA自体はGitHub Actionsでなく踏み台(Rundeck)で行う。
+  `qa-gate` は記録を確かめるだけ
+- QAはブラウザでの確認(管理画面、プラグイン固有の画面)の代わりではない。人の確認も続ける
+
 ## Harvester物理層の容量
 
 新規サイトやstagingのサイトのPVC作成がスケジュール待ちで詰まる場合は、

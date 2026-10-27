@@ -46,8 +46,10 @@ scripts/update-app-image.sh deploy-staging $APP
 ```
 
 昇格PR(`gh workflow run promote.yaml -f kind=apps -f to=staging -f name=$APP` と同じ)が作られ、
-自動でマージされて、stagingの確認まで進む。ブラウザで `https://<app>.staging.ibid.lan/` を開いて動作を見る
+自動でマージされて、stagingの確認とQA([qa/checks.yaml](../../qa/checks.yaml) の代表URLの応答・中身)まで進む。
+ブラウザで `https://<app>.staging.ibid.lan/` を開いて動作を見る
 (stagingはproductionに近い設定。ただしmetadatabase-v2はdevと同じ設定、共有NFSは読み取り専用)。
+QAに通らなければ直してdevからやり直す(単独の再確認は `scripts/qa.sh staging apps $APP`)。
 
 ## 4. 本番へ昇格する
 
@@ -55,8 +57,9 @@ scripts/update-app-image.sh deploy-staging $APP
 scripts/update-app-image.sh deploy-production $APP
 ```
 
-昇格PRが作られる(`gh workflow run promote.yaml -f kind=apps -f to=production -f name=$APP` と同じ。昇格元はstaging)。
-PRの差分が、stagingで確認した変更(イメージのタグなど)だけであることを見てマージする。
+stagingでQAし、通れば昇格PRが作られる(`gh workflow run promote.yaml -f kind=apps -f to=production -f name=$APP` と同じ。昇格元はstaging)。
+PRの差分が、stagingで確認した変更(イメージのタグなど)だけであること、`qa-gate` のチェックが通っていることを見てマージする
+([operations-flow.md](../operations-flow.md)「QAゲート」)。
 
 ## 5. 本番で確認する(マージの数分後)
 

@@ -17,9 +17,10 @@
 #                                    本番の最新コンテンツを入れて、比較の基準(各ページのHTTPステータス・版)を記録する。
 #                                    本番にまだ無い新規サイトはdevの構成で置く(本番データは入れない)
 #   staging-upgrade <site>           stagingの<site>をdevの構成(昇格予定の変更)へ切り替え(promoteワークフロー、
-#                                    auto-merge)、プラグイン同期Job・DB更新・MariaDBアップグレード・表示を基準と比べる
+#                                    auto-merge)、プラグイン同期Job・DB更新・MariaDBアップグレード・表示を基準と比べ、
+#                                    QA(scripts/qa.sh。本番と比べる)を行う
 #   staging-cleanup <site>           stagingの<site>をGitから消し(auto-merge)、namespaceを削除する
-#   promote-production <site...|all> stagingから本番への昇格PRを作り、対象サイトの本番バックアップを取ってから
+#   promote-production <site...|all> stagingのQAに通ったら、stagingから本番への昇格PRを作り、対象サイトの本番バックアップを取ってから
 #                                    人がPRをマージするのを待ち(このスクリプトはマージしない)、
 #                                    反映後に本番を確認する。all はstagingに載っている、本番にある全サイト
 #   backup <env> <site...|all>       日次バックアップのCronJobから今すぐ1つ取る(完了まで待つ)
@@ -705,6 +706,10 @@ cmd_staging_upgrade() {
     | grep -iE 'PHP (Fatal|Parse|Warning)|Uncaught' | tail -30 | sed 's/^/  /' || echo "  なし"
 
   echo ""
+  echo "=== QA(本番との比較。結果は本番PRのqa-gateが見る) ==="
+  "$SCRIPT_DIR/qa.sh" staging sites "$site" || failed=1
+
+  echo ""
   echo "stagingのサイト: $(site_url staging "$site")"
   echo "表示・管理画面・プラグイン固有の画面をブラウザでも確認し、結果(所要時間・気づいた点)を昇格PRに書いてください。"
   echo "問題なければ promote-production ${site} で本番へ昇格し、終わったら staging-cleanup ${site} で削除します。"
@@ -809,6 +814,11 @@ cmd_promote_production() {
   for s in "${existing[@]}"; do
     diff -u "envs/production/sites/$s/fleet.yaml" "envs/staging/sites/$s/fleet.yaml" | sed 's/^/  /' || true
   done
+
+  # 本番へは、stagingでQAに通った内容だけを出す(PRのqa-gateもこの記録を見る)
+  echo ""
+  echo "=== stagingのQA ==="
+  "$SCRIPT_DIR/qa.sh" staging sites "${changed[@]}" || die "stagingのQAに通らないため、本番への昇格PRは作りません。"
 
   if [[ "$*" == "all" ]]; then names="all"; else names="${changed[*]}"; fi
   run_promote sites production "$names"
