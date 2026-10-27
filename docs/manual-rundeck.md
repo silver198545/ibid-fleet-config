@@ -443,6 +443,11 @@ QA(反映の確認と [qa/checks.yaml](../qa/checks.yaml) のチェック)を単
 
 dev・staging・本番のいずれかのrollout状況とWEB疎通を確認する(読み取りのみ)。
 
+### tools/vuln-scan(アプリ)
+
+脆弱性チェック([manual-vuln-scan.md](manual-vuln-scan.md))。**毎週月曜 8:00(JST)に定期実行**し、productionの全アプリを
+検査してSlackへ通知する。手動でも環境・アプリを選んで実行できる(`env=staging` では結果を記録する)。
+
 ## WordPress(プロジェクト `WordPressControl`)
 
 ### 1-dev-refresh(開発環境更新パイプライン: 本番コンテンツ → dev)
@@ -517,11 +522,20 @@ stagingのStorageClassは`Delete`なので、NFS上のwp-content・バックア�
 stagingの構成が本番へまだ昇格していなければ注意を出す。PVが消えるのを最大3分待ち、残ったら警告を出す
 ([runbook/troubleshooting.md](runbook/troubleshooting.md)「PV が Released のまま残る」)
 
-### tools/backup・tools/qa・tools/check
+### tools/backup・tools/qa・tools/vuln-scan・tools/check
 
 - `backup`: 日次バックアップのCronJobから今すぐ1つ取る(完了まで待つ)
 - `qa`: QAを単独で行う(アプリの `8-qa` と同じ。`env=staging` では結果を記録し、落ちていた `qa-gate` をやり直させる)
+- `vuln-scan`: 脆弱性チェック([manual-vuln-scan.md](manual-vuln-scan.md))。**毎週月曜 8:30(JST)に定期実行**し、
+  productionの全サイトを検査してSlackへ通知する
 - `check`: HTTPステータスと正常でないPodの確認(読み取りのみ)
+
+## 定期実行
+
+定期実行するのは `tools/vuln-scan`(両プロジェクト)だけ。定期実行は**ジョブを取り込んだ人**のOSユーザー・認証
+(kubectl・gh・`~/.config/ibid-fleet-config/` の認証情報)で動くので、本番のPodへのexec権限を持つ管理者が取り込む
+(準備: [manual-vuln-scan.md](manual-vuln-scan.md)「準備」)。止めたいときはRundeckのジョブ画面で
+スケジュールを無効にする(取り込み直すと有効に戻る)。
 
 ## ジョブにしていないもの
 

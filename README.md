@@ -83,6 +83,7 @@ WordPressの新規サイト作成・更新、自作アプリの新規展開・�
 | 自作アプリ(`apps/`)の追加・昇格、アプリ別のメモ | [docs/manual-apps.md](docs/manual-apps.md) |
 | Rundeckのパイプライン(アプリのdev/本番更新、WordPressの本番コンテンツ→dev・stagingでの確認・本番昇格) | [docs/manual-rundeck.md](docs/manual-rundeck.md) |
 | 監視・アラート(rancher-monitoring + Slack) | [docs/manual-monitoring.md](docs/manual-monitoring.md) |
+| 脆弱性チェック(Trivy・Wordfence・EOL、週次のSlack通知、除外の書き方) | [docs/manual-vuln-scan.md](docs/manual-vuln-scan.md) |
 | TLS証明書(cert-manager + FreeIPA ACME)、DNS登録 | [docs/manual-cert-manager-freeipa-acme.md](docs/manual-cert-manager-freeipa-acme.md) |
 | IPPool、TraefikのLoadBalancer化、Rancher chartValuesの注意 | [docs/manual-harvester-loadbalancer.md](docs/manual-harvester-loadbalancer.md) |
 | control-plane VMのディスクをSSDに限定(etcd遅延対策) | [docs/manual-harvester-etcd-ssd.md](docs/manual-harvester-etcd-ssd.md) |
@@ -127,6 +128,7 @@ WordPressの新規サイト作成・更新、自作アプリの新規展開・�
 | `scripts/bump-plugins.sh [--dry-run]` | devの全サイトのプラグインをWordPress.orgの最新版へ上げるPRを作成・マージ |
 | `scripts/update-app-image.sh <subcommand>` | 自作アプリのイメージ更新(`set-image`でdev反映まで一括)〜dev→staging→production昇格PR。Rundeck用に `dev-update`・`staging-update`・`release-production` |
 | `scripts/wordpress-pipeline.sh <subcommand>` | WordPressのパイプライン(本番コンテンツ→dev、stagingでの確認、本番昇格、バックアップ・確認)。Rundeckの `WordPressControl` から呼ぶ |
+| `scripts/vuln-scan.sh [--notify] <env> <apps\|sites> <name...\|all>` | 脆弱性チェック(イメージ・WordPressのプラグイン等・EOL)。stagingのQAからも呼ばれる。[docs/manual-vuln-scan.md](docs/manual-vuln-scan.md) |
 | `scripts/seal-monitoring-secret.sh <env>` | アラート通知用Slack Webhook URLのSealedSecret |
 | `scripts/seal-sparqlist-secret.sh <env>` | sparqlistのADMIN_PASSWORDのSealedSecret |
 | `scripts/deploy-wordpress.sh <env> <site>` | **緊急用(break-glass)**の手動デプロイ。通常はPRマージ→Fleet適用 |
@@ -146,3 +148,5 @@ WordPressの新規サイト作成・更新、自作アプリの新規展開・�
   stagingで本番データに対して確認(QAを含む) → 本番のバックアップ → stagingから本番へ昇格 → stagingから削除。[docs/operations-flow.md](docs/operations-flow.md)
 - **QAゲート**: 本番への昇格PRは、同じ内容がstagingでQA(`scripts/qa.sh`。[qa/checks.yaml](qa/checks.yaml) の
   HTTP応答・中身のチェック)に通っていることを `qa-gate` が確かめる。[docs/operations-flow.md](docs/operations-flow.md)「QAゲート」
+- **脆弱性チェック**: stagingのQAと毎週のproductionの検査で、イメージ・WordPressのプラグイン等の既知の脆弱性と
+  EOLを調べる(Slackへ通知。基準は [qa/vuln-policy.yaml](qa/vuln-policy.yaml))。[docs/manual-vuln-scan.md](docs/manual-vuln-scan.md)

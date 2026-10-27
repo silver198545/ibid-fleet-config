@@ -188,6 +188,10 @@ QA(`scripts/qa.sh <env> <apps|sites> <name...|all>`)が見ること:
   (検索結果の件数、JSONの要素数、画面の決まった文言等)と、WordPressサイト共通のチェック
   (トップページと `wp-json/` が、**本番の同じサイトとタイトル・サイト名が一致する**か)。
   どのHTMLにもPHP・アプリのエラー表示が無いことも確かめる
+- **脆弱性**(2026-10-27〜): 動いているイメージ(Trivy)と、WordPressのコア・プラグイン・テーマ(Wordfence)の既知の脆弱性、
+  ランタイムのEOL。結果(合否だけ)は commit status `vuln/<kind>/<name>`。[qa/vuln-policy.yaml](../qa/vuln-policy.yaml) の
+  `enforce` が `false` の間は記録だけで止めない。毎週productionの全件も検査してSlackへ通知する。
+  詳細: [manual-vuln-scan.md](manual-vuln-scan.md)
 
 stagingでの結果は、GitHubのcommit status `qa/<kind>/<name>` として、`envs/staging/<kind>/<name>` を最後に変更した
 mainのコミットに記録される(Rundeckから実行したときは、ログへのリンク付き)。`qa-gate` は、PRの
@@ -204,6 +208,7 @@ QAは次のパイプラインに組み込んである。通らなければ本番
 | WordPress: `promote-production`(`3-production-promote`) | PRを作る前 |
 
 単独では `scripts/qa.sh staging apps <app>`(Rundeck: アプリの `8-qa`、WordPressの `tools/qa`)。
+脆弱性チェックだけなら `scripts/vuln-scan.sh staging apps <app>`(Rundeck: 両プロジェクトの `tools/vuln-scan`)。
 本番PRの `qa-gate` が落ちたときは、stagingで直してからこれを実行すると、通った時点で `qa-gate` がやり直される。
 `QA_NO_STATUS=1` を付けると記録せずに試せる。dev・productionでも実行できる(記録はしない)。
 

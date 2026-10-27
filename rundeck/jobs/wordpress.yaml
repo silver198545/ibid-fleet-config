@@ -701,6 +701,127 @@
         export RUNDECK_EXEC_URL='@job.url@'
         scripts/qa.sh '@option.env@' sites @option.sites@
       scriptInterpreter: /bin/bash
+- name: vuln-scan
+  group: tools
+  uuid: 3651de61-498e-542c-bc29-ac5616734512
+  description: |
+    脆弱性チェック(docs/manual-vuln-scan.md)。動いているイメージをTrivyで検査し、
+    WordPressのコア・プラグイン・テーマをWordfenceのフィードと照らし合わせ、
+    ランタイムのEOLも見る。判定の基準と除外は qa/vuln-policy.yaml。
+    毎週月曜 8:30(JST)に production の全件を検査し、Slackへ通知する
+    (前回から新たに見つかったものを強調する)。読み取りだけで、クラスタ・Gitは変えない。
+    env=staging では結果(合否だけ)をGitHubに記録する。stagingのQA(scripts/qa.sh)も同じ検査を自動で行う。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 2h
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: env
+    description: 検査する環境
+    required: true
+    value: production
+    values:
+    - production
+    - staging
+    - dev
+    valuesListDelimiter: ','
+    enforced: true
+  - name: sites
+    description: サイト(all、または複数選択)
+    required: true
+    value: all
+    values:
+    - all
+    - abc
+    - abc-en
+    - acd
+    - acd-en
+    - cell
+    - cell-en
+    - dgprt
+    - dgprt-en
+    - dna
+    - dna-en
+    - epd
+    - epd-en
+    - hdm
+    - hdm-en
+    - iddd
+    - iddd-en
+    - info
+    - info-en
+    - jcm
+    - jcm-en
+    - jmc
+    - jmc-en
+    - kougaku
+    - kougaku-en
+    - mgen
+    - mgen-en
+    - mus
+    - mus-en
+    - pms
+    - pms-en
+    - tet
+    - tet-en
+    - web
+    - web-en
+    valuesListDelimiter: ','
+    enforced: true
+    multivalued: true
+    delimiter: ' '
+  - name: notify
+    description: 結果をSlackへ通知する
+    required: true
+    value: 'yes'
+    values:
+    - 'yes'
+    - 'no'
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: 脆弱性チェック
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        scripts/vuln-scan.sh $([ '@option.notify@' = yes ] && echo --notify) '@option.env@' sites @option.sites@
+      scriptInterpreter: /bin/bash
+  schedule:
+    month: '*'
+    time:
+      hour: 08
+      minute: '30'
+      seconds: '0'
+    weekday:
+      day: MON
+    year: '*'
+  timeZone: Asia/Tokyo
 - name: check
   group: tools
   uuid: 1af6ea62-5b12-5c6e-b7ce-cb687f3f1324

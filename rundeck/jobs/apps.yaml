@@ -2508,3 +2508,97 @@
         export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh check-@option.env@ sparqlist
       scriptInterpreter: /bin/bash
+- name: vuln-scan
+  group: tools
+  uuid: 61749e56-45c3-5595-be41-67ac92eecb6f
+  description: |
+    脆弱性チェック(docs/manual-vuln-scan.md)。動いているイメージをTrivyで検査し、
+    上流の未取り込みのコミットも調べ、
+    ランタイムのEOLも見る。判定の基準と除外は qa/vuln-policy.yaml。
+    毎週月曜 8:00(JST)に production の全件を検査し、Slackへ通知する
+    (前回から新たに見つかったものを強調する)。読み取りだけで、クラスタ・Gitは変えない。
+    env=staging では結果(合否だけ)をGitHubに記録する。stagingのQA(scripts/qa.sh)も同じ検査を自動で行う。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 2h
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: env
+    description: 検査する環境
+    required: true
+    value: production
+    values:
+    - production
+    - staging
+    - dev
+    valuesListDelimiter: ','
+    enforced: true
+  - name: apps
+    description: アプリ(all、または複数選択)
+    required: true
+    value: all
+    values:
+    - all
+    - brc-advanced-search
+    - brc-cross-search-resource
+    - brc-cross-search-xsearch
+    - member-gateway
+    - metadatabase-v2
+    - riken-diips
+    - sparqlist
+    valuesListDelimiter: ','
+    enforced: true
+    multivalued: true
+    delimiter: ' '
+  - name: notify
+    description: 結果をSlackへ通知する
+    required: true
+    value: 'yes'
+    values:
+    - 'yes'
+    - 'no'
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: 脆弱性チェック
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        scripts/vuln-scan.sh $([ '@option.notify@' = yes ] && echo --notify) '@option.env@' apps @option.apps@
+      scriptInterpreter: /bin/bash
+  schedule:
+    month: '*'
+    time:
+      hour: 08
+      minute: '00'
+      seconds: '0'
+    weekday:
+      day: MON
+    year: '*'
+  timeZone: Asia/Tokyo

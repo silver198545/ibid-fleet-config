@@ -129,11 +129,13 @@ def merge_wait_opt():
                value="240", values=MERGE_WAIT_VALUES, required=True, enforced=True)
 
 
-def job(path, name, description, options, steps, timeout):
+def job(path, name, description, options, steps, timeout, schedule=None):
     """path は「プロジェクト/グループ」(apps/<app>、wordpress、wordpress/tools)。
     Rundeckのプロジェクトはアプリ・WordPressで分けている(PROJECTS)ので、先頭(プロジェクト分)を除いた
     残りをRundeck上のグループにする。UUIDは2026-10-16までの定義(1プロジェクトでグループ apps/・wordpress/)
-    と同じ値を保つため path から計算する(取り込み直すと同じジョブが更新される)。"""
+    と同じ値を保つため path から計算する(取り込み直すと同じジョブが更新される)。
+    schedule は定期実行の (曜日, 時, 分)(JST)。定期実行はジョブを取り込んだ人として動く
+    (docs/manual-rundeck.md「定期実行」)。"""
     group = path.partition("/")[2]
     j = {"name": name}
     if group:
@@ -151,7 +153,38 @@ def job(path, name, description, options, steps, timeout):
         "options": options,
         "sequence": {"keepgoing": False, "strategy": "node-first", "commands": steps},
     })
+    if schedule:
+        day, hour, minute = schedule
+        j["schedule"] = {"month": "*", "time": {"hour": f"{hour:02d}", "minute": f"{minute:02d}", "seconds": "0"},
+                         "weekday": {"day": day}, "year": "*"}
+        j["timeZone"] = "Asia/Tokyo"
     return j
+
+
+# 週次の脆弱性チェック(scripts/vuln-scan.sh --notify。docs/manual-vuln-scan.md)。アプリ・WordPressの
+# プロジェクトにそれぞれ置く。Trivyのキャッシュを取り合わないよう時刻をずらす
+VULN_SCHEDULE = {"apps": ("MON", 8, 0), "sites": ("MON", 8, 30)}
+
+
+def vuln_job(path, kind, targets_opt):
+    targets = "@option." + targets_opt["name"] + "@"
+    return job(path, "vuln-scan", f"""
+脆弱性チェック(docs/manual-vuln-scan.md)。動いているイメージをTrivyで検査し、
+{"WordPressのコア・プラグイン・テーマをWordfenceのフィードと照らし合わせ、" if kind == "sites" else "上流の未取り込みのコミットも調べ、"}
+ランタイムのEOLも見る。判定の基準と除外は qa/vuln-policy.yaml。
+毎週月曜 {VULN_SCHEDULE[kind][1]}:{VULN_SCHEDULE[kind][2]:02d}(JST)に production の全件を検査し、Slackへ通知する
+(前回から新たに見つかったものを強調する)。読み取りだけで、クラスタ・Gitは変えない。
+env=staging では結果(合否だけ)をGitHubに記録する。stagingのQA(scripts/qa.sh)も同じ検査を自動で行う。
+""", [
+        opt("env", "検査する環境", value="production", values=["production", "staging", "dev"],
+            required=True, enforced=True),
+        targets_opt,
+        yes_no("notify", "結果をSlackへ通知する", "yes"),
+    ], [
+        SYNC_MAIN,
+        step("脆弱性チェック",
+             "scripts/vuln-scan.sh $([ '@option.notify@' = yes ] && echo --notify) '@option.env@' " + kind + " " + targets),
+    ], "2h", schedule=VULN_SCHEDULE[kind])
 
 
 def dirs(path):
@@ -427,6 +460,8 @@ QA(反映の確認と qa/checks.yaml のチェック。docs/operations-flow.md�
             step("QA", "scripts/qa.sh '@option.env@' sites @option.sites@"),
         ], "30m"),
 
+        vuln_job(group + "/tools", "sites", sites_opt(["all"] + every, "サイト(all、または複数選択)", default="all")),
+
         job(group + "/tools", "check", """
 各サイトのHTTPステータス(200か)と、正常でないPodが無いかを確認する(読み取りのみ)。
 """, [
@@ -460,6 +495,9 @@ def main():
     apps = []
     for app in dirs("envs/dev/apps"):
         apps += app_jobs(app, app in data_apps)
+    apps.append(vuln_job("apps/tools", "apps", opt(
+        "apps", "アプリ(all、または複数選択)", value="all", values=["all"] + dirs("envs/dev/apps"),
+        required=True, enforced=True, multivalued=True)))
 
     dev_sites = dirs("envs/dev/sites")
 
