@@ -17,7 +17,7 @@ spec:
         - name: ghcr-riken-diips
       containers:
         - name: riken-diips
-          image: ghcr.io/silver198545/riken-diips:0.1.0-r1
+          image: ghcr.io/silver198545/riken-diips:0.1.0-r2
           ports:
             - name: http
               containerPort: 3000
