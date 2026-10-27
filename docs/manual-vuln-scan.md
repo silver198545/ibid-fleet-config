@@ -52,7 +52,10 @@ Debian・Photonのパッケージは修正版の無いHIGHが常に数十件あ�
 ([manual-rundeck.md](manual-rundeck.md)「実行アカウント」)。週次の定期実行は、ジョブを取り込んだ人として動く。
 
 1. **docker**: 実行する人を `docker` グループに入れ、ログインし直す(`sudo usermod -aG docker <user>`)。
-   Trivyのキャッシュ(脆弱性DB)はDockerのボリューム `ibid-trivy-cache` に置く
+   Trivyのキャッシュ(脆弱性DB)はDockerのボリューム `ibid-trivy-cache` に置く。
+   stagingのQAはオペレータも実行する。`enforce: false` の間は、dockerを使えない人のQAでは脆弱性チェックを飛ばして
+   警告を出すだけで止めない(`qa-gate` には「未実施(記録のみ)」と出る)。`enforce: true` にする前に、
+   パイプラインを実行する人を全員 `docker` グループに入れる
 2. **認証情報**(実行する人のホームに置く。どれもGitには入れない):
 
    ```bash

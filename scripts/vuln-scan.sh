@@ -74,13 +74,19 @@ else
   done
 fi
 
-docker info >/dev/null 2>&1 || die "dockerを使えません(実行ユーザーを docker グループに入れ、ログインし直す。docs/manual-vuln-scan.md「準備」)。"
+ENFORCE=0
+grep -qE '^enforce:[[:space:]]*true' qa/vuln-policy.yaml && ENFORCE=1
+
+if ! docker info >/dev/null 2>&1; then
+  msg="dockerを使えないため、脆弱性チェックを行えません(実行ユーザーを docker グループに入れ、ログインし直す。docs/manual-vuln-scan.md「準備」)。"
+  # enforce: false の間は、検査できないことでQA・パイプラインを止めない(qa-gate には「未実施」と出る)
+  [[ $ENFORCE -eq 1 || $NOTIFY -eq 1 ]] && die "$msg"
+  echo "警告: $msg" >&2
+  exit 0
+fi
 if [[ $NOTIFY -eq 1 && ! -s "$CONF_DIR/slack-webhook" ]]; then
   die "--notify には $CONF_DIR/slack-webhook(SlackのWebhook URL)が要ります(docs/manual-vuln-scan.md「準備」)。"
 fi
-
-ENFORCE=0
-grep -qE '^enforce:[[:space:]]*true' qa/vuln-policy.yaml && ENFORCE=1
 
 kc() { kubectl --context "$CTX" "$@"; }
 
