@@ -1,0 +1,10 @@
+# staging固有: RACK_ENVはproductionに合わせる(devはdeployment.yamlでdevelopment)。
+# レプリカは1のまま(stagingはメモリの都合で冗長化しない)。
+spec:
+  template:
+    spec:
+      containers:
+        - name: brc-cross-search-xsearch
+          env:
+            - name: RACK_ENV
+              value: production
