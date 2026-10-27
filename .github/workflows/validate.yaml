@@ -145,6 +145,45 @@ jobs:
           sys.exit(1 if failed else 0)
           EOF
 
+      - name: 脆弱性チェックの基準と除外
+        # qa/vuln-policy.yaml(docs/manual-vuln-scan.md)。除外には理由と期限が要る
+        run: |
+          python3 - <<'EOF'
+          import datetime, sys, yaml
+
+          p = yaml.safe_load(open("qa/vuln-policy.yaml")) or {}
+          failed = False
+          def ng(msg):
+              global failed
+              print(f"NG qa/vuln-policy.yaml: {msg}")
+              failed = True
+          if not isinstance(p.get("enforce"), bool):
+              ng("enforce は true か false")
+          if not isinstance(p.get("eol_warn_days"), int):
+              ng("eol_warn_days は日数(整数)")
+          unknown = set(p) - {"enforce", "eol_warn_days", "ignore"}
+          if unknown:
+              ng(f"不明な項目: {sorted(unknown)}")
+          for r in p.get("ignore") or []:
+              if not isinstance(r, dict) or not r.get("id") or not r.get("reason") or not r.get("until"):
+                  ng(f"除外には id・reason・until が要ります: {r}")
+                  continue
+              if set(r) - {"id", "targets", "pkg", "reason", "until"}:
+                  ng(f"除外に不明な項目: {r}")
+              until = r["until"]
+              if isinstance(until, str):
+                  try:
+                      until = datetime.date.fromisoformat(until)
+                  except ValueError:
+                      ng(f"until は YYYY-MM-DD: {r}")
+                      continue
+              if not isinstance(until, datetime.date):
+                  ng(f"until は YYYY-MM-DD: {r}")
+              elif until < datetime.date.today():
+                  print(f"::warning::qa/vuln-policy.yaml の除外 {r['id']} は期限切れです({until})。見直してください")
+          sys.exit(1 if failed else 0)
+          EOF
+
       - name: ラッパーチャートの lint と render
         run: |
           # helm dependency build はローカルのリポジトリ一覧に定義が無いと失敗する

@@ -18,6 +18,11 @@ staging content must have passed `scripts/qa.sh` (L1 HTTP + L2 content checks fr
 as commit status `qa/<kind>/<name>` on the last main commit touching the staging dir). QA runs on the bastion /
 Rundeck (staging is internal-only); the promotion scripts run it before opening production PRs. New apps need
 an entry in `qa/checks.yaml` (`validate` enforces it). See `docs/operations-flow.md` 「QAゲート」.
+Staging QA also runs `scripts/vuln-scan.sh` (Trivy on the running images, WordPress core/plugins/themes against
+the Wordfence feed, runtime EOL; recorded as commit status `vuln/<kind>/<name>`), and Rundeck runs it weekly on
+production with a Slack report. It only gates promotion when main's `qa/vuln-policy.yaml` has `enforce: true`.
+**This repo is public: never put vulnerability details (packages, CVEs) into GitHub** — commit statuses carry
+pass/fail only, and scans run on the bastion, not in Actions. See `docs/manual-vuln-scan.md`.
 
 ## Multi-environment architecture (core design)
 

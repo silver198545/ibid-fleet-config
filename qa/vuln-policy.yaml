@@ -1,0 +1,37 @@
+# 脆弱性チェック(scripts/vuln-scan.sh)の判定の基準と除外。
+# 説明: docs/manual-vuln-scan.md
+#
+# 判定(scripts/lib/vuln_report.py。基準を変えるときはそちらとドキュメントを直す):
+#   NG(不合格): 言語パッケージ(npm・gem等)のCRITICALで修正版があるもの
+#               WordPressのコア・プラグイン・テーマのCriticalで修正版があるもの
+#               ランタイム(Node・Ruby・MariaDB・OS)のサポート終了(EOL)を過ぎたもの
+#   警告:       言語パッケージ・WordPressのHIGHで修正版があるもの
+#               OSパッケージのCRITICAL・HIGHで修正版があるもの(再ビルドで直る)
+#               修正版の無いWordPressのCritical・High(プラグインの削除・置換を検討)
+#               EOLまで eol_warn_days 日を切ったもの、検査できなかったもの
+#   数えない:   修正版の無いOSパッケージ、MEDIUM以下
+#
+# QAゲートとの関係: stagingのQA(scripts/qa.sh)のあとに検査し、結果をcommit status vuln/<kind>/<name> に
+# 記録する(合否だけ。詳細はRundeckのログ)。enforce が true のときだけ、NGで本番への昇格PRの qa-gate が落ち、
+# パイプラインも止まる。qa-gate はPRではなくmainのこのファイルを読む。
+
+# false の間は記録・通知だけで止めない(導入の段階1・2。docs/manual-vuln-scan.md「導入の段階」)
+enforce: false
+
+# EOLが近いことを警告する日数
+eol_warn_days: 180
+
+# 除外。使われていない・攻撃できないと判断したものに、理由と期限を書いて除く。
+# 期限を過ぎた除外は効かなくなり、警告が出る(見直しのため)。
+#   id:      CVE・GHSA等の番号(必須)
+#   targets: 対象のアプリ・サイト名のリスト(省略するとすべて)
+#   pkg:     パッケージ名(省略するとidだけで判定)
+#   reason:  除外する理由(必須)
+#   until:   期限(必須、YYYY-MM-DD)
+ignore: []
+# 例:
+#  - id: CVE-2026-71319
+#    targets: [brc-advanced-search]
+#    pkg: "@nuxt/devtools"
+#    reason: 開発用。nuxt start では読み込まれない(実行時は .output/ だけを使う)
+#    until: 2027-01-31

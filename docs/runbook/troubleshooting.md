@@ -98,6 +98,22 @@ GitHub の Actions で失敗した実行を開き、赤くなったステップ�
 | validate の `actionlint` / `shellcheck` | ワークフローの書き方の誤り。ログの行番号の箇所を直す |
 | validate の必須項目・パスワード検出 | サイトの `fleet.yaml` の書き方。ログに出たファイルを直す |
 
+## 脆弱性チェックでNG・警告が出た(Slackの週次通知、stagingのQA)
+
+詳細は Rundeck の `tools/vuln-scan`(または QA)のログにある(GitHub には合否しか出さない)。直し方は
+[manual-vuln-scan.md](../manual-vuln-scan.md)「見つかったときの対応」。
+
+| 出たもの | 対処 |
+|---|---|
+| `[node-pkg]`・`[gemspec]` 等(アプリのライブラリ) | 上流で更新 → `update-app-image.sh set-image`([app-update.md](app-update.md)) |
+| `[os]`(修正版あり) | アプリは `TAG` だけ上げて作り直す。WordPressは `bump-chart.sh --update-images` |
+| `[wp-plugin]`・`[wp-theme]`・`[wp-core]` | プラグイン・テーマ・コアを更新([wordpress-update.md](wordpress-update.md)) |
+| サポート終了 | `Dockerfile` の `FROM` の版、またはBitnamiのイメージを上げる |
+| `検査できませんでした` | `docker` グループ・`~/.config/ibid-fleet-config/` の認証情報・Podへのexec権限を確認 |
+| `Wordfenceのキーが無いため` | `~/.config/ibid-fleet-config/wordfence-api-key` を置く([manual-vuln-scan.md](../manual-vuln-scan.md)「準備」) |
+
+使われていないと判断したものは、`qa/vuln-policy.yaml` の `ignore` に理由と期限を書いて除く。
+
 ## GitHubのトークンの期限切れ(要予定管理)
 
 | トークン | 使い道 | 期限 | 切れると |

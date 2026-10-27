@@ -4,6 +4,9 @@
 #      (stagingで確かめたものをそのまま昇格している)
 #   2. その内容のstagingがQAに通っている(scripts/qa.sh が、envs/staging/<kind>/<name> を最後に変更した
 #      mainのコミットへ記録するcommit status「qa/<kind>/<name>」がsuccess)
+#   3. mainの qa/vuln-policy.yaml が enforce: true のときは、同じコミットの脆弱性チェックの記録
+#      「vuln/<kind>/<name>」(scripts/vuln-scan.sh)もsuccess。false の間は結果を表に出すだけ
+#      (docs/manual-vuln-scan.md)。記録は合否だけで、詳細はRundeckのログにある
 # stagingは社内からしか見えないため、QAそのものは踏み台(Rundeck)で行い、ここでは記録を確かめるだけ。
 # 本番のapps・sitesに触れないPR(dev・staging・infra等)は何もせず通る(必須チェックにしても止まらない)。
 # 削除(本番からのサイト・アプリの削除)は対象外。break-glassの直接修正はこのチェックが落ちるので、
@@ -42,16 +45,23 @@ jobs:
             exit 0
           fi
 
+          # 脆弱性チェックで止めるかは、PRではなくmainの設定で決める(PRで緩められないように)
+          enforce=false
+          git show origin/main:qa/vuln-policy.yaml 2>/dev/null | grep -E '^enforce:[[:space:]]*true' >/dev/null && enforce=true
+
           failed=0
           {
             echo "### stagingのQA結果"
             echo ""
-            echo "| 対象 | 結果 |"
-            echo "|---|---|"
+            echo "脆弱性チェックで止めるか: \`${enforce}\`(mainの qa/vuln-policy.yaml の enforce)"
+            echo ""
+            echo "| 対象 | 結果 | 脆弱性 |"
+            echo "|---|---|---|"
           } >>"$GITHUB_STEP_SUMMARY"
           for t in "${targets[@]}"; do
             kind="${t%%/*}"
             name="${t#*/}"
+            vmsg="-"
             if ! git cat-file -e "${HEAD_SHA}:envs/production/${t}" 2>/dev/null; then
               msg="本番から削除(対象外)"
             elif ! git cat-file -e "origin/main:envs/staging/${t}" 2>/dev/null; then
@@ -69,12 +79,23 @@ jobs:
                 "") msg="NG: stagingのQAが未実施です(scripts/qa.sh staging ${kind} ${name}。コミット ${commit:0:7})" ;;
                 *) msg="NG: stagingのQAが ${state} です: ${desc}" ;;
               esac
+              vresult="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${commit}/statuses?per_page=100" \
+                --jq "[.[] | select(.context == \"vuln/${kind}/${name}\")][0] // empty | \"\(.state)\t\(.description)\"")"
+              vstate="${vresult%%$'\t'*}"
+              vdesc="${vresult#*$'\t'}"
+              case "$vstate" in
+                success) vmsg="OK: ${vdesc#OK: }" ;;
+                "") vmsg="NG: 未実施です(scripts/vuln-scan.sh staging ${kind} ${name})" ;;
+                *) vmsg="NG: ${vdesc#NG: }" ;;
+              esac
+              # enforce: false の間は表示だけ(NGの印を付けず、止めない)
+              [[ "$enforce" == true ]] || vmsg="(記録のみ) ${vmsg}"
             fi
-            echo "${t}: ${msg}"
-            echo "| \`${t}\` | ${msg} |" >>"$GITHUB_STEP_SUMMARY"
-            [[ "$msg" == NG* ]] && failed=1
+            echo "${t}: ${msg} / 脆弱性: ${vmsg}"
+            echo "| \`${t}\` | ${msg} | ${vmsg} |" >>"$GITHUB_STEP_SUMMARY"
+            [[ "$msg" == NG* || "$vmsg" == NG* ]] && failed=1
           done
           if [[ $failed -ne 0 ]]; then
-            echo "::error::stagingでQAに通っていない内容があります。scripts/qa.sh(RundeckのQAジョブ)をstagingで実行すると、通ったときにこのチェックがやり直されます。"
+            echo "::error::stagingでQA(または脆弱性チェック)に通っていない内容があります。scripts/qa.sh(RundeckのQAジョブ)をstagingで実行すると、通ったときにこのチェックがやり直されます。"
             exit 1
           fi
