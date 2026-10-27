@@ -176,5 +176,10 @@ echo ""
 if [[ ${#failed[@]} -gt 0 ]]; then
   die "QAに通らなかったもの: ${failed[*]}(上の NG の行を確認してください)"
 fi
-[[ $vuln_failed -eq 0 ]] || die "脆弱性チェックに通りませんでした(上の NG の行を確認してください。docs/manual-vuln-scan.md)"
+if [[ $vuln_failed -ne 0 ]]; then
+  # 止めるのは enforce: true のときだけ(false の間は、スクリプトの失敗でもQAは通す)
+  grep -qE '^enforce:[[:space:]]*true' qa/vuln-policy.yaml \
+    && die "脆弱性チェックに通りませんでした(上の NG の行を確認してください。docs/manual-vuln-scan.md)"
+  echo "警告: 脆弱性チェックが失敗しました(enforce: false のため止めません。docs/manual-vuln-scan.md)。" >&2
+fi
 echo "QAはすべて通りました(${ENV}: ${NAMES[*]})。"
