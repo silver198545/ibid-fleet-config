@@ -84,8 +84,18 @@ if ! docker info >/dev/null 2>&1; then
   echo "警告: $msg" >&2
   exit 0
 fi
-if [[ $NOTIFY -eq 1 && ! -s "$CONF_DIR/slack-webhook" ]]; then
-  die "--notify には $CONF_DIR/slack-webhook(SlackのWebhook URL)が要ります(docs/manual-vuln-scan.md「準備」)。"
+# SlackのWebhook URL。Slackの画面によっては T…/B…/… の部分だけが表示されるので、その形なら先頭を補う。
+# 検査に時間がかかるので、URLの形は最初に確かめる(値そのものは表示しない)
+SLACK_URL=""
+if [[ $NOTIFY -eq 1 ]]; then
+  [[ -s "$CONF_DIR/slack-webhook" ]] \
+    || die "--notify には $CONF_DIR/slack-webhook(SlackのWebhook URL)が要ります(docs/manual-vuln-scan.md「準備」)。"
+  SLACK_URL="$(tr -d '[:space:]' < "$CONF_DIR/slack-webhook")"
+  if [[ "$SLACK_URL" =~ ^T[A-Z0-9]+/B[A-Z0-9]+/[A-Za-z0-9]+$ ]]; then
+    SLACK_URL="https://hooks.slack.com/services/$SLACK_URL"
+  fi
+  [[ "$SLACK_URL" =~ ^https://hooks\.slack\.com/ ]] \
+    || die "$CONF_DIR/slack-webhook が https://hooks.slack.com/services/T…/B…/… の形ではありません(docs/manual-vuln-scan.md「準備」)。"
 fi
 
 kc() { kubectl --context "$CTX" "$@"; }
@@ -127,7 +137,6 @@ scan_image() {
   local img="$1" f
   f="$WORK/trivy-$(sha1sum <<<"$img" | cut -c1-16).json"
   if [[ ! -s "$f" && ! -e "$f.err" ]]; then
-    echo "    Trivy: ${img} ..." >&2
     docker run --rm "${TRIVY_ENV[@]}" -v ibid-trivy-cache:/root/.cache "$TRIVY_IMAGE" \
       image --quiet --scanners vuln --list-all-pkgs --timeout 15m --format json "$img" >"$f" 2>"$f.log" || { mv "$f.log" "$f.err"; rm -f "$f"; }
   fi
@@ -203,6 +212,7 @@ for n in "${NAMES[@]}"; do
     args+=(--unscanned "動いているイメージを取得できません(${ns}: $(head -c 200 "$WORK/err"))")
   else
     while read -r img; do
+      echo "    Trivy: ${img} ..."
       f="$(scan_image "$img")"
       if [[ -n "$f" ]]; then
         trivy_files+=("$f")
@@ -256,7 +266,7 @@ if [[ $NOTIFY -eq 1 ]]; then
     --payload-out "$WORK/slack.json" \
     --summary "${summary[@]}" --findings "$WORK"/findings-*.json
   # Webhook URLをコマンドラインに出さないよう、curlの設定ファイルで渡す
-  printf 'url = "%s"\n' "$(tr -d '[:space:]' < "$CONF_DIR/slack-webhook")" >"$WORK/slack.curl"
+  printf 'url = "%s"\n' "$SLACK_URL" >"$WORK/slack.curl"
   if curl -fsS -K "$WORK/slack.curl" -X POST -H 'Content-Type: application/json' --data-binary @"$WORK/slack.json" >/dev/null; then
     echo "Slackへ通知しました。"
     mv "$WORK/baseline.new.json" "$baseline"
