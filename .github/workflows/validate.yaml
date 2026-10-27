@@ -123,6 +123,28 @@ jobs:
           sys.exit(1 if failed else 0)
           EOF
 
+      - name: QAのチェック定義
+        # 本番への昇格PRはstagingのQAを求める(qa-gate.yaml)。チェックの無いアプリは本番へ出せなくなるため、
+        # devにあるアプリはすべて qa/checks.yaml に載っていること(docs/operations-flow.md「QAゲート」)
+        run: |
+          python3 - <<'EOF'
+          import os, sys, yaml
+
+          known = {"path", "status", "contains", "json", "min_items", "key", "min_number", "max_seconds", "same_as_production"}
+          conf = yaml.safe_load(open("qa/checks.yaml"))
+          failed = False
+          for app in sorted(os.listdir("envs/dev/apps")):
+              if not conf["apps"].get(app):
+                  print(f"NG qa/checks.yaml: アプリ {app} のチェックがありません")
+                  failed = True
+          for name, checks in list(conf["apps"].items()) + [("sites", conf["sites"])]:
+              for c in checks or []:
+                  if "path" not in c or set(c) - known:
+                      print(f"NG qa/checks.yaml: {name} のチェックに path が無い、または不明な項目: {c}")
+                      failed = True
+          sys.exit(1 if failed else 0)
+          EOF
+
       - name: ラッパーチャートの lint と render
         run: |
           # helm dependency build はローカルのリポジトリ一覧に定義が無いと失敗する

@@ -46,6 +46,8 @@
 #   deploy-production <app>            既にproductionにある<app>を、envs/staging/apps/<app>と同じ内容に
 #                                       同期するPRを、promoteワークフロー(kind=apps、to=production)で作成する
 #                                       (stagingに入っている変更すべてが昇格対象。PRのdiffで内容を確認すること)。
+#                                       先にstagingのQA(scripts/qa.sh)を行い、通らなければPRを作らない。
+#                                       deploy-staging も最後にQAを行う(docs/operations-flow.md「QAゲート」)。
 #   promote-staging <app>              【stagingへの初回昇格専用】envs/dev/apps/<app> を envs/staging/apps/<app> へ
 #   promote-production <app>           【productionへの初回昇格専用】envs/staging/apps/<app> を envs/production/apps/<app> へ
 #                                       新規コピーする(ブランチ作成のみ、コミットはしない)。昇格元に
@@ -385,6 +387,9 @@ cmd_deploy() {
     echo "${from_env}と${to_env}の${APP}に差分がありません。PRは作成しません。"
     return 0
   fi
+  if [[ "$to_env" == production ]]; then
+    "$SCRIPT_DIR/qa.sh" staging apps "$APP" || { echo "エラー: stagingのQAに通らないため、本番への昇格PRは作りません。" >&2; exit 1; }
+  fi
 
   local started run_id="" pr_url="" i
   started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -441,13 +446,16 @@ cmd_deploy_staging() {
     sleep 60
   fi
   pr_unlock_repo
-  if cmd_check staging; then
-    echo ""
-    echo "stagingで動作確認後、productionへ昇格する: scripts/update-app-image.sh deploy-production ${APP}"
-  else
+  if ! cmd_check staging; then
     echo "stagingの確認に失敗しました。あとで再確認: scripts/update-app-image.sh check-staging ${APP}" >&2
     exit 1
   fi
+  if ! "$SCRIPT_DIR/qa.sh" staging apps "$APP"; then
+    echo "stagingのQAに通りませんでした。直したら再実行: scripts/qa.sh staging apps ${APP}" >&2
+    exit 1
+  fi
+  echo ""
+  echo "stagingで動作確認後、productionへ昇格する: scripts/update-app-image.sh deploy-production ${APP}"
 }
 
 # パイプライン用: 取り込み元の最新(またはsrc_ref指定)を、変更があるときだけdevへ入れる。
@@ -596,6 +604,10 @@ cmd_promote_prepare() {
 
   ensure_clean_worktree
   require_main_uptodate
+  # 本番へは、stagingでQAに通った内容だけを出す(PRのqa-gateもこの記録を見る)
+  if [[ "$to_env" == production ]]; then
+    "$SCRIPT_DIR/qa.sh" staging apps "$APP" || { echo "エラー: stagingのQAに通らないため、本番へは昇格しません。" >&2; exit 1; }
+  fi
 
   open_branch "promote/${APP}-${from_env}-to-${to_env}"
   mkdir -p "envs/${to_env}/apps"
@@ -726,6 +738,7 @@ EOF
     echo "Fleetの適用を待っています(60秒)..."
     sleep 60
     cmd_check staging || echo "stagingの確認に失敗しました。あとで再確認: scripts/update-app-image.sh check-staging ${APP}" >&2
+    "$SCRIPT_DIR/qa.sh" staging apps "$APP" || echo "stagingのQAに通りませんでした。直したら再実行: scripts/qa.sh staging apps ${APP}" >&2
   fi
 }
 

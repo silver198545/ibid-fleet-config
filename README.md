@@ -69,7 +69,7 @@ WordPressの新規サイト作成・更新、自作アプリの新規展開・�
 | 文書 | 内容 |
 |---|---|
 | [docs/architecture.md](docs/architecture.md) | **IBID基盤の仕組み(図による解説)**。初めての人はここから |
-| [docs/operations-flow.md](docs/operations-flow.md) | 日常の変更の流れ(dev → staging → production)、stagingでの確認、環境差分の書き方、本番反映前のバックアップ |
+| [docs/operations-flow.md](docs/operations-flow.md) | 日常の変更の流れ(dev → staging → production)、stagingでの確認、QAゲート、環境差分の書き方、本番反映前のバックアップ |
 | [docs/manual-multi-env.md](docs/manual-multi-env.md) | GitHub設定、**クラスタの新規作成チェックリスト**(2.)、日常運用・定期メンテナンス、バックアップ、封印鍵、break-glass、DR |
 | [docs/roadmap.md](docs/roadmap.md) | 決定事項の記録と、残っている課題(優先度つき) |
 | [docs/manual-tooling-setup.md](docs/manual-tooling-setup.md) | 作業端末のツール(kubectl/helm/kubeseal/gh等)とkubeconfig |
@@ -143,4 +143,6 @@ WordPressの新規サイト作成・更新、自作アプリの新規展開・�
   (本番用のSealedSecretは`seal-site-secrets.sh production <site>`で別に作る)。
   [docs/manual-wordpress.md](docs/manual-wordpress.md)
 - **設定変更・バージョンアップ**: devのfleet.yamlやチャートを変更 → devで確認 →
-  stagingで本番データに対して確認 → 本番のバックアップ → stagingから本番へ昇格 → stagingから削除。[docs/operations-flow.md](docs/operations-flow.md)
+  stagingで本番データに対して確認(QAを含む) → 本番のバックアップ → stagingから本番へ昇格 → stagingから削除。[docs/operations-flow.md](docs/operations-flow.md)
+- **QAゲート**: 本番への昇格PRは、同じ内容がstagingでQA(`scripts/qa.sh`。[qa/checks.yaml](qa/checks.yaml) の
+  HTTP応答・中身のチェック)に通っていることを `qa-gate` が確かめる。[docs/operations-flow.md](docs/operations-flow.md)「QAゲート」

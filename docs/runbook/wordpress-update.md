@@ -73,10 +73,11 @@ kubectl --context dev1 get pods -A | grep wordpress- | grep -v -E 'Running|Compl
 
 ```bash
 scripts/wordpress-pipeline.sh staging-start <site>     # stagingへ追加 → 本番データをリストア → 基準を記録
-scripts/wordpress-pipeline.sh staging-upgrade <site>   # devの構成へ切り替え → 基準と比較
+scripts/wordpress-pipeline.sh staging-upgrade <site>   # devの構成へ切り替え → 基準と比較 → QA
 ```
 
-- 出力の「HTTPステータスが変わったページ」「PHPエラー」を見て、stagingのサイト(`https://<site>.staging.ibid.lan/ja/`)を
+- 出力の「HTTPステータスが変わったページ」「PHPエラー」「QA」(本番とタイトル・サイト名が一致するか等。
+  [operations-flow.md](../operations-flow.md)「QAゲート」)を見て、stagingのサイト(`https://<site>.staging.ibid.lan/ja/`)を
   ブラウザでも確認する。問題があればdevで直して `staging-upgrade` をやり直す
 - WordPress本体のメジャーリリース(7.0→7.1 など)、MariaDBのメジャー更新、プラグインの大きな更新のときは特に念入りに
 - 全サイトを更新するときは、4サイトずつ B → C → D を繰り返す
@@ -90,8 +91,10 @@ stagingに載っている内容を本番へ昇格する。
    ```bash
    gh workflow run promote.yaml -f to=production -f name=all
    ```
-   (1.〜5.は `scripts/wordpress-pipeline.sh promote-production <site...|all>` でまとめて実行できる)
-3. PRの差分が、stagingで確認した変更(`helm.version`、プラグインの `version`)だけであることを見てマージする
+   (1.〜5.は `scripts/wordpress-pipeline.sh promote-production <site...|all>` でまとめて実行できる。
+   こちらはPRを作る前にstagingのQAを行い、通らなければ止まる)
+3. PRの差分が、stagingで確認した変更(`helm.version`、プラグインの `version`)だけであること、
+   `qa-gate` のチェックが通っていることを見てマージする(落ちていたら `scripts/qa.sh staging sites <site...>`)
 4. 5〜10分後に本番を確認する:
    ```bash
    for f in envs/production/sites/*/fleet.yaml; do h=$(grep -oP 'hostname: \K[a-z0-9-]+' $f); p=$(grep -oP '^    sitePath: \K\S+' $f); printf '%-12s %s\n' $(basename $(dirname $f)) "$(curl -sk -o /dev/null -w '%{http_code}' https://$h.production.ibid.lan$p/)"; done

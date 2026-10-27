@@ -12,7 +12,12 @@ manifests that Rancher's Fleet controller applies to **three RKE2 guest clusters
 nodes made the cluster viable), plus a wrapper Helm
 chart and a custom image build. There is no unit-test tooling; PRs are validated by `.github/workflows/validate.yaml` (YAML syntax, fleet.yaml required keys,
 helm lint/template), and changes are ultimately "tested" by letting Fleet sync them and verifying
-resource state with `kubectl`.
+resource state with `kubectl`. Production promotion PRs (apps/sites) are additionally gated by
+`.github/workflows/qa-gate.yaml`: the promoted directory must equal main's `envs/staging/<kind>/<name>` and that
+staging content must have passed `scripts/qa.sh` (L1 HTTP + L2 content checks from `qa/checks.yaml`, recorded
+as commit status `qa/<kind>/<name>` on the last main commit touching the staging dir). QA runs on the bastion /
+Rundeck (staging is internal-only); the promotion scripts run it before opening production PRs. New apps need
+an entry in `qa/checks.yaml` (`validate` enforces it). See `docs/operations-flow.md` 「QAゲート」.
 
 ## Multi-environment architecture (core design)
 

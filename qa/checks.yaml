@@ -1,0 +1,99 @@
+# QA(scripts/qa.sh)のチェック定義。L1: HTTPの応答(既定で200)、L2: 中身の確認。
+# 説明: docs/operations-flow.md「QAゲート」
+#
+# 各チェックに書ける項目(path以外は省略可):
+#   path:        確認するURLのパス。appsはホストからの絶対パス、sitesはサイトのURL(sitePathを含む)からの相対パス
+#                ("" はトップページ)。リダイレクトは追う
+#   status:      期待するHTTPステータス(既定 200)
+#   contains:    本文に含まれるべき文字列のリスト
+#   json:        true なら本文がJSONであること
+#   min_items:   JSONの要素数の下限。key を書くとその値の要素数(例: gene_dict.jsonの keyword)
+#   key:         min_items で数えるJSONのキー
+#   min_number:  本文から正規表現(pattern、最初の括弧)で数を取り出し、min 以上であること
+#                (例: 検索結果の件数。BRCの検索ページは num_solutions に件数を持つ)
+#   max_seconds: 応答時間の上限(秒)。書かなければ時間は表示だけ
+#   same_as_production: 本番の同じページと比べて一致すべきもの。title(HTMLの<title>)、
+#                json:<キー>(JSONの値)。本番に無いサイト・アプリでは比べない
+#
+# どのHTMLページにも、PHPやアプリのエラー表示(forbidden)が含まれないことを確かめる。
+# 期待値は2026-10-27の本番・stagingの応答から決めた。件数の下限はデータが減っても誤検知しないよう、
+# 当時の値より低めにしてある。
+#
+# アプリを追加したら、ここにも追加すること(validateが envs/dev/apps/ との対応を確かめる)。
+
+forbidden:
+  - "<b>Fatal error</b>"
+  - "<b>Parse error</b>"
+  - "<b>Warning</b>:"
+  - "Uncaught "
+  - "Error establishing a database connection"
+  - "データベース接続確立エラー"
+  - "There has been a critical error on this website"
+  - "サイトに重大なエラーがありました"
+  - "Internal Server Error"
+  - "Traceback (most recent call last)"
+
+apps:
+  brc-advanced-search:
+    - path: /advanced/ja/
+      contains: ['class="title-view"', "Advanced Search"]
+    - path: /advanced/en/
+      contains: ['class="title-view"', "Advanced Search"]
+
+  brc-cross-search-resource:
+    - path: /resource/animal/
+      contains: ["Japanese"]
+    - path: /resource/animal/list?query=Grin1
+      contains: ["Search for Mouse Strain"]
+      min_number: {pattern: 'num_solutions\\":(\d+)', min: 1}
+    - path: /resource/dna/list?query=GMNN
+      contains: ["Search for DNA Resource"]
+      min_number: {pattern: 'num_solutions\\":(\d+)', min: 10}
+    - path: /resource/mogplus/dic/animal_keyword_list
+      json: true
+      min_items: 10000
+    - path: /resource/mogplus/list?geneSymbol=Grin1
+      contains: ["Search for Mouse Strain"]
+      min_number: {pattern: 'num_solutions\\":(\d+)', min: 1}
+
+  brc-cross-search-xsearch:
+    - path: /xsearch/catalog/
+      contains: ["autoComplete"]
+    - path: /xsearch/gene_dict.json
+      json: true
+      key: keyword
+      min_items: 10000
+    - path: /xsearch/catalog/list?__lang__=en&query=IL2
+      contains: ["Search result of bioresources in RIKEN BRC"]
+      min_number: {pattern: 'num_solutions\\":(\d+)', min: 1}
+
+  member-gateway:
+    - path: /
+      contains: ["会員情報の確認", 'name="email"']
+
+  metadatabase-v2:
+    # / は環境ごとのトップ(staging・devは /tsukuba、本番は /bioresource)へリダイレクトする
+    - path: /
+      contains: ["BioResource MetaDatabase", "SPARQL"]
+
+  riken-diips:
+    # / は /en へリダイレクトする
+    - path: /
+      contains: ["<title>DiiPS", "RIKEN BRC Cell Bank"]
+
+  sparqlist:
+    - path: /sparqlist/bioresource_void
+      contains: ["<title>SPARQList"]
+    # 上の画面は中身をブラウザで描くため、同じSPARQLetをAPIでも実行して結果を確かめる
+    - path: /sparqlist/api/bioresource_void
+      json: true
+      min_items: 1
+
+# WordPressサイト共通(本番のデータを入れたstagingのサイトを、本番と比べる)
+sites:
+  - path: ""
+    contains: ["</html>"]
+    same_as_production: [title]
+  - path: wp-json/
+    json: true
+    same_as_production: ["json:name"]

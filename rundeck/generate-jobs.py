@@ -66,9 +66,11 @@ Dumper.add_representer(
 def script(body):
     """Rundeckのインラインスクリプトステップ(bashで実行)。リポジトリのルートで動く。
     PIPELINE_ACTOR(Rundeckでジョブを実行した人)は、スクリプトがPRに書き残す(scripts/lib/pr.sh)。
+    RUNDECK_EXEC_URL(この実行のログのURL)は、scripts/qa.sh がGitHubに記録するQA結果のリンクにする。
     実行者本人のアカウントで動くのでGitHub上も本人の操作になるが、Rundeckからの実行であることを残す。"""
     return Literal("set -euo pipefail\ncd " + REPO_PATH + "\n"
-                   "export PIPELINE_ACTOR='@job.username@'\n" + body.strip() + "\n")
+                   "export PIPELINE_ACTOR='@job.username@'\n"
+                   "export RUNDECK_EXEC_URL='@job.url@'\n" + body.strip() + "\n")
 
 
 def step(description, body):
@@ -213,7 +215,7 @@ devでブラウザ確認したら「2-staging-update」でstagingへ。
 【staging更新パイプライン】{app}
 
 envs/staging/apps/{app} を dev と同じ内容にする昇格PRを promote ワークフロー(to=staging)で作り、
-auto-mergeを待って(stagingだけのPRなので承認不要)、stagingのrollout・WEB疎通を確認する。
+auto-mergeを待って(stagingだけのPRなので承認不要)、stagingのrollout・WEB疎通とQAを確認する。
 devとstagingに差分が無ければPRは作らず、確認だけ行う。
 
 stagingでブラウザ確認したら「3-production-update」で本番へ。本番へは必ずstagingを通す。
@@ -227,6 +229,7 @@ stagingにまだ無いアプリはエラーになる(初回は「4-first-promote
     jobs.append(job(group, "3-production-update", f"""
 【本番環境更新パイプライン】{app}
 
+stagingでQAし(通らなければPRを作らない)、
 envs/production/apps/{app} を staging と同じ内容にする昇格PRを promote ワークフロー(to=production)で作り、
 **人がPRをレビュー・マージするのを待つ(このジョブはマージしない)**。マージされたら
 mainを取り込み、Fleetの適用を待って本番のrollout・WEB疎通を確認する。
@@ -267,6 +270,17 @@ stagingはauto-mergeしてstagingの確認まで続ける。productionのPRは�
 """, [env_opt], [
         step("コミット・PR作成",
              "scripts/update-app-image.sh promote-@option.env@-finish " + app),
+    ], "30m"))
+
+    jobs.append(job(group, "8-qa", f"""
+{app} のQA(反映の確認と qa/checks.yaml のチェック。docs/operations-flow.md「QAゲート」)。
+env=staging では結果をGitHubに記録し、本番への昇格PRの qa-gate がそれを見る
+(通ると、失敗していた qa-gate をやり直させる)。「2-staging-update」「3-production-update」も
+同じQAを自動で行うので、これは直した後の再確認や、本番PRのqa-gateが落ちたとき用。
+""", [opt("env", "QAする環境(結果を記録するのはstagingだけ)", value="staging",
+          values=["staging", "dev", "production"], required=True, enforced=True)], [
+        SYNC_MAIN,
+        step("QA", "scripts/qa.sh '@option.env@' apps " + app),
     ], "30m"))
 
     jobs.append(job(group, "9-check", f"""
@@ -346,7 +360,7 @@ upgrade=yes なら続けてdevの構成(昇格予定の helm.version・plugins)�
         job(group, "2a-staging-upgrade", """
 【stagingで確認する: 切り替えのやり直し】
 
-stagingにあるサイトを、devの現在の構成へ切り替えて基準と比べる。stagingで見つかった問題を
+stagingにあるサイトを、devの現在の構成へ切り替えて基準と比べ、QA(本番との比較)を行う。stagingで見つかった問題を
 devで直したあとや、2-staging を upgrade=no で実行したあとに使う。
 """, [sites_opt(both, "stagingで確認中のサイト", multi=False)], [
             SYNC_MAIN,
@@ -357,7 +371,8 @@ devで直したあとや、2-staging を upgrade=no で実行したあとに使�
         job(group, "3-production-promote", """
 【本番昇格パイプライン】
 
-stagingと本番で差分のあるサイトの昇格PR(staging→production)を promote ワークフローで作り、CI通過後に
+stagingと本番で差分のあるサイトをstagingでQAし(通らなければPRを作らない)、
+昇格PR(staging→production)を promote ワークフローで作り、CI通過後に
 対象サイトの本番バックアップを取って(結果はPRにコメントする。本番の権限が無いオペレータが実行した場合は取らず、
 「承認する管理者がマージ直前に tools/backup で取る」とPRにコメントする)、**人がPRをレビュー・マージするのを待つ
 (このジョブはマージしない)**。マージされたらFleetの適用(Helmリビジョンの更新とrollout)を待ち、
@@ -398,6 +413,19 @@ harvesterのPVがReleasedで残ったら警告を出す。
             SYNC_MAIN,
             step("バックアップ", "scripts/wordpress-pipeline.sh backup '@option.env@' @option.sites@"),
         ], "2h"),
+
+        job(group + "/tools", "qa", """
+QA(反映の確認と qa/checks.yaml のチェック。docs/operations-flow.md「QAゲート」)。
+本番にあるサイトは、本番の同じサイトとタイトル等を比べる。env=staging では結果をGitHubに記録し、
+本番への昇格PRの qa-gate がそれを見る(通ると、失敗していた qa-gate をやり直させる)。
+「2a-staging-upgrade」「3-production-promote」も同じQAを自動で行うので、これは再確認用。
+""", [
+            opt("env", "環境(結果を記録するのはstagingだけ)", value="staging", values=["staging", "dev", "production"], required=True, enforced=True),
+            sites_opt(["all"] + every, "サイト(all、または複数選択)", default="all"),
+        ], [
+            SYNC_MAIN,
+            step("QA", "scripts/qa.sh '@option.env@' sites @option.sites@"),
+        ], "30m"),
 
         job(group + "/tools", "check", """
 各サイトのHTTPステータス(200か)と、正常でないPodが無いかを確認する(読み取りのみ)。

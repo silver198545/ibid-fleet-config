@@ -407,13 +407,16 @@ rd jobs load -p WordPressControl -f rundeck/jobs/wordpress.yaml --format yaml
 2. devとstagingの `<app>` に差分があれば、promoteワークフロー(`kind=apps`、`to=staging`)で昇格PRを作り、
    auto-mergeを待つ(stagingはCODEOWNERSの対象外で承認不要)。差分が無ければ3.へ
 3. Fleetの適用を待って(60秒)、stagingのrollout・WEB疎通を確認する
+4. **QA**(`scripts/qa.sh staging apps <app>`。[operations-flow.md](operations-flow.md)「QAゲート」)。
+   結果はGitHubに記録され、本番PRの `qa-gate` がそれを見る
 
 終わったらブラウザでstaging(`https://<app>.staging.ibid.lan/`)を確認してから `3-production-update` へ。
 
 ### 3-production-update(本番環境更新パイプライン)
 
 1. mainを最新化
-2. stagingと本番の `<app>` に差分があれば、promoteワークフロー(`kind=apps`、`to=production`)で昇格PRを作り、CIを待つ
+2. stagingと本番の `<app>` に差分があれば、stagingでQAし(**通らなければ止まる**)、
+   promoteワークフロー(`kind=apps`、`to=production`)で昇格PRを作り、CIを待つ
    (差分が無ければ4.へ。devにstagingで未確認の変更があれば注意を出す)
 3. **人がPRのdiffを見てマージするのを待つ**(イメージタグ以外のstagingの変更もすべて昇格対象になる)
 4. mainを取り込み、Fleetの適用を待って(60秒)、本番のrollout・WEB疎通を確認する
@@ -429,6 +432,12 @@ rd jobs load -p WordPressControl -f rundeck/jobs/wordpress.yaml --format yaml
 
 **`prepare` から `finish` までの間、クローンは未コミットの変更を持ったまま残る。** その間、
 他のジョブは最初の「mainを最新化」で止まる(壊れることはない)。
+
+### 8-qa
+
+QA(反映の確認と [qa/checks.yaml](../qa/checks.yaml) のチェック)を単独で行う。`env=staging` では結果をGitHubに記録し、
+通ると、失敗していた本番PRの `qa-gate` をやり直させる。`2-staging-update`・`3-production-update` も同じQAを自動で
+行うので、これは直した後の再確認や、`qa-gate` が落ちたとき用。
 
 ### 9-check
 
@@ -470,10 +479,11 @@ gitは触らないので、チャート版・プラグイン(構成)はdevのま
 3. **staging-upgrade**(`upgrade=yes` のとき): promoteワークフロー(`to=staging`)でdevの構成(昇格予定の
    `helm.version`・`plugins`)をstagingへ昇格するPR → auto-merge → Helmリビジョンの更新とrolloutを待つ →
    プラグイン同期Jobの成否と所要時間 → `wp core update-db`(管理画面の「データベースの更新」と同じ)の
-   所要時間 → 基準との比較(版の差分、HTTPステータスが変わったページ)→ 直近のPHPエラー
+   所要時間 → 基準との比較(版の差分、HTTPステータスが変わったページ)→ 直近のPHPエラー →
+   **QA**(本番の同じサイトとタイトル・サイト名が一致するか等。結果はGitHubに記録され、本番PRの `qa-gate` が見る)
 
 devとstagingの構成に差分が無ければ、3.は何もせず終わる。HTTPステータスが変わったページ・
-プラグイン同期Jobの失敗があるとジョブは失敗になる。結果(所要時間・気づいた点)は本番への昇格PRに書く。
+プラグイン同期Jobの失敗・QAの失敗があるとジョブは失敗になる。結果(所要時間・気づいた点)は本番への昇格PRに書く。
 ブラウザでの確認(`https://<site>.staging.ibid.lan/ja/`。記事表示・管理画面・プラグイン固有の画面)も行うこと。
 
 - staging1のメモリの都合で、**stagingに同時に置けるサイトは4つまで**(`STAGING_MAX_SITES`。超えると止まる)
@@ -485,7 +495,8 @@ devとstagingの構成に差分が無ければ、3.は何もせず終わる。HT
 
 1. mainを最新化
 2. 選んだサイト(`all` は本番に既にあり、stagingに載っている全サイト)のうち、stagingと本番で差分のあるものの
-   昇格PRをpromoteワークフロー(`to=production`)で作り、CIを待つ。差分が無ければ確認だけ行って終わる。
+   stagingでQAし(**通らなければ止まる**)、昇格PRをpromoteワークフロー(`to=production`)で作り、CIを待つ。
+   差分が無ければ確認だけ行って終わる。
    **stagingに無いサイトを選ぶと止まる**(本番へはstagingを通す)。devにstagingで未確認の変更があれば注意を出す
 3. **対象サイトの本番バックアップを取り**(本番反映前のバックアップ。
    [operations-flow.md](operations-flow.md))、取得したファイル名をPRにコメントする
@@ -506,9 +517,10 @@ stagingのStorageClassは`Delete`なので、NFS上のwp-content・バックア�
 stagingの構成が本番へまだ昇格していなければ注意を出す。PVが消えるのを最大3分待ち、残ったら警告を出す
 ([runbook/troubleshooting.md](runbook/troubleshooting.md)「PV が Released のまま残る」)
 
-### tools/backup・tools/check
+### tools/backup・tools/qa・tools/check
 
 - `backup`: 日次バックアップのCronJobから今すぐ1つ取る(完了まで待つ)
+- `qa`: QAを単独で行う(アプリの `8-qa` と同じ。`env=staging` では結果を記録し、落ちていた `qa-gate` をやり直させる)
 - `check`: HTTPステータスと正常でないPodの確認(読み取りのみ)
 
 ## ジョブにしていないもの
