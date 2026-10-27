@@ -26,9 +26,16 @@ eol_warn_days: 180
 #   id:      CVE・GHSA等の番号(必須)
 #   targets: 対象のアプリ・サイト名のリスト(省略するとすべて)
 #   pkg:     パッケージ名(省略するとidだけで判定)
+#   path:    イメージ内のパッケージの場所の前方一致(省略するとどこにあっても。同じパッケージの別のコピーは除外しない)
 #   reason:  除外する理由(必須)
 #   until:   期限(必須、YYYY-MM-DD)
-ignore: []
+ignore:
+  - id: CVE-2026-33210
+    targets: [brc-cross-search-resource, brc-cross-search-xsearch]
+    pkg: json
+    path: usr/local/lib/ruby/gems/4.0.0/specifications/default/
+    reason: Ruby本体に同梱されたjson(消せない)。アプリはbundleの修正版を使う(images/brc-cross-search-*/Dockerfile)。Rubyが修正版を同梱したら外す
+    until: 2027-01-31
 # 例:
 #  - id: CVE-2026-71319
 #    targets: [brc-advanced-search]

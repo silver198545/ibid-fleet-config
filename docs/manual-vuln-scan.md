@@ -108,7 +108,8 @@ QA_NO_STATUS=1 scripts/vuln-scan.sh staging sites abc      # 記録せずに試�
 
 使われていない(例: 実行時に読み込まれない開発用のパッケージ)・攻撃できないと判断したものは、
 [qa/vuln-policy.yaml](../qa/vuln-policy.yaml) の `ignore` に**理由と期限**を書いて除く(PRでレビューする)。
-期限を過ぎた除外は効かなくなり、警告が出る(`validate` も警告を出す)。enforce: true のときに、急ぎの修正が
+期限を過ぎた除外は効かなくなり、警告が出る(`validate` も警告を出す)。
+**除外はpublicなリポジトリに載る**ので、攻撃に使えない(使われていない・修正済みのコピーが別にある)ものだけを書く。enforce: true のときに、急ぎの修正が
 既存の脆弱性で止められたら、期限付きの除外を足すPRで通す。
 
 ```yaml
@@ -116,6 +117,7 @@ ignore:
   - id: CVE-2026-71319            # CVE・GHSA等(Wordfenceの番号はCVEが無ければWordfenceのID)
     targets: [brc-advanced-search] # 省略するとすべてのアプリ・サイト
     pkg: "@nuxt/devtools"          # 省略すると id だけで判定
+    path: app/node_modules/        # イメージ内の場所の前方一致(省略可。ログの PkgPath。同じパッケージの別のコピーは除外しない)
     reason: 開発用。nuxt start では読み込まれない
     until: 2027-01-31
 ```
