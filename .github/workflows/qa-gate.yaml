@@ -65,7 +65,7 @@ jobs:
               state="${result%%$'\t'*}"
               desc="${result#*$'\t'}"
               case "$state" in
-                success) msg="OK: ${desc}" ;;
+                success) msg="OK: ${desc#OK: }" ;;
                 "") msg="NG: stagingのQAが未実施です(scripts/qa.sh staging ${kind} ${name}。コミット ${commit:0:7})" ;;
                 *) msg="NG: stagingのQAが ${state} です: ${desc}" ;;
               esac
