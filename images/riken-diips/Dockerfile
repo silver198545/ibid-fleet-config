@@ -19,18 +19,26 @@
 FROM node:26.12.1-bookworm AS build
 
 WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
 COPY app/ .
-RUN npm install
+RUN npm ci --no-audit --no-fund
 RUN npm run build
-# 実行時に不要なdevDependencies(eslint/jest/typescript等)を落とす。
-RUN npm prune --omit=dev
 
+# 実行は Next.js の standalone 出力(上流の next.config.js の output: 'standalone'。2026-10-27〜)。
+# 実行に要るファイルだけが .next/standalone に集められるので、node_modules を丸ごと持ち込まない。
+# 静的ファイル(.next/static・public)と、APIルート・ページの描画が実行時に読む src/data・src/content は
+# standalone に入らないので別にコピーする(上流の Dockerfile と同じ)。
 FROM node:26.12.1-bookworm-slim
 WORKDIR /app
-ENV NODE_ENV=production
-# next startが待ち受けるポート。Service/Deploymentからの到達性のため明示する。
-ENV PORT=3000
-COPY --from=build --chown=node:node /app ./
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0
+COPY --from=build --chown=node:node /app/.next/standalone ./
+COPY --from=build --chown=node:node /app/.next/static ./.next/static
+COPY --from=build --chown=node:node /app/public ./public
+COPY --from=build --chown=node:node /app/src/data ./src/data
+COPY --from=build --chown=node:node /app/src/content ./src/content
 USER node
 EXPOSE 3000
-CMD ["npm", "run", "start"]
+CMD ["node", "server.js"]
