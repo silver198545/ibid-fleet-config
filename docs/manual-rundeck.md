@@ -459,7 +459,7 @@ dev・staging・本番のいずれかのrollout状況とWEB疎通を確認する
 2. devの現状をバックアップする(上書き前の状態。NFSの `backup/dev/wordpress-<site>/` に残る)
 3. 本番のwp-content・DBをdevの同名サイトへリストアする(`scripts/restore-wordpress.sh`)
 4. DBに残る本番の公開URLを、devの公開URL(`wp-config.php` の `WP_HOME`。devは
-   `https://wpdev1.brc.riken.jp/<ja|en>`)へ置換する。ホスト名単位で、`http`/`https`/スキーム無し
+   `https://<site>.dev.ibid.lan/<ja|en>`)へ置換する。ホスト名単位で、`http`/`https`/スキーム無し
    (`//<host>/`)/JSONエスケープ(`https:\/\/<host>`)の形をまとめて置換し、`guid` 列は除く
    ([manual-wordpress-restore.md](manual-wordpress-restore.md) 6b.と同じ)。他サイトのドメインへの
    リンクは置換しない

@@ -40,7 +40,7 @@ flowchart LR
 | | dev1(`env=dev`) | staging1(`env=staging`) | prod1(`env=production`) |
 |---|---|---|---|
 | ノード | control-plane 3台(SSD) + worker 5台 | 3台(全役割兼任、SSD、8GiB) | control-plane 3台(SSD) + worker 7台 |
-| WordPressサイト | 34(17サイト × `/ja`の`<site>`・`/en`の`<site>-en`。公開は`wpdev1.brc.riken.jp`、[6b.](docs/manual-wordpress-restore.md)) | 確認中のものだけ(同時に4つまで。外部公開しない) | 34(devと同じ構成。公開は旧サイトと同じ`<site>.brc.riken.jp`) |
+| WordPressサイト | 34(17サイト × `/ja`の`<site>`・`/en`の`<site>-en`。外部公開しない。[devcon](docs/manual-devcon.md)から`<site>.dev.ibid.lan`で見る) | 確認中のものだけ(同時に4つまで。外部公開しない) | 34(devと同じ構成。公開は旧サイトと同じ`<site>.brc.riken.jp`) |
 | 自作アプリ | 7(brc-advanced-search、riken-diips、sparqlist、metadatabase-v2、brc-cross-search-xsearch、brc-cross-search-resource、member-gateway) | 6(member-gateway以外。devと同じ) |
 | TraefikのLB IP(IPPool) | `192.168.1.33`(pool1 `.30-.49`) | `192.168.1.99`(pool3 `.90-.100`) |
 | ホスト名(DNS) | `<site>.dev.ibid.lan`(`*.dev`のワイルドカード) | `<site>.production.ibid.lan`(`*.production`のワイルドカード) |

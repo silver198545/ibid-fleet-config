@@ -23,7 +23,7 @@ flowchart LR
     V["サイトの閲覧者"]
     OP["管理者・オペレータ"]
   end
-  NGINX["RIKEN側の nginx<br>公開ドメイン<br>{site}.brc.riken.jp / wpdev1.brc.riken.jp"]
+  NGINX["RIKEN側の nginx<br>公開ドメイン<br>{site}.brc.riken.jp(本番のみ)"]
 
   subgraph GH["GitHub"]
     REPO["ibid-fleet-config<br>(main = 正)"]

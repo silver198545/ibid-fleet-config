@@ -67,7 +67,7 @@ promoteワークフローは環境ディレクトリを丸ごとコピーする�
   - 環境固有の値は`fleet.yaml`末尾の`targetCustomizations`(`env`ラベルで選ばれる
     `dev`/`production`エントリ)の`helm.values`に書く。選ばれたエントリだけが
     `helm.values`へ深くマージされる。現在はproductionの`replicaCount: 2`/`podAntiAffinityPreset: hard`と、
-    外部nginxで公開するサイトの`publicHost`(公開ドメイン。例: devのabc/abc-enは`wpdev1.brc.riken.jp`、
+    外部nginxで公開するサイトの`publicHost`(公開ドメイン。本番のみ。例: abc/abc-enは`abc.brc.riken.jp`、
     [manual-wordpress-restore.md](manual-wordpress-restore.md) 6b.)
     (wp-contentの`nfs-external`は2026-10-09に全環境共通の値へ移した)
   - ひな形は`scripts/new-wordpress-site.sh`が生成する

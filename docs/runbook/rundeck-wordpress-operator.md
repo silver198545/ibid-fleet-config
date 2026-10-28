@@ -26,7 +26,7 @@ WordPress 本体・プラグインの新しい版を dev に入れる作業は�
 | staging | `https://<site>.staging.ibid.lan/ja/` | `https://<site>-en.staging.ibid.lan/en/`(staging に置いたときだけ) |
 | 本番 | `https://<site>.production.ibid.lan/ja/` | `https://<site>.production.ibid.lan/en/` |
 
-外部公開のドメインは、本番が `https://<site>.brc.riken.jp/`、dev が `https://wpdev1.brc.riken.jp/`(外部の nginx で表示するサイトを切り替える)です。dev のページ内のリンクは `wpdev1.brc.riken.jp` を指します。staging は外部公開しません。
+外部公開のドメインは、本番だけ `https://<site>.brc.riken.jp/` です。dev と staging は外部公開せず、確認用デスクトップ([devcon](../manual-devcon.md))の Firefox で上の内部名を開きます。
 
 ## 前提条件
 
@@ -221,7 +221,7 @@ staging に無いサイトを選ぶと、「stagingに <site> がありません
 1. 本番の最新の日次バックアップ(毎日 3:00)を選ぶ
 2. dev の今の状態をバックアップする(上書き前の控え)
 3. 本番の wp-content と DB を dev の同名サイトに戻す
-4. DB の中の本番の URL(`<site>.brc.riken.jp`)を dev の URL(`wpdev1.brc.riken.jp`)に置き換える
+4. DB の中の本番の URL(`<site>.brc.riken.jp`)を dev の URL(`<site>.dev.ibid.lan`)に置き換える
 5. 各サイトの応答(200 か)を確かめる
 
 ### `2-staging`

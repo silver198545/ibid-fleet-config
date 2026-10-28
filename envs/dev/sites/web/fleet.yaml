@@ -109,15 +109,6 @@ helm:
 # 適用先クラスタの env ラベルに一致するエントリが1つ選ばれ、helm.values へ深くマージされる。
 # ingressのホスト名は上の values 内でクラスタラベルから展開している(${ .ClusterLabels.env })。
 targetCustomizations:
-  - name: dev
-    clusterSelector:
-      matchLabels:
-        env: dev
-    helm:
-      values:
-        # 外部nginx(RIKEN側)で公開するドメイン。nginxはHostを内部名で送るため、
-        # WordPressにはこのドメインでのアクセスとして扱わせる(チャートのpublicHost)
-        publicHost: wpdev1.brc.riken.jp
   - name: production
     clusterSelector:
       matchLabels:

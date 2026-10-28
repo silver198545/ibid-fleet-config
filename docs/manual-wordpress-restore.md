@@ -282,8 +282,9 @@ Gitで管理する設定（fleet.yaml）と、既存サイトだけに必要な1
 昇格し（#262〜#265）、旧サイトの本番バックアップを戻した）。
 
 本番の公開ドメインは旧サイトと同じ`<site>.brc.riken.jp`（`<site>-en`も同じ。fleet.yamlの`production`のエントリの`publicHost`）。
-devの公開ドメインは、開発用として全サイト`wpdev1.brc.riken.jp`に統一している。外部nginx側で
-`proxy_pass`/`Host`の向き先（`<site>.dev.ibid.lan`）を切り替えて、見たいサイトを表示する。
+dev/stagingは外部公開せず、`publicHost`を設定しない（公開URLは内部名`https://<site>.<env>.ibid.lan/<ja|en>`）。
+確認用デスクトップ（[manual-devcon.md](manual-devcon.md)）のFirefoxから見る。2026-10-28まではdevの全サイトを
+`wpdev1.brc.riken.jp`（外部nginxで向き先を切り替える方式）で公開していたが、内部名へ切り替えて廃止した。
 
 ### 仕組み
 
@@ -298,7 +299,7 @@ devの公開ドメインは、開発用として全サイト`wpdev1.brc.riken.jp
 | 値 | 書く場所 | 効果 |
 |---|---|---|
 | `sitePath`（例: `/ja`） | fleet.yamlの共通部分（全環境同じ） | Apacheの`Alias`でこのパスをWordPress本体に割り当てる。パスを外さずに届けるので、WordPressが見るURLと公開URLが一致する |
-| `publicHost`（例: `wpdev1.brc.riken.jp`） | fleet.yamlの`targetCustomizations`（環境ごと） | PHPの`auto_prepend_file`で、処理前に`HTTP_HOST`を公開ドメインへ差し替える。リダイレクト類が公開ドメインになり、無限ループも起きない |
+| `publicHost`（例: 本番の`abc.brc.riken.jp`） | fleet.yamlの`targetCustomizations`（環境ごと） | PHPの`auto_prepend_file`で、処理前に`HTTP_HOST`を公開ドメインへ差し替える。リダイレクト類が公開ドメインになり、無限ループも起きない |
 
 新規インストール時の`WP_HOME`/`WP_SITEURL`は`https://<publicHost><sitePath>`になる
 （`publicHost`が無ければingressのホスト名）。
@@ -322,13 +323,13 @@ helm:
         path: /ja            # sitePath と同じ値
         pathType: Prefix
 targetCustomizations:
-  - name: dev
+  - name: production
     clusterSelector:
       matchLabels:
-        env: dev
+        env: production
     helm:
       values:
-        publicHost: wpdev1.brc.riken.jp
+        publicHost: abc.brc.riken.jp   # 外部公開する環境(本番)だけに書く
 ```
 
 ドメイン直下で公開するサイトは`sitePath`/`path`を書かず、`publicHost`だけを設定する。
