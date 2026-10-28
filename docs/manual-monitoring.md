@@ -45,7 +45,9 @@
   クリックすると同名リリースが競合して壊れる。
 - `alertmanager.config` 配下のリスト(`inhibit_rules` 等)はチャート既定と
   マージされず**丸ごと置換**される。fleet.yamlに再掲してある既定の4本を
-  誤って消さないこと。
+  誤って消さないこと。`route.routes` も同様で、チャート既定の
+  `InfoInhibitor`(severity=none、info系アラートに連動してfiring/resolvedを繰り返す)を
+  nullへ送るrouteを再掲している。消すとSlackに頻繁に流れる。
 - アラートルールの追加は `envs/<env>/infra/monitoring-config/prometheusrule-ibid.yaml`
   に追記する(汎用的なノード・Pod系アラートはkube-prometheus-stack既定ルールが
   既に有効)。
@@ -65,6 +67,16 @@ kubectlの場合: `kubectl -n cattle-monitoring-system port-forward svc/rancher-
   - `WordPressSiteSlow`(warning): 応答5秒超が15分継続
   - 制約: probeはクラスタ内(ClusterIP)経由のため、**Harvester LB IP経路の障害や
     IPPool枯渇は検知できない**(Ingress化・DNS導入時に外形監視を再検討。roadmap 1-2)。
+- **自作アプリ死活**(`envs/<env>/apps/`): job `blackbox-apps-http` がアプリのServiceを
+  動的発見し、blackbox-exporter(module `http_app`)経由でHTTP probeする。WordPressと違い
+  アプリごとにパスが異なるため、`envs/<env>/infra/monitoring/fleet.yaml` の
+  **namespace→パスの対応表に載ったアプリだけが対象**(パスはDeploymentのreadinessProbeと同じ。
+  metadatabase-v2は本番だけ `/bioresource`)。**アプリ追加時は3環境の対応表に追記する**
+  (validateが各環境のアプリの載せ忘れを検査する)。まだ昇格していないアプリは発見されないだけで誤報にはならない。
+  - `AppDown`(critical): 5分間HTTP応答なし
+  - `AppSlow`(warning): 応答5秒超が15分継続
+  - probeは `Host: localhost` を名乗る(brc-cross-searchはRACK_ENV=developmentでSinatraの
+    Host検査があり、Service名のHostだと403になるため)。制約はWordPressと同じ(Ingress経路は見ていない)。
 - **Longhorn容量**(roadmap 3の容量アラート):
   - `LonghornNodeStorageUsageWarning/Critical`: ノード使用率 75% / 90% 超
 - **Longhornバックアップ**:

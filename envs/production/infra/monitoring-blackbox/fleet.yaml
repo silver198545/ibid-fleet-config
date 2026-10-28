@@ -23,6 +23,19 @@ helm:
             # 追跡せず、3xx応答も「生存」とみなす。
             follow_redirects: false
             valid_status_codes: [200, 301, 302, 303, 307, 308]
+        # 自作アプリ(blackbox-apps-http)用。readinessProbeと同じパスを叩くため2xx/3xxを生存とみなす。
+        # リダイレクトを追わない理由はhttp_wordpressと同じ。
+        http_app:
+          prober: http
+          timeout: 10s
+          http:
+            preferred_ip_protocol: ip4
+            # brc-cross-search(RACK_ENV=development)はSinatraのHost検査でService名のHostを
+            # 403にするため、どのアプリでも許可されるlocalhostを名乗る(dev1で全アプリ確認済み)。
+            headers:
+              Host: localhost
+            follow_redirects: false
+            valid_status_codes: [200, 301, 302, 303, 307, 308]
     resources:
       requests:
         cpu: 10m

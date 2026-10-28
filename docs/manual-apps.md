@@ -104,6 +104,9 @@ stagingはproductionに近い設定にするが、レプリカは1、本番と�
    - 公開が必要なら、既存WordPressサイトと同様にTraefik Ingress + ホスト名
      (`<app>.<env>.ibid.lan`)+ cert-manager(`freeipa-acme`)で行う
      (WordPress専用LoadBalancer方式ではなくIngress方式)。
+   - HTTPの死活監視(`AppDown`/`AppSlow`)の対象にするため、3環境の
+     `envs/<env>/infra/monitoring/fleet.yaml` の `blackbox-apps-http` の対応表に
+     namespaceとヘルスチェックのパスを追記する(validateが検査する。docs/manual-monitoring.md参照)。
 4. PRを作成しマージすると、devクラスタのFleetが自動適用する。
    GHCRパッケージの可視性は次のいずれか:
    - **公開してよい場合**: 初回のみGitHubのPackage設定でpublicに変更する

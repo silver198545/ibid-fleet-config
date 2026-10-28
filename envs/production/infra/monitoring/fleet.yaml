@@ -123,10 +123,13 @@ helm:
           repeat_interval: 12h
           receiver: slack-ibid
           routes:
-            # Watchdog(常時発報の死活確認用)とinfo系はSlackに流さない。
+            # Watchdog(常時発報の死活確認用)・InfoInhibitor・info系はSlackに流さない。
+            # InfoInhibitorはseverity=noneのため下のinfo向けrouteには一致しない。
+            # info系アラートの増減に合わせてfiring/resolvedを繰り返すので個別に捨てる
+            # (チャート既定のroutesにはあるが、routesは丸ごと置換されるため再掲が必要)。
             - receiver: 'null'
               matchers:
-                - 'alertname = "Watchdog"'
+                - 'alertname =~ "Watchdog|InfoInhibitor"'
             - receiver: 'null'
               matchers:
                 - 'severity = info'
@@ -204,5 +207,67 @@ helm:
               - source_labels: [__meta_kubernetes_service_name]
                 target_label: service
               # 実際のscrape先はblackbox-exporter
+              - target_label: __address__
+                replacement: monitoring-blackbox-exporter.cattle-monitoring-system.svc:9115
+          # 自作アプリ(envs/<env>/apps/)のHTTP死活・応答時間監視。
+          # WordPressと同じくService(ClusterIP DNS)をkubernetes SDで発見してprobeするが、
+          # アプリごとにnamespace名・probeするパスが違うため、下の対応表に載せた
+          # namespaceだけを対象にする(パスはDeploymentのreadinessProbeと同じ)。
+          # 対応表に無いアプリは監視されない。アプリを追加したら3環境とも追記すること
+          # (devはvalidateで検査)。クラスタに無いアプリ(未昇格)は発見されないだけで誤報にはならない。
+          # metadatabase-v2はBASE_PATH=/bioresourceのイメージのため/bioresource。
+          - job_name: blackbox-apps-http
+            metrics_path: /probe
+            params:
+              module: [http_app]
+            kubernetes_sd_configs:
+              - role: service
+            relabel_configs:
+              # namespace → probeするパスの対応表
+              - source_labels: [__meta_kubernetes_namespace]
+                regex: brc-advanced-search
+                target_label: __tmp_probe_path
+                replacement: /advanced/en/
+              - source_labels: [__meta_kubernetes_namespace]
+                regex: brc-cross-search-resource
+                target_label: __tmp_probe_path
+                replacement: /resource/animal/
+              - source_labels: [__meta_kubernetes_namespace]
+                regex: brc-cross-search-xsearch
+                target_label: __tmp_probe_path
+                replacement: /xsearch/catalog/
+              - source_labels: [__meta_kubernetes_namespace]
+                regex: member-gateway
+                target_label: __tmp_probe_path
+                replacement: /
+              - source_labels: [__meta_kubernetes_namespace]
+                regex: metadatabase-v2
+                target_label: __tmp_probe_path
+                replacement: /bioresource
+              - source_labels: [__meta_kubernetes_namespace]
+                regex: riken-diips
+                target_label: __tmp_probe_path
+                replacement: /
+              - source_labels: [__meta_kubernetes_namespace]
+                regex: sparqlist
+                target_label: __tmp_probe_path
+                replacement: /sparqlist/
+              - source_labels: [__tmp_probe_path]
+                regex: .+
+                action: keep
+              - source_labels: [__meta_kubernetes_service_port_name]
+                regex: http
+                action: keep
+              - source_labels: [__address__, __tmp_probe_path]
+                separator: ''
+                regex: (.+)
+                target_label: __param_target
+                replacement: http://$1
+              - source_labels: [__param_target]
+                target_label: instance
+              - source_labels: [__meta_kubernetes_namespace]
+                target_label: namespace
+              - source_labels: [__meta_kubernetes_service_name]
+                target_label: service
               - target_label: __address__
                 replacement: monitoring-blackbox-exporter.cattle-monitoring-system.svc:9115

@@ -145,6 +145,36 @@ jobs:
           sys.exit(1 if failed else 0)
           EOF
 
+      - name: アプリの死活監視の対象
+        # 自作アプリのHTTP監視(blackbox-apps-http)はnamespace→パスの対応表に載ったものだけが対象。
+        # 各環境のアプリがその環境の envs/<env>/infra/monitoring/fleet.yaml に載っていること
+        # (docs/manual-monitoring.md)
+        run: |
+          python3 - <<'EOF'
+          import os, sys, yaml
+
+          failed = False
+          for env in ("dev", "staging", "production"):
+              path = f"envs/{env}/infra/monitoring/fleet.yaml"
+              jobs = yaml.safe_load(open(path))["helm"]["values"]["prometheus"]["prometheusSpec"]["additionalScrapeConfigs"]
+              job = next((j for j in jobs if j["job_name"] == "blackbox-apps-http"), None)
+              if job is None:
+                  print(f"NG {path}: blackbox-apps-http がありません")
+                  failed = True
+                  continue
+              mapped = {r["regex"] for r in job["relabel_configs"] if r.get("target_label") == "__tmp_probe_path"}
+              apps_dir = f"envs/{env}/apps"
+              for app in sorted(os.listdir(apps_dir)):
+                  fleet = os.path.join(apps_dir, app, "fleet.yaml")
+                  if not os.path.isfile(fleet):
+                      continue
+                  ns = yaml.safe_load(open(fleet))["defaultNamespace"]
+                  if ns not in mapped:
+                      print(f"NG {path}: アプリ {app}(namespace {ns})がblackbox-apps-httpの対応表にありません")
+                      failed = True
+          sys.exit(1 if failed else 0)
+          EOF
+
       - name: 脆弱性チェックの基準と除外
         # qa/vuln-policy.yaml(docs/manual-vuln-scan.md)。除外には理由と期限が要る
         run: |
