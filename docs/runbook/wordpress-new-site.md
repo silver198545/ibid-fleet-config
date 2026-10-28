@@ -25,7 +25,6 @@ done
   プラグイン以外で空になればよい):
   - `helm.values` に `sitePath: /ja`(英語版は `/en`)
   - ingressの `hostname` を両方とも `<site>.${ .ClusterLabels.env }.ibid.lan` にし、`path: /ja`(英語版は `/en`)と `pathType: Prefix` を足す
-  - `targetCustomizations` に `dev` のエントリを足し、`publicHost: wpdev1.brc.riken.jp`(devの公開ドメイン。全サイト共通)
   - `production` のエントリの `helm.values` に `publicHost: <site>.brc.riken.jp`(本番の公開ドメイン。旧サイトと同じ)
 - プラグインを入れる場合は、`fleet.yaml` の `plugins:` のコメントを外して書く(書き方は既存の `envs/dev/sites/web/fleet.yaml`)
 
@@ -52,11 +51,11 @@ curl -sI https://$SITE.dev.ibid.lan/ja/ | head -1             # 200
 curl -sI https://$SITE.dev.ibid.lan/en/ | head -1             # 200
 ```
 
-- ログに「`https://wpdev1.brc.riken.jp/ja に直しました`」(英語版は `/en`)と出ていればよい
-- ドメイン直下(`https://<site>.dev.ibid.lan/`)は 404 になる(正常。直下からのリダイレクトは外部nginxが行う)
+- ログに「`https://<site>.dev.ibid.lan/ja に直しました`」(英語版は `/en`)と出ていればよい
+- ドメイン直下(`https://<site>.dev.ibid.lan/`)は 404 になる(正常。本番では直下からのリダイレクトを外部nginxが行う)
 - 初回はWordPressのPodが何回か再起動することがある(DBの準備待ち。自然に直る)。
   何度も `Installing WordPress` の直後に落ちる場合は [troubleshooting.md](troubleshooting.md)
-- 管理画面: 外部nginxの向き先を `<site>.dev.ibid.lan` に切り替えて `https://wpdev1.brc.riken.jp/ja/wp-admin/`
+- 管理画面: 確認用デスクトップ([devcon](../manual-devcon.md))のFirefoxで `https://<site>.dev.ibid.lan/ja/wp-admin/`
   (ユーザー `admin`、パスワードは手順1で控えたもの)
 - 旧サイトの中身を入れる場合: [manual-wordpress-restore.md](../manual-wordpress-restore.md) 6b.(リストア後のURL置換4種まで)
 

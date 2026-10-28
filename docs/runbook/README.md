@@ -25,7 +25,7 @@
   Code Owner(`@silver198545`)が **Approve** してからマージする([manual-rundeck.md](../manual-rundeck.md))
 - 名前の規則: サイトは日本語版 `<site>`(例: `web`、`/ja`)と英語版 `<site>-en`(`/en`)。ホスト名は両方とも
   `<site>.dev.ibid.lan` / `<site>.production.ibid.lan`。DNSはワイルドカードなので登録作業は無い。
-  devの外部公開ドメインは全サイト共通の `wpdev1.brc.riken.jp`(外部nginxで向き先を切り替える)
+  dev/stagingは外部公開しない。確認用デスクトップ([devcon](../manual-devcon.md))のFirefoxで内部名を開く
 
 ## 本番のバックアップ(本番に反映する前に毎回)
 
