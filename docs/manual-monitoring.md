@@ -45,7 +45,9 @@
   クリックすると同名リリースが競合して壊れる。
 - `alertmanager.config` 配下のリスト(`inhibit_rules` 等)はチャート既定と
   マージされず**丸ごと置換**される。fleet.yamlに再掲してある既定の4本を
-  誤って消さないこと。
+  誤って消さないこと。`route.routes` も同様で、チャート既定の
+  `InfoInhibitor`(severity=none、info系アラートに連動してfiring/resolvedを繰り返す)を
+  nullへ送るrouteを再掲している。消すとSlackに頻繁に流れる。
 - アラートルールの追加は `envs/<env>/infra/monitoring-config/prometheusrule-ibid.yaml`
   に追記する(汎用的なノード・Pod系アラートはkube-prometheus-stack既定ルールが
   既に有効)。

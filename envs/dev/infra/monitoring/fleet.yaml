@@ -123,10 +123,13 @@ helm:
           repeat_interval: 12h
           receiver: slack-ibid
           routes:
-            # Watchdog(常時発報の死活確認用)とinfo系はSlackに流さない。
+            # Watchdog(常時発報の死活確認用)・InfoInhibitor・info系はSlackに流さない。
+            # InfoInhibitorはseverity=noneのため下のinfo向けrouteには一致しない。
+            # info系アラートの増減に合わせてfiring/resolvedを繰り返すので個別に捨てる
+            # (チャート既定のroutesにはあるが、routesは丸ごと置換されるため再掲が必要)。
             - receiver: 'null'
               matchers:
-                - 'alertname = "Watchdog"'
+                - 'alertname =~ "Watchdog|InfoInhibitor"'
             - receiver: 'null'
               matchers:
                 - 'severity = info'
