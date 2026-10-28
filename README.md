@@ -84,6 +84,7 @@ WordPressの新規サイト作成・更新、自作アプリの新規展開・�
 | Rundeckのパイプライン(アプリのdev/本番更新、WordPressの本番コンテンツ→dev・stagingでの確認・本番昇格) | [docs/manual-rundeck.md](docs/manual-rundeck.md) |
 | 監視・アラート(rancher-monitoring + Slack) | [docs/manual-monitoring.md](docs/manual-monitoring.md) |
 | 脆弱性チェック(Trivy・Wordfence・EOL、週次のSlack通知、除外の書き方) | [docs/manual-vuln-scan.md](docs/manual-vuln-scan.md) |
+| dev/stagingを見るための確認用デスクトップ(Guacamole経由のdevcon) | [docs/manual-devcon.md](docs/manual-devcon.md) |
 | TLS証明書(cert-manager + FreeIPA ACME)、DNS登録 | [docs/manual-cert-manager-freeipa-acme.md](docs/manual-cert-manager-freeipa-acme.md) |
 | IPPool、TraefikのLoadBalancer化、Rancher chartValuesの注意 | [docs/manual-harvester-loadbalancer.md](docs/manual-harvester-loadbalancer.md) |
 | control-plane VMのディスクをSSDに限定(etcd遅延対策) | [docs/manual-harvester-etcd-ssd.md](docs/manual-harvester-etcd-ssd.md) |
