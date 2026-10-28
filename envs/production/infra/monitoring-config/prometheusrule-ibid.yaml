@@ -1,6 +1,6 @@
 # ibid運用の独自アラートルール。
 # ノード障害・Pod異常等の汎用アラートはkube-prometheus-stack既定ルールが
-# カバーするため、ここには「サイト死活」「Longhorn容量・バックアップ」のみ置く。
+# カバーするため、ここには「WordPressサイト・自作アプリの死活」「Longhorn容量・バックアップ」のみ置く。
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -24,6 +24,24 @@ spec:
             severity: warning
           annotations:
             summary: 'WordPressサイト {{ $labels.namespace }} の応答が5秒を超えています({{ $value | humanizeDuration }})'
+
+    # 自作アプリ(envs/<env>/apps/)。probe対象はmonitoring/fleet.yamlのblackbox-apps-http参照。
+    - name: apps.uptime
+      rules:
+        - alert: AppDown
+          expr: probe_success{job="blackbox-apps-http"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: 'アプリ {{ $labels.namespace }} ({{ $labels.instance }}) がHTTP応答しません'
+        - alert: AppSlow
+          expr: probe_duration_seconds{job="blackbox-apps-http"} > 5
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: 'アプリ {{ $labels.namespace }} の応答が5秒を超えています({{ $value | humanizeDuration }})'
 
     - name: wordpress.backup
       rules:

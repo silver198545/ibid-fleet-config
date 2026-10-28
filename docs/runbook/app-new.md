@@ -42,6 +42,9 @@
 5. Rundeckのジョブを作り直す: `python3 rundeck/generate-jobs.py`(`rundeck/jobs/apps.yaml` にこのアプリの
    ジョブが増える。一緒にコミットしないとvalidateが落ちる。マージ後にRundeckへ取り込む。
    [manual-rundeck.md](../manual-rundeck.md))
+6. 死活監視の対象に足す: `envs/{dev,staging,production}/infra/monitoring/fleet.yaml` の
+   `blackbox-apps-http` の対応表に、namespace とヘルスチェックのパス(readinessProbeと同じ)を追記する
+   (各環境のアプリが載っていないとvalidateが落ちる。[manual-monitoring.md](../manual-monitoring.md))
 
 ## 3. devに出す
 
