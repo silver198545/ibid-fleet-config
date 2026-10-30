@@ -8,6 +8,8 @@ Apache Guacamoleから使うデスクトップVM。クラスタのネットワ�
 - 用途は**動作確認だけ**(日常的な編集には使わない)。本番の公開(外部Nginx)とは無関係。
 - VM・FreeIPA・Guacamoleはこのリポジトリの管理外。本書は構築時(2026-10-28)の記録と再構築の手順。
 - 利用者側の準備(CA証明書・プロキシ・DNS)は不要。Guacamoleにログインするだけ。
+- rancherにSSHできる人(Rundeckのオペレータなど)は、devconを使わずに、rancherを経由するSOCKSプロキシで手元のブラウザから
+  見ることもできる([runbook/rundeck-app-operator.md](runbook/rundeck-app-operator.md) 初回設定の5.)。
 
 ```
 利用者のブラウザ ──> Guacamole(192.168.1.236) ──RDP──> devcon(192.168.1.8) ──> Traefik(dev1 .33 / staging1 .50)
