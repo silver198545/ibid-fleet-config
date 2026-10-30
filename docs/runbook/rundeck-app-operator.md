@@ -19,6 +19,8 @@ Rundeck のプロジェクト **`Rancher-AppControll`** から、自作アプリ
 | `riken-diips` | `https://riken-diips.dev.ibid.lan/ja` | `https://riken-diips.production.ibid.lan/ja` |
 | `sparqlist` | `https://sparqlist.dev.ibid.lan/sparqlist/` | `https://sparqlist.production.ibid.lan/sparqlist/` |
 
+dev と staging は外部公開していません。確認先は、SSH のプロキシ(初回設定の「5.」)を通した手元のブラウザか、確認用デスクトップ([devcon](../manual-devcon.md))の Firefox で開きます。
+
 ## 前提条件
 
 | 項目 | 内容 |
@@ -118,6 +120,59 @@ Rundeck で `<アプリ名>/9-check` を `env=dev` で実行し、最後に次�
 ```
 OK: sparqlist.dev.ibid.lan/sparqlist/ は200を返しました。
 ```
+
+### 5. dev / staging をブラウザで見る準備
+
+dev と staging は外部に公開していないので、手元のブラウザからはそのままでは開けません。
+SSH で rancher を経由するプロキシ(SOCKS プロキシ)を作り、ブラウザの通信を rancher から出すようにします。
+サーバーに何かを入れる必要はなく、使う前に SSH を1本つなぐだけです(Guacamole の確認用デスクトップ [devcon](../manual-devcon.md) を使ってもかまいません)。
+
+**(1) `~/.ssh/config` にプロキシ用の設定を足す**(1. で書いた `Host Bastion` を使います)
+
+```
+Host rancher-socks
+    HostName 192.168.1.149
+    User <自分のユーザー名>
+    IdentityFile ~/.ssh/<自分の鍵>
+    ProxyCommand ssh -W %h:%p Bastion
+    DynamicForward 1080
+    ServerAliveInterval 60
+```
+
+普段の `rancher` とは分けておきます(`rancher` に `DynamicForward` を書くと、ターミナルを2つ開いたときに「1080 番ポートが使用中」という警告が出ます)。
+
+**(2) CA 証明書を手元に取ってくる**(dev・staging の証明書は FreeIPA が発行しているため)
+
+```
+scp rancher:/etc/ipa/ca.crt ./ibid-ipa-ca.crt
+```
+
+**(3) Firefox を設定する**(普段のブラウザを変えたくなければ、`about:profiles` で確認用のプロファイルを作ってそちらで行う)
+
+1. 設定 → 一般 → ネットワーク設定 →「接続設定」で「手動でプロキシーを設定する」を選ぶ
+   - SOCKS ホスト `localhost`、ポート `1080`、「SOCKS v5」
+   - **「SOCKS v5 を使用するときは DNS もプロキシーを使用する」にチェックを入れる**(入れないと `*.ibid.lan` が引けない)
+2. 設定 → プライバシーとセキュリティ →「証明書を表示」→「認証局証明書」→「インポート」で `ibid-ipa-ca.crt` を選び、
+   「この認証局によるウェブサイトの識別を信頼する」にチェックを入れる
+
+**使うとき**
+
+1. 手元のターミナルで次を実行し、開いたままにする(何も表示されないのが正常。終わったら `Ctrl+C`)
+
+   ```
+   ssh -N rancher-socks
+   ```
+
+2. Firefox で `https://<名前>.dev.ibid.lan/...` や `https://<名前>.staging.ibid.lan/...` を開く
+
+| 症状 | 確認すること |
+|---|---|
+| 「プロキシーサーバーへの接続を拒否されました」 | `ssh -N rancher-socks` が動いているか |
+| 「サーバーが見つかりません」 | 「DNS もプロキシーを使用する」にチェックがあるか。設定 → プライバシーとセキュリティの「DNS over HTTPS」を「オフ」にする |
+| 証明書の警告が出る | CA 証明書をインポートし、「ウェブサイトの識別を信頼する」にチェックを入れたか |
+| 1080 番ポートが使えない | `DynamicForward 1081` などにして、Firefox のポートも合わせる |
+
+本番(`*.production.ibid.lan`)もこのプロキシ経由で開けます。プロキシを設定したプロファイルで外部のサイトを開くと rancher から通信することになるので、確認以外には使わないでください。
 
 ## ジョブ一覧
 

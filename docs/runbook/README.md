@@ -25,7 +25,8 @@
   Code Owner(`@silver198545`)が **Approve** してからマージする([manual-rundeck.md](../manual-rundeck.md))
 - 名前の規則: サイトは日本語版 `<site>`(例: `web`、`/ja`)と英語版 `<site>-en`(`/en`)。ホスト名は両方とも
   `<site>.dev.ibid.lan` / `<site>.production.ibid.lan`。DNSはワイルドカードなので登録作業は無い。
-  dev/stagingは外部公開しない。確認用デスクトップ([devcon](../manual-devcon.md))のFirefoxで内部名を開く
+  dev/stagingは外部公開しない。確認用デスクトップ([devcon](../manual-devcon.md))のFirefoxか、rancherを経由するSSHのSOCKSプロキシ
+  ([rundeck-app-operator.md](rundeck-app-operator.md) 初回設定の5.)を通した手元のブラウザで内部名を開く
 
 ## 本番のバックアップ(本番に反映する前に毎回)
 
