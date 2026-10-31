@@ -97,7 +97,13 @@ wp-contentの実データは昇格せず、必要な場合は [manual-wordpress-
 
 ### Rancher UIでのクラスタ作成
 
-既存クラスタ(prod1)のプール設定を見ながら同じ値を入れるのが確実。
+既存クラスタのプール設定を見ながら同じ値を入れるのが確実。ただしCNIはプールではなくクラスタ単位の設定なので、
+プールを真似ても揃わない。下の表の前に必ず確認する。
+
+- **CNI: `calico`**(Cluster Configuration → Networking → Container Network)。作成後は変更できない
+  (`spec.rkeConfig.machineGlobalConfig.cni`)。全環境で揃えないと、stagingでの確認がネットワーク層では本番の代わりに
+  ならない。2026-11-01時点でdev1/staging1は`calico`だが、**prod1だけ`canal`のまま**(次の作り直しで`calico`にする。
+  [roadmap.md](roadmap.md)の「prod1のCNIをcalicoへ揃える」)。
 
 | 項目 | pool1(etcd + control-plane、3台) | pool2(worker) |
 |---|---|---|
@@ -139,6 +145,12 @@ wp-contentの実データは昇格せず、必要な場合は [manual-wordpress-
    control-planeのレプリカが全て`defaultdisk`上 / 全ノードで`chronyc -n sources`に`^*` /
    etcdに`slow fdatasync`・`clock drift`が出ない / control-plane VMが別々のホスト /
    LoadBalancerにIPが付いている / SealedSecretが全件`SYNCED=True`。
+4. **CNIが他の環境と同じ**であることを確認する(`calico-system`にcalico-nodeが動いていて、
+   `kube-system`に`rke2-canal`のDaemonSetが無い):
+   ```bash
+   kubectl --context rancher -n fleet-default get clusters.provisioning.cattle.io \
+     -o custom-columns=NAME:.metadata.name,CNI:.spec.rkeConfig.machineGlobalConfig.cni
+   ```
 
 新しい**環境**を増やす場合(例: stagingの再導入)は、上記に加えてGit側の作業が必要になる
 (`envs/<env>/`、`fleet-bootstrap/gitrepo-<env>.yaml`、promoteワークフロー、サイトの`targetCustomizations`等)。

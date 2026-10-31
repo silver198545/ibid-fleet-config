@@ -326,6 +326,14 @@
   平文の鍵がディスクに残るため不採用。案: 各クラスタにCronJobのinfraバンドルを置き、鍵をGPGの公開鍵で暗号化して
   NFSの `backup/<env>/sealed-secrets-key/` に書く(復号用の秘密鍵はオフライン保管、失敗はPrometheusのアラートで検知、
   Baculaで二次コピー)。2026-10-25に検討、後日対応
+- **prod1のCNIをcalicoへ揃える** — 2026-11-01に、dev1/staging1は`calico`、prod1だけ`canal`
+  (Flannel VXLAN+Calicoポリシー)と判明。チェックリストにCNIの指定が無く、作り直しのたびにその時の選択で決まっていた。
+  NetworkPolicyの意味はほぼ同じだが、オーバーレイの実装・MTU・障害時の挙動が違い、stagingでの確認が
+  ネットワーク層では本番の代わりにならない。RKE2では作成済みクラスタのCNIを変えられないため、prod1の作り直し
+  (本番停止+NFSバックアップからの復元、[manual-multi-env.md](manual-multi-env.md) 8.)が要る。単独では急がず、
+  ディスク拡張・RKE2のメジャー更新・DRなど、次にprod1を作り直す機会に`calico`で作る
+  (チェックリストは[manual-multi-env.md](manual-multi-env.md) 2.に追記済み)。canalにはeBPFモードが無いので、
+  下の「eBPFデータプレーン」もこれが前提
 
 - **リポジトリのprivate化 → publicへ差し戻し** 【2026-07-08 に revert】: 一度Private化した
   (GitRepo認証をGitHub fine-grained PATで設定、`fleet-default`の`auth-55znx`を3環境で共有)。
@@ -371,6 +379,11 @@
 
 - **クラスタ定義のGitOps化**(Rancher provisioning-v2)— 誤マージの影響半径が
   大きいため2クラスタ規模では見送り中。
+- **eBPFデータプレーン/eBPF系の観測・セキュリティツール**(CalicoのeBPFモード、Tetragon、Falco等)—
+  全ノードのカーネル(7.0)は要件を満たすが、2026-11-01時点の規模ではネットワークがボトルネックでなく、
+  常駐エージェントのメモリが制約(Harvesterホストのメモリ)に逆風なので見送り。データプレーンの切り替えは
+  kube-proxy無効化(クラスタ設定の変更)を伴うため、上の「prod1のCNIをcalicoへ揃える」の後、作り直しの機会に検討する。
+  実行時の不審な挙動の検知が要件になったら、CNIを変えずにTetragon/Falcoを足す案を先に見る。
 - **DB層の冗長化**(mariadb-galera等)— 現在は単体MariaDB。可用性要件が上がったら。
 - **昇格の自動化深化**(昇格PRの自動生成、Kargo再評価)— 昇格頻度が
   上がって手動dispatchが煩雑になったら。
