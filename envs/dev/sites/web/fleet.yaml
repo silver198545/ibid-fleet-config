@@ -53,7 +53,7 @@ helm:
       - name: permalink-manager
         version: "2.6.1"
       - name: wp-seopress
-        version: "10.3"
+        version: "10.4"
       - name: timed-content
         version: "2.99"
       - name: wp-pagenavi
@@ -63,7 +63,7 @@ helm:
       - name: wp-external-links
         version: "2.66"
       - name: wp-file-manager
-        version: "8.0.6"
+        version: "8.0.7"
       - name: wpfront-scroll-top
         version: "3.0.1"
       - name: wp-last-modified-info
