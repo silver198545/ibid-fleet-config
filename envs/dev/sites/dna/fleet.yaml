@@ -49,7 +49,7 @@ helm:
       - name: mobile-menu
         version: "2.9"
       - name: wp-seopress
-        version: "10.3"
+        version: "10.4"
       - name: tablepress
         version: "3.4.1"
       - name: widgets-control
@@ -57,7 +57,7 @@ helm:
       - name: wp-external-links
         version: "2.66"
       - name: wp-file-manager
-        version: "8.0.6"
+        version: "8.0.7"
       - name: wp-multibyte-patch
         version: "2.9.4"
       - name: wp-revisions-control
