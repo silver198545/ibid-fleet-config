@@ -65,11 +65,17 @@ spec:
             httpGet:
               path: /resource/animal/
               port: 4043
+          # 外部SPARQLの遅いクエリ(深いページの一覧で1件数十秒)でPumaのスレッドが埋まると
+          # ヘルスチェックも待たされる。既定(timeout 1秒×3回)だと混雑しただけで再起動され、
+          # 全レプリカがCrashLoopBackOffになって全停止したため(2026-11-04)、livenessは緩めて
+          # 混雑中は再起動せずreadinessで振り分けから外すだけにする(応答不能が約1分続いたら再起動)。
           livenessProbe:
             httpGet:
               path: /resource/animal/
               port: 4043
             initialDelaySeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
       volumes:
         - name: public
           persistentVolumeClaim:
