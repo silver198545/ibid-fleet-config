@@ -67,6 +67,14 @@ apps:
       contains: ["Search result of bioresources in RIKEN BRC"]
       min_number: {pattern: 'num_solutions\\":(\d+)', min: 1}
 
+  jmc-web:
+    # 中身は全環境で同じNFSディレクトリ(読み取り専用)なので、確かめるのはnginxの設定と配信の可否
+    - path: /
+    - path: /history.html
+      same_as_production: [title]
+    - path: /sitemap.html
+      same_as_production: [title]
+
   member-gateway:
     - path: /
       contains: ["会員情報の確認", 'name="email"']

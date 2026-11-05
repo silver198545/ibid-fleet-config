@@ -1,0 +1,44 @@
+# サイトの中身(旧jmcenの/var/www/html)を置くNFS上のディレクトリの静的PV/PVC。
+# **dev/staging/productionで同じディレクトリ(jmc-web/html)を参照し、全環境で読み取り専用**
+# (deployment.yaml。Podは書き込まない)。編集はNFSをマウントしたjmcenで直接行う。
+# ディレクトリと初期データは事前の手動作業が必要(docs/manual-apps.md「jmc-web 固有のメモ」)。
+# sparqlistのPVと違いmountPermissionsを付けない(付けるとマウント時に中身のディレクトリが
+# chmodされ、jmcenでの編集用の権限が変わってしまう)。ファイルはothersに読み取り権限があればよい
+# (nginxはUID 101で動く)。
+# PVの参照先は作成後に変えられないため、参照先を変えるときはPV/PVCの名前ごと変える。
+# reclaimPolicy: Retain必須(PVC削除で中身ごと消えないようにする)。
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: jmc-web-content
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadOnlyMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  mountOptions:
+    - nfsvers=4.1
+  csi:
+    driver: nfs.csi.k8s.io
+    volumeHandle: jmc-web-content
+    readOnly: true
+    volumeAttributes:
+      server: "192.168.1.1"
+      share: "/data/nfs"
+      subDir: "jmc-web/html"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jmc-web-content
+  namespace: jmc-web
+spec:
+  accessModes:
+    - ReadOnlyMany
+  storageClassName: ""
+  volumeName: jmc-web-content
+  resources:
+    requests:
+      storage: 5Gi

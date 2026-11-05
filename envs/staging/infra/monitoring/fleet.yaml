@@ -245,6 +245,10 @@ helm:
                 target_label: __tmp_probe_path
                 replacement: /xsearch/catalog/
               - source_labels: [__meta_kubernetes_namespace]
+                regex: jmc-web
+                target_label: __tmp_probe_path
+                replacement: /
+              - source_labels: [__meta_kubernetes_namespace]
                 regex: member-gateway
                 target_label: __tmp_probe_path
                 replacement: /
