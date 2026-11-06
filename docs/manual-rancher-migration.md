@@ -6,7 +6,8 @@ Rancher管理サーバ(`rancher.ibid.lan` / `192.168.1.149`)は、2026-10-13ま�
 本書は、**同じホスト上で単一ノードのK3sに移し、RancherをHelmで管理する**ための手順をまとめる。
 
 **2026-10-13に移行済み。** 今はこのホストのK3s(v1.35.4+k3s1)上で、Helmリリース`rancher`
-(v2.14.2、同日に2.14.1から更新)として動いている。実施の記録は[11. 実施記録](#11-実施記録2026-10-13)。
+(v2.14.3。2.14.1で移行し、同日に2.14.2、2026-11-06に2.14.3へ更新)として動いている。
+移行の記録は[11. 実施記録](#11-実施記録2026-10-13)、更新の記録は[8.](#8-フェーズ3-アップグレード例-2141--2142)。
 今後のアップグレードは[8.](#8-フェーズ3-アップグレード例-2141--2142)、日常の運用は[9.](#9-移行後の運用)を見る。
 
 移行後の操作は、このホスト上で次のコマンドを使う(K3sの管理者kubeconfigを`~/.kube`へコピーしない)。
@@ -442,11 +443,12 @@ docker update --restart=unless-stopped "$RANCHER_CONTAINER"   # 2.-2.で記録�
    起動直後のRancherが使うephemeral-storage(約2.5GB)で使用率が上がり、kubeletの退避閾値(空き約3.1GB)を
    下回ると、Rancher Podが退避されて止まる(2026-11-06に発生。下の実施記録)。
 3. 直前にバックアップを取る(5-1.と同じ`Backup` CR)。
-4. 今のvaluesのまま版だけ上げる。
+4. 今のvaluesのまま版だけ上げる(`VERSION`はアップグレード先の版)。
    ```bash
+   VERSION=2.14.3   # 例
    $H get values rancher -n cattle-system -o yaml > ~/rancher-migration/rancher-values.yaml
    $H repo update
-   $H upgrade rancher rancher-stable/rancher -n cattle-system --version 2.14.2 -f ~/rancher-migration/rancher-values.yaml
+   $H upgrade rancher rancher-stable/rancher -n cattle-system --version "$VERSION" -f ~/rancher-migration/rancher-values.yaml
    $K -n cattle-system rollout status deploy/rancher --timeout=15m
    ```
 5. 6.と同じ確認をする。rancher-backupのchartも、Rancherの版に合うものへ上げる。
@@ -472,7 +474,7 @@ docker update --restart=unless-stopped "$RANCHER_CONTAINER"   # 2.-2.で記録�
 
 ### 実施記録: 2.14.2 → 2.14.3(2026-11-06)
 
-上げた理由は、セキュリティ修正4件(SAMLレスポンスの再送攻撃、FleetのGitRepo `spec.paths`のパストラバーサルなど)。
+上げた理由は、セキュリティ修正を含むパッチリリースであること(詳細は上流のリリースノートを参照)。
 Harvester v1.8.2、K3s v1.35.4のまま。
 
 | 時刻(JST) | 内容 |
