@@ -428,26 +428,30 @@ docker update --restart=unless-stopped "$RANCHER_CONTAINER"   # 2.-2.で記録�
 
 移行が安定したら(目安2週間)、次のものを片付ける。
 
-- 止めたコンテナと`rancher-data-*`コンテナ
+- 止めたコンテナと`rancher-data-*`コンテナ、ボリューム`rancher-data`(約11GB)、`rancher/rancher`の旧イメージ
+  **【済(2026-11-06)】**。`trivy-cache`/`ibid-trivy-cache`は`scripts/vuln-scan.sh`が使うので消さない
 - `~/rancher-migration`のtarとバックアップファイル(`ca.key`は[9-2.](#9-2-サーバ証明書の更新)で使うので、安全な場所に移す)
 - `docker update --restart=no`のまま放置しないこと
 
 ## 8. フェーズ3: アップグレード(例: 2.14.1 → 2.14.2)
 
 1. [Harvesterのサポートマトリクス](https://www.suse.com/suse-harvester/support-matrix/all-supported-versions/harvester-v1-8-x/)で、
-   アップグレード先の版がHarvester v1.8.xに対応しているかを確認する(2026-10-13時点では2.14.1 / 2.14.2のみ)。
-   マイナーバージョンは1つずつ上げる。
-2. 直前にバックアップを取る(5-1.と同じ`Backup` CR)。
-3. 今のvaluesのまま版だけ上げる。
+   アップグレード先の版がHarvester v1.8.xに対応しているかを確認する(Harvester v1.8.xはRancher v2.14系のみ。
+   2.15系には上げられない)。マイナーバージョンは1つずつ上げる。
+2. **ホストのディスクの空きを確認する**(`df -h /`)。目安は15GB以上。新しいイメージ(約0.9GB)の取り込みと、
+   起動直後のRancherが使うephemeral-storage(約2.5GB)で使用率が上がり、kubeletの退避閾値(空き約3.1GB)を
+   下回ると、Rancher Podが退避されて止まる(2026-11-06に発生。下の実施記録)。
+3. 直前にバックアップを取る(5-1.と同じ`Backup` CR)。
+4. 今のvaluesのまま版だけ上げる。
    ```bash
    $H get values rancher -n cattle-system -o yaml > ~/rancher-migration/rancher-values.yaml
    $H repo update
    $H upgrade rancher rancher-stable/rancher -n cattle-system --version 2.14.2 -f ~/rancher-migration/rancher-values.yaml
    $K -n cattle-system rollout status deploy/rancher --timeout=15m
    ```
-4. 6.と同じ確認をする。rancher-backupのchartも、Rancherの版に合うものへ上げる。
-5. 失敗したときは、`helm rollback rancher -n cattle-system`で戻す。Rancherのデータ(CRD・settings)まで戻す
-   必要がある場合は、2.のバックアップを使い、公式の「Rollback」手順に従う。
+5. 6.と同じ確認をする。rancher-backupのchartも、Rancherの版に合うものへ上げる。
+6. 失敗したときは、`helm rollback rancher -n cattle-system`で戻す。Rancherのデータ(CRD・settings)まで戻す
+   必要がある場合は、3.のバックアップを使い、公式の「Rollback」手順に従う。
 
 ### 実施記録: 2.14.1 → 2.14.2(2026-10-13)
 
@@ -465,6 +469,28 @@ docker update --restart=unless-stopped "$RANCHER_CONTAINER"   # 2.-2.で記録�
 - 同じ時間帯の11:46に、運用者の作業でprod1の`rdndw`ノードを再起動した(このホストから`ubuntu`でSSHし、
   `sudo reboot`)。アップグレードとは無関係だが、その影響で、そのノードのWordPress 6サイトの片方の
   レプリカと、`metadatabase-v2`(1レプリカ)が数分止まった。Fleetの34/34への戻りが遅れたのもこのため。
+
+### 実施記録: 2.14.2 → 2.14.3(2026-11-06)
+
+上げた理由は、セキュリティ修正4件(SAMLレスポンスの再送攻撃、FleetのGitRepo `spec.paths`のパストラバーサルなど)。
+Harvester v1.8.2、K3s v1.35.4のまま。
+
+| 時刻(JST) | 内容 |
+|---|---|
+| 15:29 | `Backup/pre-upgrade-2143`を取得。このときのディスクは89%使用(空き約6.7GB)だった |
+| 15:31〜15:32 | `helm upgrade`(`--version 2.14.3`、`-f`で今のvalues)。v2.14.3のPodが起動。server-urlとCAは変わらず |
+| 15:34〜15:35 | 下流のcattle-cluster-agentがv2.14.3へ入れ替わる(4クラスタとも)。Fleetは57/57・19/19・56/56のまま |
+| 15:36 | **DiskPressureでRancher Podが退避される**。代わりのPodがすぐ起動して復帰 |
+| 15:50〜16:01 | DiskPressureが再発(91%)。イメージGCで`rancher/rancher`のイメージも消され、取り込み直しで約10分止まる |
+| 16:03 | Docker版の残骸(7.の最後)を片付け、空き24GB(61%)。以後DiskPressureは起きていない |
+
+- Rancherが止まっていた間も、下流のagent・Fleet・サイト・アプリには影響が無かった(止まるのはUIとRancher経由のkubectl)。
+- DiskPressure中にsystem-upgrade-controllerのPodが退避と再作成を繰り返し、`cattle-system`にFailed Podが約2,500個溜まった。
+  `kubectl -n cattle-system delete pod --field-selector=status.phase=Failed`で消した。
+- 15:48〜15:56に、3台(dev1 1台、prod1 2台)でkubeletが再起動した(Readyは外れない短いもの)。
+  prod1で再起動したのはシステム系のPod(fleet-agent、cattle-cluster-agent、rancher-webhook、kube-proxy)だけで、
+  WordPressやアプリのコンテナは再起動しなかった。
+- rancher-backupのchartは109.0.9のまま。`rancher-charts`(release-v2.14)には109.0.10+up10.0.11が出ている。
 
 K3s自体の更新は、Rancherの更新とは別の日に、
 Rancherのサポートマトリクスに載っているK3sの版へ上げる(`INSTALL_K3S_VERSION`を指定してインストールスクリプトを再実行する)。
@@ -564,5 +590,5 @@ K3sの内部証明書は、期限の90日前を過ぎてからK3sを再起動す
 残作業:
 
 - [ ] BaculaのFileSetに、K3s側のバックアップの保存先を追加する(9-1.)
-- [ ] 2026-10-27ごろ、問題が無ければDocker版の後片付けをする(7.の最後)
+- [x] 2026-10-27ごろ、問題が無ければDocker版の後片付けをする(7.の最後)→ 2026-11-06に実施(8.の実施記録)
 - [ ] `~/rancher-migration/ca.key`を安全な場所に保管する(9-2.)
