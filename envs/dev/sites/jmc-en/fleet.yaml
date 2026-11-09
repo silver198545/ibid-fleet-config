@@ -29,9 +29,28 @@ helm:
     # このサイトが必要とするプラグイン(宣言的)。適用のたびにwp-cliのJobが
     # インストール(バージョン固定)・有効化する。再現性のためversion明示を推奨。
     # 一覧から消しても自動削除はしない(削除は手動)。docs/manual-wordpress.md参照。
-    # plugins:
-    #   - name: advanced-custom-fields
-    #     version: "6.8.4"
+    plugins:
+      - name: authorizer
+        version: "3.16.0"
+      - name: classic-editor
+        version: "1.7.0"
+        activate: false
+      - name: classic-widgets
+        version: "0.3"
+      - name: tinymce-advanced
+        version: "5.10.1"
+      - name: vk-all-in-one-expansion-unit
+        version: "9.124.0"
+      - name: vk-blocks
+        version: "1.130.1"
+      - name: wp-file-manager
+        version: "8.0.7"
+      - name: wp-multibyte-patch
+        version: "2.9.4"
+      - name: wp-revisions-control
+        version: "1.4.4"
+      - name: wp-seopress
+        version: "10.4"
     # 同じホスト名の /ja と /en を別々のWordPress(jmc と jmc-en)で運用する。
     # このサイトは英語版で /en に置く(チャートのsitePath。docs/manual-wordpress-restore.md 6b)。
     # 公開ドメイン(外部nginx)は環境ごとに違うので下の targetCustomizations の publicHost に書く。
