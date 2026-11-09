@@ -33,7 +33,7 @@ helm:
       - name: add-to-any
         version: "1.8.18"
       - name: advanced-custom-fields
-        version: "6.8.10"
+        version: "6.8.11"
       - name: tinymce-advanced
         version: "5.10.1"
       - name: authorizer
@@ -51,7 +51,7 @@ helm:
       - name: intuitive-custom-post-order
         version: "3.2.0"
       - name: permalink-manager
-        version: "2.6.1"
+        version: "2.6.2"
       - name: wp-seopress
         version: "10.4"
       - name: timed-content
