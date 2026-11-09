@@ -121,8 +121,9 @@ def org_versions(slug, cache={}):
     return cache[slug]
 
 
-def capture(inv_dir, files):
+def capture(inv_dir, files, rejected_out=None):
     report = []
+    rejected = []
     for f in files:
         site = site_of(f)
         inv_file = os.path.join(inv_dir, f"{site}.json")
@@ -141,10 +142,12 @@ def capture(inv_dir, files):
             vs = org_versions(x["name"])
             if vs is None:
                 print(f"警告: {site}: {x['name']} はWordPress.orgに無いため取り込みません(手で管理する)。", file=sys.stderr)
+                rejected.append(f"{site}: {x['name']}(WordPress.orgに無い)")
                 return False
             if x["version"] not in vs:
                 print(f"警告: {site}: {x['name']} {x['version']} はWordPress.orgで配布されていない版のため取り込みません"
                       f"(Gitは今のまま)。devの管理画面で配布中の版へ更新してから取り込んでください。", file=sys.stderr)
+                rejected.append(f"{site}: {x['name']} {x['version']}(配布されていない版)")
                 return False
             return True
 
@@ -178,6 +181,9 @@ def capture(inv_dir, files):
             out.write(write_entries(text, new))
         report.append((site, changes))
 
+    if rejected_out:
+        with open(rejected_out, "w", encoding="utf-8") as out:
+            out.write("".join(f"{r}\n" for r in rejected))
     for site, changes in report:
         print(f"### {site}")
         for c in changes:
@@ -190,10 +196,11 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("capture")
     c.add_argument("--inventory-dir", required=True)
+    c.add_argument("--rejected-out", help="取り込めなかったもの(1行1件)を書き出すファイル")
     c.add_argument("files", nargs="+")
     a = ap.parse_args()
     if a.cmd == "capture":
-        capture(a.inventory_dir, a.files)
+        capture(a.inventory_dir, a.files, a.rejected_out)
 
 
 if __name__ == "__main__":

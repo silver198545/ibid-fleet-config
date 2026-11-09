@@ -8,7 +8,7 @@ scripts/plugin-check.sh から呼ぶ。
 Gitに取り込み、staging → 本番へ昇格する。この通知はその判断材料で、次の順に並べる。
   1. :rotating_light: devで脆弱性(Critical・High)のある版を使っているもの
   2. :warning: 本番の版に脆弱性があり、devでは直っているもの(昇格待ち)
-  3. :memo: devで更新・追加・削除したが、まだGitに取り込んでいないもの
+  3. :memo: devで更新・追加・削除・有効/無効の切り替えをしたが、まだGitに取り込んでいないもの
   4. 新しい版があるもの
 脆弱性の詳細(番号・内容)はSlackとRundeckのログにだけ出す(このリポジトリはpublicなので、GitHubには出さない)。
 """
@@ -78,7 +78,7 @@ def main():
     if prod_only:
         lines += ["", ":warning: *本番の版に脆弱性があり、devでは直っているもの(Gitへの取り込み・本番への昇格を進めてください)*"]
         capped(lines, prod_only, lambda it: f"• *{it[0]}*: `{it[1]['slug']}` 本番 {it[1]['production']} / "
-                                            f"dev {it[1]['current']} — {vuln_text(it[1]['production_vulns'])}")
+                                            f"dev {it[1]['current'] or '(削除済み。本番では手で削除)'} — {vuln_text(it[1]['production_vulns'])}")
 
     if uncaptured:
         lines += ["", ":memo: *devで変更済み・Gitに未取り込み*(確認が済んだら `0-dev-plugin-capture` で取り込む)"]
@@ -91,6 +91,8 @@ def main():
                     parts.append(f"{x['slug']} {x['pinned']}→{x['current']}")
                 elif x["uncaptured"] == "added":
                     parts.append(f"{x['slug']} {x['current']}(追加)")
+                elif x["uncaptured"] in ("activated", "deactivated"):
+                    parts.append(f"{x['slug']}({'有効化' if x['uncaptured'] == 'activated' else '無効化'})")
                 else:
                     parts.append(f"{x['slug']}(削除)")
             return f"• {s}: " + ", ".join(parts)
@@ -111,7 +113,7 @@ def main():
         for (slug, ver, req), ss in sorted(blocked.items()):
             lines.append(f"• `{slug}` {ver}(WordPress {req}以上): {', '.join(sorted(ss))}")
 
-    if not (vulnerable or prod_only or uncaptured or updatable):
+    if not (vulnerable or prod_only or uncaptured or updatable or blocked):
         lines += ["", "対応が必要なものはありません。"]
 
     lines += ["", "流れ: devの管理画面で更新 → 動作を確認 → Rundeck(WordPressControl)の `0-dev-plugin-capture` でGitに取り込む"

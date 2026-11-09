@@ -19,6 +19,8 @@ immutableエラーでHelmの適用が失敗する)。
 管理画面で更新してからGitに取り込む(scripts/capture-plugins.sh)までの間に、WordPress本体の更新などで
 このJobが動いても、確認中の版を戻さないため。版を下げたいときは、そのサイトで手で
 wp plugin install <name> --version=<版> --force を実行する。
+activate: false は「無効にしておく」(チャート0.7.7〜。それまでは「有効化しない」だけで、有効なものは有効のまま
+だった)。scripts/capture-plugins.sh がdevで無効のものをこう書くので、他の環境でも同じ状態にするため。
 */ -}}
 {{- if .Values.plugins }}
 {{- $img := .Values.wordpress.image }}
@@ -121,6 +123,11 @@ spec:
               {{- /* activate未指定はtrue扱い。defaultはfalseを空とみなすためhasKeyで判定 */ -}}
               {{- if or (not (hasKey . "activate")) .activate }}
               wp plugin activate {{ $name | quote }} --path=/tmp/wp 2>/dev/null || true
+              {{- else }}
+              # activate: false は「無効にしておく」(チャート0.7.7〜。devで無効にして取り込んだものを他の環境でも無効にする)
+              if wp plugin is-active {{ $name | quote }} --path=/tmp/wp 2>/dev/null; then
+                wp plugin deactivate {{ $name | quote }} --path=/tmp/wp
+              fi
               {{- end }}
               {{- end }}
 

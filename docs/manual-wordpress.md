@@ -168,7 +168,7 @@ Fleet側の適用状況はRancher UI(Continuous Delivery → Bundles)または
         version: "6.8.4"        # 再現性のためversion明示を推奨
       - name: classic-editor
         version: "1.7.0"
-        # activate: false       # インストールのみで有効化しない場合
+        # activate: false       # 無効にしておく場合(有効なら無効化する。チャート0.7.7〜)
     wordpress:
       ...
 ```

@@ -10,7 +10,7 @@
 # - devの管理画面で追加したプラグインは追加、更新したものは版を変え、削除したものは一覧から消す
 #   (一覧から消しても、他の環境のプラグインは同期Jobでは消えない。本番では手で削除する。
 #   docs/runbook/wordpress-update.md「プラグインを追加・削除する」)
-# - 無効のプラグインは activate: false で取り込む(同期Jobが勝手に有効化しないように)
+# - 無効のプラグインは activate: false で取り込む(同期Jobは有効化せず、有効なら無効にする。他の環境も同じ状態になる)
 # - WordPress.orgに無いプラグイン・版は取り込まない(同期Jobが入れられないため。警告を出す)
 # PRはdevだけに触れるので、validate通過後にauto-mergeする。
 #
@@ -71,9 +71,20 @@ for s in "${sites[@]}"; do
   files+=("envs/dev/sites/$s/fleet.yaml")
 done
 
-summary="$(python3 "$SCRIPT_DIR/lib/plugin_pins.py" capture --inventory-dir "$WORK" "${files[@]}")"
+summary="$(python3 "$SCRIPT_DIR/lib/plugin_pins.py" capture --inventory-dir "$WORK" --rejected-out "$WORK/rejected.txt" "${files[@]}")"
+if [[ -s "$WORK/rejected.txt" ]]; then
+  # 取り込めなかったもの(devとGitが違うまま残る)。一致していると誤解しないよう、最後にも出す
+  rejected="$(cat "$WORK/rejected.txt")"
+else
+  rejected=""
+fi
 if [[ -z "$summary" ]]; then
-  echo "Gitとdevのプラグインは一致しています(取り込むものはありません)。"
+  if [[ -n "$rejected" ]]; then
+    echo "取り込めるものはありません。次のものはdevとGitが違うまま残っています(上の警告を参照):"
+    echo "$rejected"
+  else
+    echo "Gitとdevのプラグインは一致しています(取り込むものはありません)。"
+  fi
   exit 0
 fi
 echo "取り込む内容:"
@@ -103,6 +114,7 @@ pr_commit_push_create "chore: ${target}のプラグインの版をdevの状態�
 \`envs/dev/sites/<site>/fleet.yaml\` の \`plugins:\` に取り込む(devのPodの \`wp plugin list\` の版・有効/無効)。
 
 ${summary}
+$([[ -n "$rejected" ]] && printf '\n取り込めなかったもの(devとGitが違うまま。WordPress.orgに無い・配布されていない版):\n%s\n' "$(sed 's/^/- /' <<<"$rejected")")
 
 devには既にこの版が入っているので、マージしてもdevは変わらない(プラグイン同期Jobは同じ版なら何もしない)。
 devで確認済みのものを、サイトごとにstagingを通してproductionへ昇格する(docs/runbook/wordpress-update.md)。
@@ -112,3 +124,7 @@ EOF
 pr_unlock_repo
 pr_automerge_and_wait "$PR_URL"
 echo "Gitに取り込みました。staging → 本番への昇格は 2-staging → 3-production-promote で行います。"
+if [[ -n "$rejected" ]]; then
+  echo "警告: 次のものは取り込めず、devとGitが違うまま残っています:" >&2
+  echo "$rejected" >&2
+fi

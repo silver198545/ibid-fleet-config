@@ -15,7 +15,7 @@ plugins: []
 #     version: "6.8.4"
 #   - name: classic-editor
 #     version: "1.7.0"
-#     activate: false   # インストールのみで有効化しない場合
+#     activate: false   # 無効にしておく場合(有効なら無効化する。チャート0.7.7〜)
 
 # サイトの日次バックアップ(templates/backup-cronjob.yaml)。DBダンプとwp-contentのtarを
 # NFS上の backup/<env>/<namespace>/ に置く。DB(harvester)とwp-content(nfs-external)は

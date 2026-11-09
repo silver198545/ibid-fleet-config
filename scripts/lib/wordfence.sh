@@ -12,17 +12,20 @@ WORDFENCE_CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/ibid-fleet-config/vuln"
 # フィードのファイルのパスを標準出力に返す。キーが無い・取れず前回の分も無ければ空を返す(終了コードは0)。
 # 引数: <一時ファイルを置くディレクトリ(権限700)>
 wordfence_feed() {
-  local work="$1" key="$WORDFENCE_CONF_DIR/wordfence-api-key" cache="$WORDFENCE_CACHE_DIR/wordfence-production.json"
+  local work="$1" key="$WORDFENCE_CONF_DIR/wordfence-api-key" cache="$WORDFENCE_CACHE_DIR/wordfence-production.json" tmp
   [[ -s "$key" ]] || return 0
   mkdir -p "$WORDFENCE_CACHE_DIR"
   chmod 700 "$WORDFENCE_CACHE_DIR"
   if [[ ! -s "$cache" || -n "$(find "$cache" -mmin +720 2>/dev/null)" ]]; then
     # キーをコマンドラインに出さないよう、ヘッダはファイルで渡す
     printf 'Authorization: Bearer %s\n' "$(tr -d '[:space:]' < "$key")" >"$work/wf-header"
-    if curl -fsS --compressed --max-time 600 -H @"$work/wf-header" -o "$cache.tmp" "$WORDFENCE_FEED_URL"; then
-      mv "$cache.tmp" "$cache"
+    # 一時ファイルは実行ごとに別にする(vuln-scan と plugin-check が同時に取得しても壊れないように。mvは同じ
+    # ファイルシステム内なので置き換えは一瞬で、読む側が途中のファイルを見ることはない)
+    tmp="$(mktemp "$cache.XXXXXX")"
+    if curl -fsS --compressed --max-time 600 -H @"$work/wf-header" -o "$tmp" "$WORDFENCE_FEED_URL"; then
+      mv "$tmp" "$cache"
     else
-      rm -f "$cache.tmp"
+      rm -f "$tmp"
       echo "警告: Wordfenceのフィードを取得できませんでした$([[ -s "$cache" ]] && echo '(前回の分を使います)')。" >&2
     fi
     rm -f "$work/wf-header"

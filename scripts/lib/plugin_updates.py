@@ -129,6 +129,14 @@ def check(wp_version, files, out, feed, installed_dir=None):
         import vuln_report  # PyYAMLが要るので、脆弱性を調べるときだけ読む
         idx, in_range = vuln_report.wordfence_index(feed), vuln_report.in_range
 
+    # Gitの有効/無効(activate: false)。plugin_pins.py と同じ読み方をする
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import plugin_pins
+    active_pin = {}
+    for f, t in contents.items():
+        parsed = plugin_pins.parse(t)
+        active_pin[site_of(f)] = {e["name"]: e["activate"] for e in (parsed[2] if parsed else [])}
+
     sites = {}
     for f, ps in pairs.items():
         site = site_of(f)
@@ -138,19 +146,24 @@ def check(wp_version, files, out, feed, installed_dir=None):
         prod = {}
         if os.path.exists(prod_file):
             prod = {m.group(2): m.group(4) for m in PAIR.finditer(open(prod_file, encoding="utf-8").read())}
-        names = list(pinned) + sorted(set(inv or {}) - set(pinned))
+        # 本番にだけ残っているもの(devで削除して取り込み済み・本番では未削除)も、本番の版の脆弱性を調べる
+        names = list(pinned) + sorted((set(inv or {}) | set(prod)) - set(pinned))
         rows = []
         for slug in names:
             pin = pinned.get(slug, "")
             if inv is not None:
                 cur = inv[slug]["version"] if slug in inv else ""
-                # Gitへの取り込み待ち: 追加(Gitに無い)・更新(版が違う)・削除(devに無い)
-                if not pin:
+                # Gitへの取り込み待ち: 追加(Gitに無い)・更新(版が違う)・削除(devに無い)・有効/無効の切り替え
+                if not pin and not cur:
+                    state = ""  # 本番にだけある(devでは削除済み・取り込み済み)
+                elif not pin:
                     state = "added"
                 elif not cur:
                     state = "removed"
                 elif cur != pin:
                     state = "changed"
+                elif active_pin.get(site, {}).get(slug, True) != (inv[slug].get("status") != "inactive"):
+                    state = "activated" if inv[slug].get("status") != "inactive" else "deactivated"
                 else:
                     state = ""
                 if slug not in latest and slug not in blocked and state == "added":
