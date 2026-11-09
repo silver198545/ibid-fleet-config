@@ -70,7 +70,13 @@ Debian・Photonのパッケージは修正版の無いHIGHが常に数十件あ�
    - `slack-webhook` は週次の通知(`--notify`)に必要。無いと `--notify` はエラーで止まる。
      `https://hooks.slack.com/services/T…/B…/…` の形で書く(`T…/B…/…` の部分だけでもよい。先頭を補う)
    - `wordfence-api-key` が無いと、WordPressのコア・プラグイン・テーマの検査を飛ばし、警告を出す
-     (フィードは12時間キャッシュする: `~/.cache/ibid-fleet-config/vuln/`)
+     (フィードは12時間キャッシュする: `~/.cache/ibid-fleet-config/vuln/wordfence-production.json`。
+     `scripts/plugin-check.sh` も同じキー・キャッシュを使う。取得は `scripts/lib/wordfence.sh`)
+   - 使うフィードは **production**(`/api/intelligence/v3/vulnerabilities/production`)。2026-11-09までは
+     scanner フィードを使っていたが、scanner にはCVSS(深刻度)が含まれず、WordPressの脆弱性がすべて
+     「MEDIUM以下」として数えられていなかった(実質、WordPressの検査が効いていなかった)。切り替え後の最初の
+     週次の通知では、それまで見えていなかったものが「新たに見つかった」として出ることがある。
+     同じキーで短時間に何度も取得すると429(回数制限)になる。そのときは前回のキャッシュを使う
    - 非公開のGHCRイメージを読めず「検査できませんでした」になるときは、`read:packages` だけのclassic PATを
      `~/.config/ibid-fleet-config/ghcr-read-token` に同じ要領で置く(2026-10-27時点では不要だった)
 3. **Rundeckのジョブを取り込む**([manual-rundeck.md](manual-rundeck.md)「取り込み・更新」)。週次の実行は、
@@ -101,7 +107,7 @@ QA_NO_STATUS=1 scripts/vuln-scan.sh staging sites abc      # 記録せずに試�
 | 自作アプリのOSパッケージ・ベースイメージ | `SRC_REF` はそのままで `TAG` だけ上げて作り直す(ベースイメージの最新を取り込む) |
 | 自作アプリのランタイムのEOL | `images/<app>/Dockerfile` の `FROM` の版を上げる |
 | Bitnami(WordPress・MariaDB)のイメージ | `scripts/bump-chart.sh --update-images`(毎週の `auto-update` でもdevへ入る)→ 各サイトへ昇格 |
-| WordPressのプラグイン・テーマ | fleet.yamlの `plugins` で宣言しているものは版を上げる(`scripts/bump-plugins.sh`)。宣言していないもの(wp-content内)は、サイトの管理画面で更新するか、`plugins` で宣言して版を固定する([manual-wordpress.md](manual-wordpress.md)) |
+| WordPressのプラグイン・テーマ | fleet.yamlの `plugins` で宣言しているものは、devの管理画面で更新して確かめ、Rundeckの `0-dev-plugin-capture` で取り込んで昇格する。宣言していないもの(wp-content内)は、サイトの管理画面で更新するか、`plugins` で宣言して版を固定する([manual-wordpress.md](manual-wordpress.md)) |
 | 修正版が無い | 使っていなければ削除する。使っているなら代わりを探す。すぐ直せないときは下の除外を期限付きで書く |
 
 ## 除外

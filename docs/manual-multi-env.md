@@ -270,9 +270,18 @@ Rancher UI(Continuous Delivery → Git Repos → base-infra)で `paths` を確�
   [values.yaml](../charts/ibid-wordpress/values.yaml) に書き込み、上記「チャート更新」と同じ流れでdevまで反映する。
   PRの本文にはイメージ内のバージョン変化(例: WordPress 7.0 → 7.1.3)が書かれ、
   メジャー更新なら「stagingで本番データでの確認必須」と明記される。
-- **プラグイン更新**: `scripts/bump-plugins.sh`(`--dry-run` で書き換えだけ)。devの全サイトの
-  `plugins:` をWordPress.orgの最新版(今のWordPressで動くもの)へ上げるPRを作りauto-mergeする。
-- **自動実行**: 上の2つは [auto-update.yaml](../.github/workflows/auto-update.yaml) が**毎週月曜9:00(JST)**に
+- **プラグイン更新**(2026-11-09から**サイトの管理者が判断して入れる**。自動では入らない):
+  サイトの管理者(`wpadmins`)が**devの管理画面で**プラグインを更新・追加して動作を確かめ、Rundeckの
+  `0-dev-plugin-capture`(`scripts/capture-plugins.sh <site...>`)で、devに入っている版(有効/無効を含む)を
+  `plugins:` に取り込むPRを作りauto-mergeする。そこから先は通常の昇格フロー(staging → 本番)。
+  全サイトがWordPress.orgのプラグインを `plugins:` で固定する(WordPress.orgに無いもの・配布されていない版は
+  取り込めないので、各環境の管理画面で管理する)。チャート0.7.7からプラグイン同期Jobは**版を下げない**
+  (入っている版の方が新しければ警告だけ)ので、取り込む前にWordPress本体の更新で同期Jobが動いても、確認中の版は戻らない。
+  Rundeckの `tools/plugin-check`(`scripts/plugin-check.sh --notify all`)が**毎週月曜9:00(JST)**に、devに入っている版を
+  基準に、脆弱性(WordfenceのCritical・High)のある版、本番の版に脆弱性がありdevでは直っているもの、Gitに未取り込みのもの、
+  新しい版があるものをSlackへ知らせる。脆弱性の照合はpublicなGitHubに出さないため、踏み台で行う。
+  (`scripts/bump-plugins.sh <site>` は、管理画面を通さずGit側で最新版へ上げる運用者向けの手段として残す)
+- **自動実行**: イメージ更新は [auto-update.yaml](../.github/workflows/auto-update.yaml) が**毎週月曜9:00(JST)**に
   実行する(Actionsから手動起動も可)。更新が無い週は何もしない。devへの反映までが自動で、
   productionへの昇格は人がpromoteで行う。失敗するとGitHubから通知メールが届く
   (PROMOTE_TOKENの期限切れ等)。
@@ -283,11 +292,13 @@ WordPressコア/プラグインのイメージはdigest固定(= セキュリテ�
 止まる設計、[roadmap.md](roadmap.md) #6)なので、以下を**毎月1日を目安に**まとめて実施する
 (前後にずれても良いが月を跨がないこと)。初回は2026-08-01。
 
-1. **WordPressコア・プラグインの確認**: devへの更新は毎週の `auto-update` が済ませているので、
-   その間のPR(Actionsの実行履歴)とdevの状態を確認し、問題なければstagingで確認してからproductionへ昇格する
+1. **WordPressコア・プラグインの確認**: コアのdevへの更新は毎週の `auto-update` が済ませ、プラグインは
+   サイトの管理者がdevの管理画面で更新し `0-dev-plugin-capture` でGitに取り込んでいる。その間のPR(Actionsの実行履歴)とdevの状態を確認し、
+   問題なければstagingで確認してからproductionへ昇格する
    (4サイトずつ。[runbook/wordpress-update.md](runbook/wordpress-update.md))。`auto-update` が失敗していないかも見る。
-   自動更新から外れたプラグイン(WordPress.orgで公開停止、新しいWordPressが必要等。
-   実行ログに警告が出る)は個別に判断する。
+   毎週の `tools/plugin-check` の通知で、脆弱性のある版(:rotating_light:)が残っていればサイトの管理者に更新を促す。
+   上げられないプラグイン(WordPress.orgで公開停止、新しいWordPressが必要等。
+   通知・実行ログに出る)は個別に判断する。
    `wp-file-manager`(過去に重大脆弱性の履歴あり)は特に、その時点で必要かどうかを
    毎回再検討する。
 3. **Sealed Secrets鍵の再バックアップ**: ローテーションの有無に関わらず、

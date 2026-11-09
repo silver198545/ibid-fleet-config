@@ -94,9 +94,14 @@ pass/fail only, and scans run on the bastion, not in Actions. See `docs/manual-v
   normal changes go through PR merge; pause the env's GitRepo before using it on production),
   `update-app-image.sh` (apps: `set-image` does image bump → build → dev in one run; then
   `deploy-staging` (auto-merged, apps stay resident on staging) and `deploy-production`), `bump-chart.sh [--update-images] "<title>"` (chart change/Bitnami digest bump →
-  publish → all dev sites' `helm.version`, one run), `bump-plugins.sh` (dev plugins → latest
-  WordPress.org versions), `wordpress-pipeline.sh` (WP pipelines: production content → dev site, staging
-  start/upgrade/cleanup, staging → production promotion that waits for a human merge). `auto-update.yaml` runs both weekly (dev only; production still via promote). These scripts auto-merge dev-only and staging-only PRs; see branch protection below.
+  publish → all dev sites' `helm.version`, one run), `capture-plugins.sh <site...|all>` (record the
+  plugins currently installed on dev — versions, active/inactive — into the sites' fleet.yaml; Rundeck `0-dev-plugin-capture`),
+  `plugin-check.sh` (report-only; Rundeck `tools/plugin-check` notifies Slack weekly: vulnerable versions highlighted,
+  uncaptured dev changes), `bump-plugins.sh <site...|all>` (operator-only: bump pins to latest WordPress.org versions), `wordpress-pipeline.sh` (WP pipelines: production content → dev site, staging
+  start/upgrade/cleanup, staging → production promotion that waits for a human merge). `auto-update.yaml` runs `bump-chart.sh --update-images` weekly (dev only; production still via promote).
+  Plugin updates are **not** automatic (since 2026-11-09): site admins (`wpadmins`) update and test plugins in the
+  **dev wp-admin**, then capture the versions into Git (`capture-plugins.sh`) and promote as usual. All sites pin their
+  WordPress.org plugins in fleet.yaml; the chart's plugin-sync Job never downgrades (0.7.7+), so un-captured dev updates survive. These scripts auto-merge dev-only and staging-only PRs; see branch protection below.
 - `docs/` — manual runbooks for steps Fleet cannot automate. Always check these before changing
   behavior they document, and update them when the corresponding config changes. `docs/runbook/` holds
   the short, steps-only operator runbooks (new site, WP update, new app, app update, troubleshooting);

@@ -7,7 +7,7 @@
 
 --trivy は Trivy(image --format json)の結果。--wp は scripts/vuln-scan.sh が wp-cli で取った
 {"core": "<版>", "plugins": [...], "themes": [...]}(各要素は wp plugin/theme list の name・version・update_version)。
---wordfence は Wordfence Intelligence の scanner フィード(v3)。無ければWordPressの検査は警告にして飛ばす。
+--wordfence は Wordfence Intelligence の production フィード(v3。scanner フィードにはCVSSが無く、深刻度を判定できない)。無ければWordPressの検査は警告にして飛ばす。
 --unscanned は検査できなかったものの理由(警告。--strict(qa/vuln-policy.yaml の enforce: true)ならNG)。
 --info は判定に数えない情報(上流の更新等)。
 判定の基準は qa/vuln-policy.yaml の先頭のコメントと docs/manual-vuln-scan.md。
@@ -111,7 +111,7 @@ def runtimes(trivy):
 
 
 # ---------------------------------------------------------------------------
-# WordPress(Wordfence Intelligence の scanner フィード)
+# WordPress(Wordfence Intelligence の production フィード)
 # ---------------------------------------------------------------------------
 
 def vkey(v):

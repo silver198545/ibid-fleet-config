@@ -3,24 +3,42 @@
 詳しい説明: [operations-flow.md](../operations-flow.md)、[manual-multi-env.md](../manual-multi-env.md) 4章
 
 更新は「devに入れる → devで確認 → stagingで本番データを使って確認 → 本番へ昇格 → stagingから削除」の順。
-devに入れるところは自動化されている。本番へは必ずstagingを通す(stagingに同時に置けるのは4サイトまで)。
+devに入れるのは、WordPress本体・MariaDBは自動。プラグインはサイトの管理者がdevの管理画面で更新して確かめ、RundeckでGitに取り込む。
+本番へは必ずstagingを通す(stagingに同時に置けるのは4サイトまで)。
 
-Rundeck(プロジェクト `WordPressControl`)では、手順B(staging)がジョブ `2-staging`、
+Rundeck(プロジェクト `WordPressControl`)では、手順Aのプラグインの取り込みが `0-dev-plugin-capture`、手順B(staging)がジョブ `2-staging`、
 手順C(バックアップ → 昇格PR → 人がマージ → 本番の確認)が `3-production-promote`、
 手順D(stagingから削除)が `4-staging-cleanup` で1回ずつになる。
 devのサイトに本番のコンテンツを入れ直したいときは `1-dev-refresh`([manual-rundeck.md](../manual-rundeck.md))。
 
 ## A. devへの反映(どれか)
 
-### 自動(毎週月曜 9:00)
+### WordPress本体・MariaDB: 自動(毎週月曜 9:00)
 
-`auto-update` ワークフローが、WordPress本体・MariaDBのイメージとプラグインの新しい版をdevへ自動で入れる。
+`auto-update` ワークフローが、WordPress本体・MariaDBのイメージの新しい版をdevへ自動で入れる。
 何もしなくてよい。結果はGitHubの Actions → `auto-update`、または作られたPRで見る。
 すぐ実行したいとき:
 
 ```bash
 gh workflow run auto-update.yaml
 ```
+
+### プラグイン: サイトの管理者がdevの管理画面で更新し、Gitに取り込む(2026-11-09〜)
+
+プラグインは自動では上がらない。毎週月曜 9:00 に Rundeck の `tools/plugin-check` が、新しい版があるもの・
+Gitに取り込んでいないものを Slack へ知らせる。**:rotating_light: が付いたもの(脆弱性のある版を使っている)は早めに**更新する。
+
+1. devのサイトの管理画面(`https://<site>.dev.ibid.lan/<ja|en>/wp-admin/`)でプラグインを更新する(追加・削除・有効/無効の切り替えも同じ)
+2. devのサイトで表示・管理画面・プラグイン固有の画面を確認する(下の「devで確認する」)
+3. Rundeck(`WordPressControl`)の `0-dev-plugin-capture` を開き、`sites` でサイトを選んで実行する
+   (devに入っている版がGitに取り込まれ、自動でマージされる。devは変わらない)
+4. 手順B(staging)→ 手順C(本番)へ進む
+
+- すぐ確認したいときは `tools/plugin-check` を手で実行する(`notify=no` ならSlackへは送らない)
+- 取り込む前に月曜の `auto-update`(WordPress本体の更新)が動いても、devで上げた版は戻らない(チャート0.7.7〜)
+- WordPress.orgに無いプラグイン(例: `cell` の `biz-calendar`)はGitで管理できない。各環境の管理画面で更新する
+- WordPress.orgで配布されていない古い版は取り込めない。管理画面で配布中の版へ更新してから取り込む
+- **本番・stagingの管理画面ではプラグインを更新しない**(Gitの版とずれる。本番へは必ずdevで確かめて昇格する)
 
 ### WordPress本体・MariaDBだけを手で更新する
 
@@ -31,18 +49,20 @@ scripts/bump-chart.sh --update-images "feat: WordPress/MariaDBイメージを最
 
 PRの本文に「**メジャー更新**」「**メジャーリリース**」と出たら、手順Bの確認を特に念入りに行う。
 
-### プラグインだけを手で更新する
+### プラグインを端末から取り込む・上げる(Rundeckを使わない場合)
 
 ```bash
 git checkout main && git pull
-scripts/bump-plugins.sh            # 先に中身だけ見たいときは --dry-run
+scripts/plugin-check.sh all             # 状態を見るだけ
+scripts/capture-plugins.sh web          # devに入っている版をGitに取り込む(all で全サイト。--dry-run で書き換えだけ)
+scripts/bump-plugins.sh web             # 管理画面を通さず、Git側で最新版へ上げる(運用者向け)
 ```
 
 ### プラグインを追加・削除する
 
-1. `envs/dev/sites/<site>/fleet.yaml` の `plugins:` に追加する(`name` と `version`)
-2. PRを作ってマージする(devに自動で入る)
-3. 削除は一覧から消すだけでは消えない。devと本番でそれぞれ手で消す(stagingは片付けで消えるので不要):
+1. devの管理画面で追加・削除して確かめ、`0-dev-plugin-capture` で取り込む(上の手順)。
+   手でGitに書くときは `envs/dev/sites/<site>/fleet.yaml` の `plugins:` に `name` と `version`(無効なら `activate: false`)
+2. 削除は一覧から消えるだけで、他の環境のプラグインは消えない。本番では手で消す(stagingは片付けで消えるので不要):
    ```bash
    kubectl --context <dev1|prod1> -n wordpress-<site> exec deploy/wordpress-<site> -c wordpress -- \
      sh -c 'cd /opt/bitnami/wordpress && wp plugin deactivate <name> && wp plugin delete <name>'

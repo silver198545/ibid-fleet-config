@@ -15,6 +15,12 @@ helmフック(post-upgrade)には意図的にしない: Fleet経由の適用で�
 構成が変わったときだけ新しいJobが作られる(Jobはimmutableなため名前を変えて作り直す方式)。
 このテンプレートのJobの中身を変えたら $jobRev を上げること(上げないと同名Jobの更新になり、
 immutableエラーでHelmの適用が失敗する)。
+版を下げない(チャート0.7.7〜): 入っている版の方が新しければ入れ直さず、警告だけ出す。サイトの管理者がdevの
+管理画面で更新してからGitに取り込む(scripts/capture-plugins.sh)までの間に、WordPress本体の更新などで
+このJobが動いても、確認中の版を戻さないため。版を下げたいときは、そのサイトで手で
+wp plugin install <name> --version=<版> --force を実行する。
+activate: false は「無効にしておく」(チャート0.7.7〜。それまでは「有効化しない」だけで、有効なものは有効のまま
+だった)。scripts/capture-plugins.sh がdevで無効のものをこう書くので、他の環境でも同じ状態にするため。
 */ -}}
 {{- if .Values.plugins }}
 {{- $img := .Values.wordpress.image }}
@@ -24,7 +30,7 @@ immutableエラーでHelmの適用が失敗する)。
 {{- else }}
 {{- $imgRef = printf "%s:%s" $imgRef $img.tag }}
 {{- end }}
-{{- $jobRev := "2" }}
+{{- $jobRev := "3" }}
 {{- $syncHash := printf "%s|%s|%s" (toJson .Values.plugins) $imgRef $jobRev | sha256sum | trunc 8 }}
 apiVersion: batch/v1
 kind: Job
@@ -101,10 +107,12 @@ spec:
               echo "=== {{ $name }} を同期"
               {{- if .version }}
               current="$(wp plugin get {{ $name | quote }} --field=version --path=/tmp/wp 2>/dev/null || true)"
-              if [ "$current" != {{ .version | quote }} ]; then
-                wp plugin install {{ $name | quote }} --version={{ .version | quote }} --force --path=/tmp/wp
-              else
+              if [ "$current" = {{ .version | quote }} ]; then
                 echo "既にバージョン {{ .version }} が入っています。スキップ。"
+              elif [ -n "$current" ] && /opt/bitnami/php/bin/php -r 'exit(version_compare($argv[1], $argv[2], ">") ? 0 : 1);' "$current" {{ .version | quote }}; then
+                echo "警告: 入っている版 ${current} の方が指定 {{ .version }} より新しいため、戻しません(Gitへの取り込み待ち。scripts/capture-plugins.sh)。"
+              else
+                wp plugin install {{ $name | quote }} --version={{ .version | quote }} --force --path=/tmp/wp
               fi
               {{- else }}
               # バージョン未指定: 未導入時のみ最新を入れる(環境間の再現性のためversion指定を推奨)
@@ -115,6 +123,11 @@ spec:
               {{- /* activate未指定はtrue扱い。defaultはfalseを空とみなすためhasKeyで判定 */ -}}
               {{- if or (not (hasKey . "activate")) .activate }}
               wp plugin activate {{ $name | quote }} --path=/tmp/wp 2>/dev/null || true
+              {{- else }}
+              # activate: false は「無効にしておく」(チャート0.7.7〜。devで無効にして取り込んだものを他の環境でも無効にする)
+              if wp plugin is-active {{ $name | quote }} --path=/tmp/wp 2>/dev/null; then
+                wp plugin deactivate {{ $name | quote }} --path=/tmp/wp
+              fi
               {{- end }}
               {{- end }}
 

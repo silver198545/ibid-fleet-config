@@ -35,7 +35,6 @@ cd "$REPO_ROOT"
 # Trivy はタグでなくdigestで固定する(スキャナ自体を意図せず差し替えられないように)。上げるときは
 # リリースノートを確認してから、タグとdigestを一緒に変える。脆弱性DBは実行のたびに最新を取る
 TRIVY_IMAGE="docker.io/aquasec/trivy:0.65.0@sha256:a22415a38938a56c379387a8163fcb0ce38b10ace73e593475d3658d578b2436"
-WORDFENCE_FEED="https://www.wordfence.com/api/intelligence/v3/vulnerabilities/scanner"
 WP_PATH="/opt/bitnami/wordpress"
 CONF_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/ibid-fleet-config"
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/ibid-fleet-config/vuln"
@@ -84,18 +83,15 @@ if ! docker info >/dev/null 2>&1; then
   echo "警告: $msg" >&2
   exit 0
 fi
-# SlackのWebhook URL。Slackの画面によっては T…/B…/… の部分だけが表示されるので、その形なら先頭を補う。
-# 検査に時間がかかるので、URLの形は最初に確かめる(値そのものは表示しない)
+# shellcheck source=lib/slack.sh
+source "$SCRIPT_DIR/lib/slack.sh"
+# shellcheck source=lib/wordfence.sh
+source "$SCRIPT_DIR/lib/wordfence.sh"
+
+# SlackのWebhook URL。検査に時間がかかるので、URLの形は最初に確かめる(値そのものは表示しない)
 SLACK_URL=""
 if [[ $NOTIFY -eq 1 ]]; then
-  [[ -s "$CONF_DIR/slack-webhook" ]] \
-    || die "--notify には $CONF_DIR/slack-webhook(SlackのWebhook URL)が要ります(docs/manual-vuln-scan.md「準備」)。"
-  SLACK_URL="$(tr -d '[:space:]' < "$CONF_DIR/slack-webhook")"
-  if [[ "$SLACK_URL" =~ ^T[A-Z0-9]+/B[A-Z0-9]+/[A-Za-z0-9]+$ ]]; then
-    SLACK_URL="https://hooks.slack.com/services/$SLACK_URL"
-  fi
-  [[ "$SLACK_URL" =~ ^https://hooks\.slack\.com/ ]] \
-    || die "$CONF_DIR/slack-webhook が https://hooks.slack.com/services/T…/B…/… の形ではありません(docs/manual-vuln-scan.md「準備」)。"
+  SLACK_URL="$(slack_webhook_url)" || exit 1
 fi
 
 kc() { kubectl --context "$CTX" "$@"; }
@@ -144,26 +140,6 @@ scan_image() {
   return 0
 }
 
-# Wordfenceのフィード(12時間キャッシュ)。キーが無い・取れなければ空を返す
-WORDFENCE=""
-wordfence_feed() {
-  local key="$CONF_DIR/wordfence-api-key" cache="$CACHE_DIR/wordfence-scanner.json"
-  [[ -s "$key" ]] || return 0
-  if [[ ! -s "$cache" || -n "$(find "$cache" -mmin +720 2>/dev/null)" ]]; then
-    # キーをコマンドラインに出さないよう、ヘッダはファイルで渡す
-    printf 'Authorization: Bearer %s\n' "$(tr -d '[:space:]' < "$key")" >"$WORK/wf-header"
-    if curl -fsS --compressed --max-time 600 -H @"$WORK/wf-header" -o "$cache.tmp" "$WORDFENCE_FEED"; then
-      mv "$cache.tmp" "$cache"
-    else
-      rm -f "$cache.tmp"
-      echo "警告: Wordfenceのフィードを取得できませんでした$([[ -s "$cache" ]] && echo '(前回の分を使います)')。" >&2
-    fi
-    rm -f "$WORK/wf-header"
-  fi
-  [[ -s "$cache" ]] && echo "$cache"
-  return 0
-}
-
 # サイトのコア・プラグイン・テーマの版(wp-cli)。プラグイン・テーマのコードは読み込まない(警告が出力に混ざるため)
 wp_inventory() {
   local site="$1" out="$2" ns="wordpress-$1"
@@ -194,7 +170,8 @@ app_updates() {
   return 0
 }
 
-[[ "$KIND" == sites ]] && WORDFENCE="$(wordfence_feed)"
+WORDFENCE=""
+[[ "$KIND" == sites ]] && WORDFENCE="$(wordfence_feed "$WORK")"
 
 total_ng=0
 total_warn=0
@@ -265,9 +242,7 @@ if [[ $NOTIFY -eq 1 ]]; then
     --baseline-out "$WORK/baseline.new.json" --enforce "$ENFORCE" --url "${RUNDECK_EXEC_URL:-}" \
     --payload-out "$WORK/slack.json" \
     --summary "${summary[@]}" --findings "$WORK"/findings-*.json
-  # Webhook URLをコマンドラインに出さないよう、curlの設定ファイルで渡す
-  printf 'url = "%s"\n' "$SLACK_URL" >"$WORK/slack.curl"
-  if curl -fsS -K "$WORK/slack.curl" -X POST -H 'Content-Type: application/json' --data-binary @"$WORK/slack.json" >/dev/null; then
+  if slack_post "$SLACK_URL" "$WORK/slack.json" "$WORK"; then
     echo "Slackへ通知しました。"
     mv "$WORK/baseline.new.json" "$baseline"
   else
