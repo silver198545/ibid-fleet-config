@@ -22,6 +22,8 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
 | 自作アプリの開発環境更新 | `Rancher-AppControll` の `<app>/1-dev-update` | `scripts/update-app-image.sh dev-update <app>` |
 | 自作アプリのstaging更新 | `Rancher-AppControll` の `<app>/2-staging-update` | `scripts/update-app-image.sh staging-update <app>` |
 | 自作アプリの本番環境更新 | `Rancher-AppControll` の `<app>/3-production-update` | `scripts/update-app-image.sh release-production <app>` |
+| WordPressのプラグインをGitに取り込む(devの管理画面で更新したもの) | `WordPressControl` の `0-dev-plugin-capture` | `scripts/capture-plugins.sh <site>...` |
+| WordPressのプラグインの更新の確認・通知(毎週) | `WordPressControl` の `tools/plugin-check` | `scripts/plugin-check.sh [--notify] <site...\|all>` |
 | WordPressの開発環境更新(本番コンテンツ → dev) | `WordPressControl` の `1-dev-refresh` | `scripts/wordpress-pipeline.sh dev-refresh <site>...` |
 | WordPressのstagingでの確認(本番データ) | `WordPressControl` の `2-staging` | `scripts/wordpress-pipeline.sh staging-start` / `staging-upgrade <site>` |
 | WordPressのstagingの後片付け | `WordPressControl` の `4-staging-cleanup` | `scripts/wordpress-pipeline.sh staging-cleanup <site>` |
@@ -450,6 +452,19 @@ dev・staging・本番のいずれかのrollout状況とWEB疎通を確認する
 
 ## WordPress(プロジェクト `WordPressControl`)
 
+### 0-dev-plugin-capture(devのプラグインをGitに取り込む)
+
+2026-11-09から、プラグインは自動では上げない。**サイトの管理者(`wpadmins`)がdevの管理画面で**更新・追加して動作を確かめ、
+このジョブで選んだサイトのdevに今入っているプラグイン(`wp plugin list` の版・有効/無効)を
+`envs/dev/sites/<site>/fleet.yaml` の `plugins:` に取り込むPRを作り、auto-mergeする(`scripts/capture-plugins.sh <site>...`。
+devだけのPRなので承認は要らない。devは既にその版なので変わらない)。本番へは従来どおり `2-staging` → `3-production-promote`。
+
+- devの管理画面で削除したものは一覧から消す。他の環境のプラグインは同期Jobでは消えないので、本番では手で削除する
+- WordPress.orgに無いプラグイン(例: `biz-calendar`)・配布されていない古い版は取り込めない(警告が出る)。
+  古い版は、管理画面で配布中の版へ更新してから取り込む
+- 取り込む前にWordPress本体の更新(毎週の `auto-update`)でプラグイン同期Jobが動いても、チャート0.7.7からは
+  入っている版の方が新しければ戻さない(警告だけ)
+
 ### 1-dev-refresh(開発環境更新パイプライン: 本番コンテンツ → dev)
 
 選んだサイトごとに:
@@ -522,17 +537,22 @@ stagingのStorageClassは`Delete`なので、NFS上のwp-content・バックア�
 stagingの構成が本番へまだ昇格していなければ注意を出す。PVが消えるのを最大3分待ち、残ったら警告を出す
 ([runbook/troubleshooting.md](runbook/troubleshooting.md)「PV が Released のまま残る」)
 
-### tools/backup・tools/qa・tools/vuln-scan・tools/check
+### tools/backup・tools/qa・tools/vuln-scan・tools/plugin-check・tools/check
 
 - `backup`: 日次バックアップのCronJobから今すぐ1つ取る(完了まで待つ)
 - `qa`: QAを単独で行う(アプリの `8-qa` と同じ。`env=staging` では結果を記録し、落ちていた `qa-gate` をやり直させる)
 - `vuln-scan`: 脆弱性チェック([manual-vuln-scan.md](manual-vuln-scan.md))。**毎週月曜 8:30(JST)に定期実行**し、
   productionの全サイトを検査してSlackへ通知する
+- `plugin-check`: devのプラグインの状態を調べる(読むだけ。`scripts/plugin-check.sh`)。
+  **毎週月曜 9:00(JST)に定期実行**し、全サイトの結果をSlackへ通知する。devのPodに入っている版を基準に、脆弱性
+  (WordfenceのCritical・High)のある版を使っているものを先頭で強調し(:rotating_light:)、本番の版に脆弱性がありdevでは
+  直っているもの(:warning:)、devで変更したがGitに未取り込みのもの(:memo:)、新しい版があるものを出す。
+  Wordfenceのフィードは `vuln-scan`(8:30)と共有のキャッシュを使う。サイトの管理者は通知を見てdevの管理画面で更新し、`0-dev-plugin-capture` で取り込む
 - `check`: HTTPステータスと正常でないPodの確認(読み取りのみ)
 
 ## 定期実行
 
-定期実行するのは `tools/vuln-scan`(両プロジェクト)だけ。定期実行は**ジョブを取り込んだ人**のOSユーザー・認証
+定期実行するのは `tools/vuln-scan`(両プロジェクト)と `tools/plugin-check`(WordPress)だけ。定期実行は**ジョブを取り込んだ人**のOSユーザー・認証
 (kubectl・gh・`~/.config/ibid-fleet-config/` の認証情報)で動くので、本番のPodへのexec権限を持つ管理者が取り込む
 (準備: [manual-vuln-scan.md](manual-vuln-scan.md)「準備」)。止めたいときはRundeckのジョブ画面で
 スケジュールを無効にする(取り込み直すと有効に戻る)。
@@ -542,7 +562,7 @@ stagingの構成が本番へまだ昇格していなければ注意を出す。P
 - **GHCR pull用SealedSecretの作成**(アプリの初回昇格)、本番サイトの新規Secret
   (`seal-site-secrets.sh production`、パスワードを控える必要がある): 人が端末で実行する
 - **本番に触れるPRのマージ**: 常に人がGitHubで行う(パイプラインは待つだけ)
-- **WordPressのチャート・プラグインの更新をdevに入れる作業**: `auto-update` ワークフローが毎週行う
-  ([runbook/wordpress-update.md](runbook/wordpress-update.md))。手で入れるときは `bump-chart.sh`・
-  `bump-plugins.sh`
+- **WordPressのチャート(コア・MariaDB)の更新をdevに入れる作業**: `auto-update` ワークフローが毎週行う
+  ([runbook/wordpress-update.md](runbook/wordpress-update.md))。手で入れるときは `bump-chart.sh`。
+  (プラグインはサイトの管理者がdevの管理画面で更新し、ジョブ `0-dev-plugin-capture` でGitに取り込む)
 - **プラグインの削除**、外部nginxの切り替え: 手順書どおり手で行う

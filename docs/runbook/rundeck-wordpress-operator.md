@@ -10,13 +10,15 @@ Rundeck のプロジェクト **`WordPressControl`** から、WordPress サイ�
 
 | 作業 | ジョブ | 何が起きるか |
 |---|---|---|
+| 開発環境で確かめたプラグインを Git に取り込む | `0-dev-plugin-capture` | dev の管理画面で更新したプラグインの版を、本番へ出せる形にする |
 | 開発環境のコンテンツを本番と同じにする | `1-dev-refresh` | 本番のバックアップを dev の同名サイトに戻す(**dev の内容は上書き**) |
 | staging で本番データを使って確認する | `2-staging` | staging に本番のコピーを置き、昇格予定の更新を当てて、表示を比べる |
 | 本番へ昇格する | `3-production-promote` | staging の内容で本番 PR を作り、管理者の承認とマージを待って、本番を確認する |
 | staging を片付ける | `4-staging-cleanup` | staging からサイトを消す(本番データのコピーを消す) |
 
 ジョブは **あなた自身のアカウント** で動きます(サーバーのユーザー、GitHub、Rancher の権限)。GitHub の PR もあなたの名前で作られます。
-WordPress 本体・プラグインの新しい版を dev に入れる作業は、毎週月曜 9:00 に自動で行われます(このジョブでは行いません)。
+WordPress 本体の新しい版を dev に入れる作業は、毎週月曜 9:00 に自動で行われます。
+**プラグインは自動では更新されません。** サイトの管理者が dev の管理画面で更新して確かめ、`0-dev-plugin-capture` で Git に取り込みます。毎週月曜 9:00 に Slack へ「WordPressプラグインのお知らせ」が届きます。
 
 サイトの確認先(`<site>` はサイト名。例: `abc`):
 
@@ -182,12 +184,14 @@ scp rancher:/etc/ipa/ca.crt ./ibid-ipa-ca.crt
 
 | ジョブ | 内容 | 使う場面 |
 |---|---|---|
+| `0-dev-plugin-capture` | dev に今入っているプラグイン(版・有効/無効)を Git に取り込む PR を作り、自動でマージする(dev は変わらない) | dev の管理画面で更新・追加・削除して、確かめ終わったとき |
 | `1-dev-refresh` | 本番のコンテンツ(記事・メディア・設定・ユーザー)を dev の同名サイトに戻す | dev を本番と同じ状態にして確認したいとき |
 | `2-staging` | 本番と同じ構成・本番データのサイトを staging に置き、昇格予定の更新を当てて、表示を比べる | 本番に出す前に**毎回**(staging を通さないと本番へ昇格できない) |
 | `2a-staging-upgrade` | staging にあるサイトに、dev の今の構成を当て直して比べる | staging で見つかった問題を dev で直したあと |
 | `3-production-promote` | staging と本番で差分のあるサイトの本番 PR を作り、承認・マージ後に本番を確認する | staging で確認できたあと |
 | `4-staging-cleanup` | staging からサイトを削除する | 本番へ昇格したら**必ず** |
 | `tools/qa` | 決めておいたページの応答と中身を、本番の同じサイトと比べて確かめる(QA)。staging の結果は GitHub に記録され、本番 PR の `qa-gate` が見る | 本番 PR の `qa-gate` が落ちたとき、直したあとの再確認 |
+| `tools/plugin-check` | dev のプラグインに新しい版があるか、脆弱性のある版を使っていないか、Git に取り込み忘れていないかを調べる(読むだけ)。毎週月曜 9:00 に自動で実行して Slack へ知らせる | お知らせを待たずに確認したいとき |
 | `tools/check` | 各サイトの WEB の応答(200 か)と Pod の状態を確認する(読むだけ) | いつでも |
 | `tools/backup` | 今すぐバックアップを取る | dev のみ(本番は管理者が実行) |
 
@@ -195,6 +199,8 @@ scp rancher:/etc/ipa/ca.crt ./ibid-ipa-ca.crt
 
 | ジョブ | オプション | 既定値 | 説明 |
 |---|---|---|---|
+| `0-dev-plugin-capture` | `sites` | (なし) | 取り込むサイト(複数選択可) |
+| `tools/plugin-check` | `sites` / `notify` | `all` / `yes` | 対象サイトと、結果を Slack へ送るか(手で確認するだけなら `no`) |
 | `1-dev-refresh` | `sites` | (なし) | 対象サイト(複数選択可) |
 | `1-dev-refresh`・`2-staging` | `fresh_backup` | `yes` | 本番のバックアップを今すぐ取るか。**オペレータは本番の権限が無いので、`yes` でも自動で最新の日次バックアップ(毎日 3:00)を使います** |
 | `2-staging`・`2a`・`4` | `site` | (なし) | 対象サイト(例: `abc`。英語版は `abc-en` を別に選ぶ) |
@@ -205,6 +211,29 @@ scp rancher:/etc/ipa/ca.crt ./ibid-ipa-ca.crt
 | `tools/qa` | `env` / `sites` | `staging` / `all` | 環境(結果を記録するのは `staging` だけ)と対象サイト |
 
 ## 実行方法
+
+### 0. 開発環境でプラグインを更新し、Git に取り込む(`0-dev-plugin-capture`)
+
+毎週月曜 9:00 に、Slack へ「WordPressプラグインのお知らせ(dev)」が届きます。
+
+* **:rotating_light: 脆弱性のある版を使っているもの** … 早めに更新してください
+* **:warning: 本番の版に脆弱性があり、dev では直っているもの** … 取り込んで、B → C で本番へ昇格してください
+* **:memo: dev で変更済み・Git に未取り込み** … 確かめ終わっていれば取り込んでください
+* **新しい版があるもの** … 更新するかどうかは、サイトの管理者が判断します
+
+1. dev のサイトの管理画面(`https://<site>.dev.ibid.lan/<ja|en>/wp-admin/`)でプラグインを更新する(追加・削除・有効/無効の切り替えも同じ)
+2. dev で表示と管理画面(プラグイン固有の画面)を確認する
+3. Rundeck にログインし、プロジェクト `WordPressControl` の `0-dev-plugin-capture` を開き、`sites` で対象サイトを選んで「Run Job Now」
+4. 数分で終わる。最後に次の行が出れば成功(取り込むものが無ければ「Gitとdevのプラグインは一致しています」)
+   ```
+   Gitに取り込みました。staging → 本番への昇格は 2-staging → 3-production-promote で行います。
+   ```
+5. B(staging)→ C(本番)へ進む
+
+* **本番・staging の管理画面ではプラグインを更新しないでください**(Git の版とずれます)
+* 取り込む前に月曜の WordPress 本体の自動更新が動いても、dev で上げた版は戻りません
+* WordPress.org に無いプラグイン(例: `cell` の `biz-calendar`)は Git で管理できません。各環境の管理画面で更新します
+* 古い版で「WordPress.orgで配布されていない版」と警告が出たら、管理画面で配布中の版へ更新してから取り込みます
 
 ### A. 開発環境のコンテンツを本番と同じにする(`1-dev-refresh`)
 
@@ -268,6 +297,12 @@ staging に無いサイトを選ぶと、「stagingに <site> がありません
 昇格をやめた場合も実行します。
 
 ## 動作の仕組み
+
+### `0-dev-plugin-capture`
+
+1. 選んだサイトの dev に今入っているプラグインの一覧(版・有効/無効)を読む
+2. dev の設定ファイル(`envs/dev/sites/<site>/fleet.yaml`)のプラグインの一覧を、それに合わせて書き換える(追加・更新・削除。無効のものは「有効化しない」と書く)
+3. PR を作り、チェックが通ったら自動でマージする(dev だけの変更なので承認は要らない。dev は既にその版なので変わらない)
 
 ### `1-dev-refresh`
 

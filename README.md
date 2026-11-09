@@ -115,7 +115,7 @@ WordPressの新規サイト作成・更新、自作アプリの新規展開・�
   - `validate`: PR検証(YAML構文、fleet.yamlの必須キー、helm lint/template)
   - `promote`: 昇格PR生成(手動起動。`to=staging`でdev→staging(auto-merge)、`to=production`でstaging→production。`kind`に`sites`/`apps`、`name`に名前か`all`)
   - `release-chart`: チャート公開
-  - `auto-update`: 毎週月曜、WordPress/MariaDBイメージとプラグインの更新をdevへ自動反映(`bump-chart.sh`・`bump-plugins.sh`)
+  - `auto-update`: 毎週月曜、WordPress/MariaDBイメージの更新をdevへ自動反映(`bump-chart.sh`)。プラグインは自動では上げない(サイトの管理者がdevの管理画面で更新して確かめ、Rundeckの `0-dev-plugin-capture` でGitに取り込む。毎週の通知は `tools/plugin-check`)
   - `build-<app>-image`: 自作アプリのイメージ公開(brc-advanced-search、riken-diips、sparqlist、metadatabase-v2、brc-cross-search-xsearch、brc-cross-search-resource、member-gateway)
 
 ## スクリプト
@@ -126,7 +126,9 @@ WordPressの新規サイト作成・更新、自作アプリの新規展開・�
 | `scripts/seal-site-secrets.sh <env> <site>` | サイトの認証情報Secret(3種)をSealedSecretとして生成(環境ごと・サイトごとにランダム) |
 | `scripts/restore-wordpress.sh <site> <dir> [ts]` | `yyyymmdd_hhmm.tar.lzo`/`.dump.lzo`のバックアップをサイトへリストア |
 | `scripts/bump-chart.sh [--update-images] "<種類>: <説明>"` | ラッパーチャートの変更(WordPress/MariaDBのdigest更新を含む)を公開し、devの全サイトへ反映するまでを一括実行 |
-| `scripts/bump-plugins.sh [--dry-run]` | devの全サイトのプラグインをWordPress.orgの最新版へ上げるPRを作成・マージ |
+| `scripts/capture-plugins.sh [--dry-run] <site...\|all>` | devのサイトに今入っているプラグイン(版・有効/無効)をGitのfleet.yamlに取り込むPRを作成・マージ(Rundeckの `0-dev-plugin-capture`) |
+| `scripts/bump-plugins.sh [--dry-run] <site...\|all>` | 指定したdevのサイトのプラグインを、管理画面を通さずGit側でWordPress.orgの最新版へ上げるPRを作成・マージ(運用者向け) |
+| `scripts/plugin-check.sh [--notify] <site...\|all>` | devのプラグインの更新の有無を調べて知らせる(脆弱性のある版を強調。書き換えない)。Rundeckの `tools/plugin-check` が毎週Slackへ |
 | `scripts/update-app-image.sh <subcommand>` | 自作アプリのイメージ更新(`set-image`でdev反映まで一括)〜dev→staging→production昇格PR。Rundeck用に `dev-update`・`staging-update`・`release-production` |
 | `scripts/wordpress-pipeline.sh <subcommand>` | WordPressのパイプライン(本番コンテンツ→dev、stagingでの確認、本番昇格、バックアップ・確認)。Rundeckの `WordPressControl` から呼ぶ |
 | `scripts/vuln-scan.sh [--notify] <env> <apps\|sites> <name...\|all>` | 脆弱性チェック(イメージ・WordPressのプラグイン等・EOL)。stagingのQAからも呼ばれる。[docs/manual-vuln-scan.md](docs/manual-vuln-scan.md) |

@@ -1,11 +1,15 @@
 # devの自動更新(毎週の定期実行 + 手動起動)。
-#   1. scripts/bump-chart.sh --update-images: Bitnami公式のWordPress/MariaDBイメージに新しいdigestが
-#      あればチャートを上げて公開し、devの全サイトへ反映する
-#   2. scripts/bump-plugins.sh: devのサイトのプラグインをWordPress.orgの最新版へ上げる
-# どちらもdevだけに触れるPRを作り、validate通過後にauto-mergeする(mainのブランチ保護は
+#   scripts/bump-chart.sh --update-images: Bitnami公式のWordPress/MariaDBイメージに新しいdigestが
+#   あればチャートを上げて公開し、devの全サイトへ反映する
+# devだけに触れるPRを作り、validate通過後にauto-mergeする(mainのブランチ保護は
 # production以外のPRを承認なしでマージできる設定。docs/manual-multi-env.md「1.」)。
 # productionへは触らない。devで確認後、人がpromoteワークフローで昇格させる
 # (docs/operations-flow.md「基本サイクル」)。更新が無い週は何もしない。
+#
+# プラグインの更新は2026-11-09からここでは行わない。サイトの管理者(wpadmins)が、Rundeckの
+# tools/plugin-check(毎週月曜9:00、scripts/plugin-check.sh)のSlack通知を見て、devの管理画面で更新して確かめ、
+# 0-dev-plugin-capture(scripts/capture-plugins.sh <site>)でGitに取り込む。脆弱性の照合結果をpublicなGitHub(Actionsのログ)に
+# 出さないため、確認と通知は踏み台(Rundeck)で行う(docs/manual-rundeck.md)。
 #
 # github.token で作ったPRでは validate が起動しないため(GitHub Actionsの再帰防止仕様)、
 # PROMOTE_TOKEN(repo権限のPAT。promote.yamlと共用)でpush・PR作成・マージする。
@@ -17,15 +21,6 @@ on:
     # 毎週月曜 9:00 JST。月次メンテナンス日(毎月1日)の前に、devで1週間以上動かせるようにする
     - cron: "0 0 * * 1"
   workflow_dispatch:
-    inputs:
-      images:
-        description: "WordPress/MariaDBイメージを更新する"
-        type: boolean
-        default: true
-      plugins:
-        description: "プラグインを更新する"
-        type: boolean
-        default: true
 
 permissions:
   contents: read
@@ -51,15 +46,8 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: WordPress/MariaDBイメージ(チャート)の更新
-        if: github.event_name == 'schedule' || inputs.images
         env:
           GH_TOKEN: ${{ secrets.PROMOTE_TOKEN }}
         # タイトルの「: 」をYAMLのキー区切りと誤認されないよう、ブロック形式で書く
         run: |
           scripts/bump-chart.sh --update-images "feat: WordPress/MariaDBイメージを最新のdigestへ更新"
-
-      - name: プラグインの更新
-        if: github.event_name == 'schedule' || inputs.plugins
-        env:
-          GH_TOKEN: ${{ secrets.PROMOTE_TOKEN }}
-        run: scripts/bump-plugins.sh

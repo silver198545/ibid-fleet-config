@@ -165,6 +165,10 @@ def job(path, name, description, options, steps, timeout, schedule=None):
 # プロジェクトにそれぞれ置く。Trivyのキャッシュを取り合わないよう時刻をずらす
 VULN_SCHEDULE = {"apps": ("MON", 8, 0), "sites": ("MON", 8, 30)}
 
+# 週次のプラグインの更新の確認(scripts/plugin-check.sh --notify all)。2026-11-09まで auto-update ワークフローが
+# プラグインを自動で上げていた時刻。vuln-scan(sites)のあとなので、Wordfenceのフィードはそのキャッシュを使う
+PLUGIN_CHECK_SCHEDULE = ("MON", 9, 0)
+
 
 def vuln_job(path, kind, targets_opt):
     targets = "@option." + targets_opt["name"] + "@"
@@ -343,6 +347,23 @@ def wordpress_jobs(dev_sites):
     fresh_env = "FRESH_BACKUP=$([ '@option.fresh_backup@' = yes ] && echo 1 || echo 0)"
 
     return [
+        job(group, "0-dev-plugin-capture", """
+【開発環境のプラグインをGitに取り込む】devの管理画面で更新・確認したプラグインを、本番へ出せる形にする
+
+選んだサイトのdevに今入っているプラグイン(版・有効/無効)を、Gitの envs/dev/sites/<site>/fleet.yaml に
+取り込むPRを作ってauto-mergeする。devの管理画面で追加したものは追加、削除したものは一覧から消す。
+devは変わらない(既にその版が入っている)。取り込んだら、従来どおり「2-staging」→「3-production-promote」で本番へ。
+
+プラグインは自動では更新されない。devの管理画面で更新して動作を確かめてから、このジョブで取り込む。
+何を更新できるか・脆弱性のある版を使っていないか・取り込み忘れは、毎週月曜9:00の「tools/plugin-check」が
+Slackへ知らせる。WordPress.orgに無いプラグイン・版は取り込めない(ログに警告が出る)。
+""", [
+            sites_opt(both, "取り込むdevのサイト(複数選択可)"),
+        ], [
+            SYNC_MAIN,
+            step("devのプラグインをGitに取り込むPR作成 → auto-merge", "scripts/capture-plugins.sh @option.sites@"),
+        ], "1h"),
+
         job(group, "1-dev-refresh", """
 【開発環境更新パイプライン】本番コンテンツ → devの同名サイト
 
@@ -461,6 +482,22 @@ QA(反映の確認と qa/checks.yaml のチェック。docs/operations-flow.md�
         ], "30m"),
 
         vuln_job(group + "/tools", "sites", sites_opt(["all"] + every, "サイト(all、または複数選択)", default="all")),
+
+        job(group + "/tools", "plugin-check", f"""
+devのサイトのプラグインの状態を調べる(読むだけ。Gitもクラスタも変えない)。devに実際に入っている版を基準に、
+脆弱性(Wordfence IntelligenceのCritical・High)のある版を使っているもの、本番の版に脆弱性がありdevでは直っている
+もの、devで変更したがGitに取り込んでいないもの、新しい版があるものを出す。
+更新はdevの管理画面で行い、確かめたら「0-dev-plugin-capture」でGitに取り込む。
+毎週月曜 {PLUGIN_CHECK_SCHEDULE[1]}:{PLUGIN_CHECK_SCHEDULE[2]:02d}(JST)に全サイトを調べてSlackへ通知する。
+""", [
+            sites_opt(["all"] + every, "サイト(all、または複数選択)", default="all"),
+            # 定期実行は既定値で動くので yes(手で見るだけなら no にする)
+            yes_no("notify", "結果をSlackへ通知する(手で確認するだけなら no)", "yes"),
+        ], [
+            SYNC_MAIN,
+            step("プラグインの更新の確認",
+                 "scripts/plugin-check.sh $([ '@option.notify@' = yes ] && echo --notify) @option.sites@"),
+        ], "30m", schedule=PLUGIN_CHECK_SCHEDULE),
 
         job(group + "/tools", "check", """
 各サイトのHTTPステータス(200か)と、正常でないPodが無いかを確認する(読み取りのみ)。

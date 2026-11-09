@@ -158,8 +158,9 @@ sequenceDiagram
   W->>GH: staging から消す PR(自動マージ)
 ```
 
-- **dev・staging への変更は自動でマージされる**(CI が通れば)。WordPress 本体・プラグインの新しい版は、毎週月曜 9:00 に
-  `auto-update` ワークフローが dev へ入れる
+- **dev・staging への変更は自動でマージされる**(CI が通れば)。WordPress 本体の新しい版は、毎週月曜 9:00 に
+  `auto-update` ワークフローが dev へ入れる。プラグインはサイトの管理者が dev の管理画面で更新して確かめ、Rundeck の `0-dev-plugin-capture` で Git に取り込む
+  (毎週月曜 9:00 に `tools/plugin-check` が更新の有無・脆弱性・取り込み忘れを Slack へ知らせる)
 - **本番への変更は、必ず人(Code Owner)が承認してマージする**。スクリプトやジョブは本番の PR をマージしない
 - Git で本番に出るのは**構成だけ**(チャートの版、設定値、イメージのタグ)。記事などのコンテンツは本番から dev への一方向
 

@@ -2,6 +2,98 @@
 # 取り込み先のRundeckプロジェクト: WordPressControl
 # 取り込み: rd jobs load -p WordPressControl -f rundeck/jobs/wordpress.yaml --format yaml
 # 説明: docs/manual-rundeck.md
+- name: 0-dev-plugin-capture
+  uuid: a0bc3a3e-9b5c-53fe-8d19-231de4d2b387
+  description: |
+    【開発環境のプラグインをGitに取り込む】devの管理画面で更新・確認したプラグインを、本番へ出せる形にする
+
+    選んだサイトのdevに今入っているプラグイン(版・有効/無効)を、Gitの envs/dev/sites/<site>/fleet.yaml に
+    取り込むPRを作ってauto-mergeする。devの管理画面で追加したものは追加、削除したものは一覧から消す。
+    devは変わらない(既にその版が入っている)。取り込んだら、従来どおり「2-staging」→「3-production-promote」で本番へ。
+
+    プラグインは自動では更新されない。devの管理画面で更新して動作を確かめてから、このジョブで取り込む。
+    何を更新できるか・脆弱性のある版を使っていないか・取り込み忘れは、毎週月曜9:00の「tools/plugin-check」が
+    Slackへ知らせる。WordPress.orgに無いプラグイン・版は取り込めない(ログに警告が出る)。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 1h
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: sites
+    description: 取り込むdevのサイト(複数選択可)
+    required: true
+    values:
+    - abc
+    - abc-en
+    - acd
+    - acd-en
+    - cell
+    - cell-en
+    - dgprt
+    - dgprt-en
+    - dna
+    - dna-en
+    - epd
+    - epd-en
+    - hdm
+    - hdm-en
+    - iddd
+    - iddd-en
+    - info
+    - info-en
+    - jcm
+    - jcm-en
+    - jmc
+    - jmc-en
+    - kougaku
+    - kougaku-en
+    - mgen
+    - mgen-en
+    - mus
+    - mus-en
+    - pms
+    - pms-en
+    - tet
+    - tet-en
+    - web
+    - web-en
+    valuesListDelimiter: ','
+    enforced: true
+    multivalued: true
+    delimiter: ' '
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: devのプラグインをGitに取り込むPR作成 → auto-merge
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        scripts/capture-plugins.sh @option.sites@
+      scriptInterpreter: /bin/bash
 - name: 1-dev-refresh
   uuid: 94c91d87-8aa7-5401-9238-aeea08a0690a
   description: |
@@ -817,6 +909,116 @@
     time:
       hour: 08
       minute: '30'
+      seconds: '0'
+    weekday:
+      day: MON
+    year: '*'
+  timeZone: Asia/Tokyo
+- name: plugin-check
+  group: tools
+  uuid: e4fb7f4d-743d-56e6-9d14-a02ce3f96d1d
+  description: |
+    devのサイトのプラグインの状態を調べる(読むだけ。Gitもクラスタも変えない)。devに実際に入っている版を基準に、
+    脆弱性(Wordfence IntelligenceのCritical・High)のある版を使っているもの、本番の版に脆弱性がありdevでは直っている
+    もの、devで変更したがGitに取り込んでいないもの、新しい版があるものを出す。
+    更新はdevの管理画面で行い、確かめたら「0-dev-plugin-capture」でGitに取り込む。
+    毎週月曜 9:00(JST)に全サイトを調べてSlackへ通知する。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 30m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: sites
+    description: サイト(all、または複数選択)
+    required: true
+    value: all
+    values:
+    - all
+    - abc
+    - abc-en
+    - acd
+    - acd-en
+    - cell
+    - cell-en
+    - dgprt
+    - dgprt-en
+    - dna
+    - dna-en
+    - epd
+    - epd-en
+    - hdm
+    - hdm-en
+    - iddd
+    - iddd-en
+    - info
+    - info-en
+    - jcm
+    - jcm-en
+    - jmc
+    - jmc-en
+    - kougaku
+    - kougaku-en
+    - mgen
+    - mgen-en
+    - mus
+    - mus-en
+    - pms
+    - pms-en
+    - tet
+    - tet-en
+    - web
+    - web-en
+    valuesListDelimiter: ','
+    enforced: true
+    multivalued: true
+    delimiter: ' '
+  - name: notify
+    description: 結果をSlackへ通知する(手で確認するだけなら no)
+    required: true
+    value: 'yes'
+    values:
+    - 'yes'
+    - 'no'
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: プラグインの更新の確認
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        scripts/plugin-check.sh $([ '@option.notify@' = yes ] && echo --notify) @option.sites@
+      scriptInterpreter: /bin/bash
+  schedule:
+    month: '*'
+    time:
+      hour: 09
+      minute: '00'
       seconds: '0'
     weekday:
       day: MON

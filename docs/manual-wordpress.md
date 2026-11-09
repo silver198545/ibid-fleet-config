@@ -179,8 +179,16 @@ Fleet側の適用状況はRancher UI(Continuous Delivery → Bundles)または
   削除する場合は手動で: `wp plugin deactivate <name> && wp plugin delete <name>`
   (実行方法はJobのログ、または `kubectl exec` でWordPress Podから)。
 - 同期Jobのログ: `kubectl -n wordpress-<site> logs job/wordpress-<site>-plugin-sync`
-- wp-adminからの手動インストールも引き続き可能ですが、その内容は他環境へ
-  昇格されません。恒久的に使うプラグインは必ず `plugins:` に載せてください。
+- **運用(2026-11-09〜)**: サイトの管理者が**devの**wp-adminでプラグインを更新・追加して確かめ、
+  `scripts/capture-plugins.sh <site>`(Rundeckの `0-dev-plugin-capture`)でdevに入っている版を `plugins:` に
+  取り込みます(無効のものは `activate: false`)。そこから先はPR・昇格のとおりです
+  ([runbook/wordpress-update.md](runbook/wordpress-update.md))。本番・stagingのwp-adminでは更新しないでください
+  (Gitの版とずれます)。
+- **同期Jobは版を下げません**(チャート0.7.7〜)。入っている版の方が新しければ入れ直さず、警告だけ出します
+  (devの管理画面で上げてから取り込むまでの間に同期Jobが動いても、確認中の版を戻さないため)。
+  版を下げたいときは、そのサイトで手で `wp plugin install <name> --version=<版> --force` を実行します。
+- WordPress.orgに無いプラグイン(例: `cell` の `biz-calendar`)は同期Jobで入れられないため `plugins:` に載せず、
+  各環境のwp-adminで管理します。
 
 ## サイトを削除する場合
 
