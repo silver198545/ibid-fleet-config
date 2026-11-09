@@ -23,3 +23,8 @@
 # CI(build-member-gateway-image.yaml)がプライベートリポジトリ
 # (silver198545/member-gateway)のソースを展開する場所。同上の理由で無視する。
 /images/member-gateway/app/
+
+# scripts/lib/*.py を import する処理(plugin-check.sh・capture-plugins.sh など)が作るPythonのキャッシュ。
+# Rundeckのジョブは作業ツリーがクリーンでないと止まるため、無視する(2026-11-09)。
+__pycache__/
+*.pyc
