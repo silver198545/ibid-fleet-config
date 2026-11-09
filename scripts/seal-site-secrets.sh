@@ -145,8 +145,9 @@ cat >"$OUT_FILE" <<EOF
 # パスワードのローテーション手順は docs/manual-wordpress.md 参照。
 ---
 # サイトのnamespace。SealedSecretより先に適用されるようバンドルに含める
-# (DR時の手動 kubectl create ns を不要にする)。既存namespaceの引き取りは
-# fleet.yaml の takeOwnership: true が担う。
+# (DR時の手動 kubectl create ns を不要にする)。既存namespaceの引き取りは、このファイルと同じ
+# ディレクトリの fleet.yaml(envs/$ENV_NAME/secrets/fleet.yaml。サイトの fleet.yaml ではない)の
+# takeOwnership: true が担う。
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -158,7 +159,7 @@ if [[ -n "${NAMESPACE_PROJECT_ID:-}" ]]; then
   annotations:
     # Rancherのプロジェクト(このnamespaceを操作できるオペレータの範囲)。環境ごとのIDなので、
     # このファイル(環境ごとに生成し直す)にだけ書く
-    field.cattle.io/projectId: $NAMESPACE_PROJECT_ID
+    field.cattle.io/projectId: "$NAMESPACE_PROJECT_ID"
 EOF
 fi
 for s in "$CREDENTIALS_SECRET" "$MARIADB_SECRET" "$MARIADB_UPGRADE_SECRET"; do
