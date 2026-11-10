@@ -321,6 +321,11 @@
 
 ## 🟡 優先度・低: 小さいが効く宿題
 
+- **旧基盤(134.160.65.0/24)への通信遮断の解除または恒久化** 【暫定措置中(2026-11-10〜)】 — devのWordPressが記事中の
+  本番リンク経由で旧基盤の公開サーバへアクセスしていたため、3環境ともWordPressのPodから `/24` 全体を拒否している
+  ([manual-egress-deny.md](manual-egress-deny.md))。副作用としてprod1のwp-cronとSMTPのメール送信が止まっている。
+  新基盤での運用が決まった時点で、解除するか、wp-cronをCronJob化・SMTPの送信先を変えたうえで残すかを決める
+
 - **Sealed Secrets鍵の月次バックアップの自動化** — 現状は毎月1日に手動で全環境の鍵を取り出し、オフラインに保管している
   ([manual-multi-env.md](manual-multi-env.md) 6.)。rancherホストのcronはkubeconfigのトークンが30日で切れるうえ、
   平文の鍵がディスクに残るため不採用。案: 各クラスタにCronJobのinfraバンドルを置き、鍵をGPGの公開鍵で暗号化して

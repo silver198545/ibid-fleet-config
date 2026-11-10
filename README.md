@@ -82,6 +82,7 @@ WordPressの新規サイト作成・更新、自作アプリの新規展開・�
 | WordPressのデータ移行・リストア、外部リバースプロキシ経由の公開 | [docs/manual-wordpress-restore.md](docs/manual-wordpress-restore.md) |
 | 自作アプリ(`apps/`)の追加・昇格、アプリ別のメモ | [docs/manual-apps.md](docs/manual-apps.md) |
 | Rundeckのパイプライン(アプリのdev/本番更新、WordPressの本番コンテンツ→dev・stagingでの確認・本番昇格) | [docs/manual-rundeck.md](docs/manual-rundeck.md) |
+| 【暫定】WordPressから旧基盤(134.160.65.0/24)への通信の遮断(prod1のwp-cron・メールが止まっている) | [docs/manual-egress-deny.md](docs/manual-egress-deny.md) |
 | 監視・アラート(rancher-monitoring + Slack) | [docs/manual-monitoring.md](docs/manual-monitoring.md) |
 | 脆弱性チェック(Trivy・Wordfence・EOL、週次のSlack通知、除外の書き方) | [docs/manual-vuln-scan.md](docs/manual-vuln-scan.md) |
 | dev/stagingを見るための確認用デスクトップ(Guacamole経由のdevcon) | [docs/manual-devcon.md](docs/manual-devcon.md) |
