@@ -141,6 +141,11 @@ pass/fail only, and scans run on the bastion, not in Actions. See `docs/manual-v
   Baked into the node-pool User Data (`docs/manual-node-ntp.md`). New/recreated clusters follow the
   checklist in `docs/manual-multi-env.md` 「2. クラスタの新規作成」 (SSD image for control-plane,
   chrony, anti-affinity, second NIC, chartValues).
+- **WordPress pods cannot reach `134.160.65.0/24` (the old public servers and SMTP) in any environment** —
+  a temporary Calico `GlobalNetworkPolicy` (`envs/<env>/infra/egress-deny/`, since 2026-11-10) until operation
+  on this platform is finalized. As a known side effect, production wp-cron (loopback via the public URL) and
+  SMTP mail are not working. Kubernetes NetworkPolicies cannot do this (Bitnami's allows all egress). See
+  `docs/manual-egress-deny.md`.
 - **WordPress data is not covered by the guest Longhorn recurring backups** (DB on `harvester`,
   wp-content on `nfs-external`); see `docs/roadmap.md` item 5 before relying on Longhorn backups.
 - **Fleet bundle names are truncated at 53 chars** (`<gitrepo>-<path-with-dashes>`, longer names get a
