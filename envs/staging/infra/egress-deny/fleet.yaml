@@ -1,0 +1,13 @@
+# WordPressのPodから 134.160.65.0/24(旧基盤の外部公開サーバ群・SMTP)への通信を拒否する
+# Calicoのポリシー。新基盤での運用が決まるまでの暫定措置。経緯・副作用・解除は
+# docs/manual-egress-deny.md 参照。
+defaultNamespace: kube-system
+
+# infraバンドルの方針に合わせ、バンドル削除でリソースを消さない
+# (解除はバンドル削除後に kubectl delete する。docs参照)。
+keepResources: true
+
+helm:
+  releaseName: egress-deny
+  # 2026-11-10に手作業で入れた同名のポリシーを引き継ぐ(作り直さないので遮断が途切れない)。
+  takeOwnership: true

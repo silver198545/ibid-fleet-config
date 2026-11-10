@@ -1,0 +1,18 @@
+# KubernetesのNetworkPolicyでは止められない(Bitnamiチャートが作るNetworkPolicyが
+# egress: [{}] で全許可し、NetworkPolicyは許可の和集合のため)。Calicoのポリシーは
+# KubernetesのNetworkPolicy(order 1000相当)より先に評価されるので、拒否が優先される。
+# CRDを直接書く(projectcalico.org/v3 のAPIサーバは入っていない)。
+apiVersion: crd.projectcalico.org/v1
+kind: GlobalNetworkPolicy
+metadata:
+  name: deny-wordpress-to-production-public
+spec:
+  order: 100
+  selector: app.kubernetes.io/name == "wordpress"
+  types:
+    - Egress
+  egress:
+    - action: Deny
+      destination:
+        nets:
+          - 134.160.65.0/24
