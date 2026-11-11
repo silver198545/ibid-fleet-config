@@ -36,6 +36,11 @@ UUID_NS = uuid.UUID("6f1c0d7e-3b51-4f6a-9a51-6f1b8a2c9d40")
 
 MERGE_WAIT_VALUES = ["60", "120", "240", "480"]
 
+# stagingのジョブ(2-staging・2a・4)のタイムアウト。複数のサイトを1つずつ順に処理するので、
+# 1サイト分の時間(start+upgrade 6h、upgrade 3h、cleanup 1h)× stagingに置ける上限(4サイト。
+# wordpress-pipeline.sh の STAGING_MAX_SITES)にする
+STAGING_TIMEOUTS = {"start": "24h", "upgrade": "12h", "cleanup": "4h"}
+
 # staging1でWordPressのオペレータ(wpadmins)が触れるRancherのプロジェクト(<クラスタID>:<プロジェクトID>)。
 # staging-startが作るnamespaceにこの注釈を付ける。空ならプロジェクトの外に作られ、管理者しか触れない
 # (docs/manual-rundeck.md「WordPressのオペレータ」)。staging1のクラスタIDは c-m-qqhsg9c2
@@ -413,7 +418,7 @@ upgrade=yes なら続けてdevの構成(昇格予定の helm.version・plugins)�
                  "else\n"
                  "  echo 'upgrade=no のため切り替えません。あとで 2a-staging-upgrade を実行できます。'\n"
                  "fi"),
-        ], "6h"),
+        ], STAGING_TIMEOUTS["start"]),
 
         job(group, "2a-staging-upgrade", """
 【stagingで確認する: 切り替えのやり直し】
@@ -424,7 +429,7 @@ devで直したあとや、2-staging を upgrade=no で実行したあとに使�
             SYNC_MAIN,
             step("devの構成へ切り替え → 基準と比較",
                  "scripts/wordpress-pipeline.sh staging-upgrade @option.sites@"),
-        ], "3h"),
+        ], STAGING_TIMEOUTS["upgrade"]),
 
         job(group, "3-production-promote", """
 【本番昇格パイプライン】
@@ -460,7 +465,7 @@ harvesterのPVがReleasedで残ったら警告を出す。複数選ぶと1サイ
             SYNC_MAIN,
             step("Gitから削除 → namespace削除",
                  "scripts/wordpress-pipeline.sh staging-cleanup @option.sites@"),
-        ], "1h"),
+        ], STAGING_TIMEOUTS["cleanup"]),
 
         job(group + "/tools", "backup", """
 日次バックアップのCronJobから今すぐ1つ取る(完了まで待つ)。出力はNFSの backup/<env>/wordpress-<site>/。

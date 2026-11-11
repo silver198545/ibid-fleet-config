@@ -554,7 +554,9 @@ stg_run_each() {
     check_site_name "$s"
   done
   if [[ "$sub" == staging-start ]]; then
-    # 途中で上限に当たって半端に終わらないよう、先に全体で数を確かめる
+    # 途中で上限に当たって半端に終わらないよう、先に全体で数を確かめる。ここはロックを取らない目安の確認で
+    # (子プロセスがロックを取るので、ここで持ち続けると待ち合ってしまう)、同時に別の実行がサイトを置いても
+    # 各サイトの staging-start がロックの中で上限を確かめ直すので、上限を超えて置かれることはない
     mapfile -t current < <(staging_sites)
     for s in "$@"; do
       [[ -d "envs/staging/sites/$s" ]] || new+=("$s")
@@ -564,19 +566,36 @@ stg_run_each() {
 確認の終わったサイトを staging-cleanup するか、サイトを減らしてください。"
     fi
   fi
+  local -a skipped=()
+  local stop=""
   for s in "$@"; do
+    if [[ -n "$stop" ]]; then
+      skipped+=("$s")
+      continue
+    fi
     echo ""
     echo "################ ${sub} ${s} ################"
     if "$SCRIPT_DIR/wordpress-pipeline.sh" "$sub" "$s"; then
       ok+=("$s")
     else
       failed+=("$s")
+      # PRを作る途中(ブランチを切った後)で失敗すると、作業ツリーが作業用ブランチ・未コミットの変更のまま残り、
+      # 次のサイトは必ず失敗する。何が残ったかは人が確かめるべきなので、勝手に戻さずここで止める
+      if [[ -n "$(git status --porcelain)" || "$(git rev-parse --abbrev-ref HEAD)" != main ]]; then
+        stop=1
+        echo "作業ツリーが main・クリーンな状態に戻っていないため、残りのサイトは実行しません:" >&2
+        echo "  ブランチ: $(git rev-parse --abbrev-ref HEAD)" >&2
+        git status --short | sed 's/^/  /' >&2
+      fi
     fi
   done
   echo ""
   echo "=== ${sub} の結果 ==="
   echo "成功: ${ok[*]:-なし}"
   echo "失敗: ${failed[*]:-なし}"
+  if [[ ${#skipped[@]} -gt 0 ]]; then
+    echo "未実行: ${skipped[*]}(作業ツリーを確かめて git checkout main 等で戻してから、これらだけ再実行してください)"
+  fi
   if [[ ${#failed[@]} -gt 0 ]]; then
     die "${sub} が失敗したサイトがあります: ${failed[*]}(各サイトの出力を確認してください)"
   fi

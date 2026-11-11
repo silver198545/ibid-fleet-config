@@ -25,7 +25,7 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
 | WordPressのプラグインをGitに取り込む(devの管理画面で更新したもの) | `WordPressControl` の `0-dev-plugin-capture` | `scripts/capture-plugins.sh <site>...` |
 | WordPressのプラグインの更新の確認・通知(毎週) | `WordPressControl` の `tools/plugin-check` | `scripts/plugin-check.sh [--notify] <site...\|all>` |
 | WordPressの開発環境更新(本番コンテンツ → dev) | `WordPressControl` の `1-dev-refresh` | `scripts/wordpress-pipeline.sh dev-refresh <site>...` |
-| WordPressのstagingでの確認(本番データ) | `WordPressControl` の `2-staging` | `scripts/wordpress-pipeline.sh staging-start` / `staging-upgrade <site>...`(複数サイト可) |
+| WordPressのstagingでの確認(本番データ) | `WordPressControl` の `2-staging` | `scripts/wordpress-pipeline.sh staging-start <site>...` / `staging-upgrade <site>...`(複数サイト可) |
 | WordPressのstagingの後片付け | `WordPressControl` の `4-staging-cleanup` | `scripts/wordpress-pipeline.sh staging-cleanup <site>...` |
 | WordPressの本番昇格 | `WordPressControl` の `3-production-promote` | `scripts/wordpress-pipeline.sh promote-production <site...\|all>` |
 
