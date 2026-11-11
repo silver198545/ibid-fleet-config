@@ -491,6 +491,23 @@ staging_sites() {
   done
 }
 
+# stagingへサイトを置く処理(上限の確認から、置くPRのマージまで)を、全ユーザーの間で1つずつにする。
+# pr_lock_repo はクローンごとのロックで別の人のクローンとは排他しないため、同時に実行すると
+# どちらも同じサイト数を読んで上限を超えて置けてしまう。ロックファイルは比較の基準の置き場所
+# (STATE_ROOT。wpadmins で共有)に置く。stg_require_state_root の後に呼ぶこと。fdは8(9はpr_lock_repo)
+stg_lock_capacity() {
+  local lockfile="$STATE_ROOT/staging-capacity.lock"
+  exec 8>>"$lockfile" || die "${lockfile} を開けません(グループ wpadmins で書けるか確認してください)。"
+  if ! flock -n 8; then
+    echo "他の人がstagingへサイトを置いている途中です。終わるのを待っています(最大3600秒)..." >&2
+    flock -w 3600 8 || die "3600秒待ってもロックが空きませんでした: ${lockfile}"
+  fi
+}
+
+stg_unlock_capacity() {
+  flock -u 8 2>/dev/null || true
+}
+
 # staging1のメモリの都合で、同時に載せるサイト数に上限を設ける(既定4。STAGING_MAX_SITES)
 stg_require_capacity() {
   local -a current
@@ -555,8 +572,9 @@ stg_run_each() {
   done
   if [[ "$sub" == staging-start ]]; then
     # 途中で上限に当たって半端に終わらないよう、先に全体で数を確かめる。ここはロックを取らない目安の確認で
-    # (子プロセスがロックを取るので、ここで持ち続けると待ち合ってしまう)、同時に別の実行がサイトを置いても
-    # 各サイトの staging-start がロックの中で上限を確かめ直すので、上限を超えて置かれることはない
+    # (子プロセスがロックを取るので、ここで持ち続けると待ち合ってしまう)、同時に別の人の実行がサイトを置いても、
+    # 各サイトの staging-start が全ユーザー共有のロック(stg_lock_capacity)の中で上限を確かめ直すので、
+    # 上限を超えて置かれることはない
     mapfile -t current < <(staging_sites)
     for s in "$@"; do
       [[ -d "envs/staging/sites/$s" ]] || new+=("$s")
@@ -615,8 +633,11 @@ cmd_staging_start() {
   fi
   stg_require_state_root
 
+  # 上限の確認から置くPRのマージまでを、別の人の実行とも排他する(順番は必ず stg_lock_capacity → pr_lock_repo)
+  stg_lock_capacity
   pr_lock_repo
   pr_ensure_clean_worktree
+  [[ "$(git rev-parse --abbrev-ref HEAD)" == main ]] && git pull -q --ff-only origin main  # 待っている間に他の人が置いた分を取り込む
   pr_require_main_uptodate
   [[ -d "envs/staging/sites/$site" ]] && die "envs/staging/sites/${site} は既にあります。続きは staging-upgrade、作り直すなら staging-cleanup してから実行してください。"
   stg_require_capacity
@@ -648,6 +669,7 @@ EOF
 )"
   pr_automerge_and_wait "$PR_URL"
   pr_unlock_repo
+  stg_unlock_capacity
 
   wait_site_applied staging "$site"
   rm -f "$(stg_state_dir "$site")"/*

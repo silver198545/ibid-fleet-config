@@ -72,7 +72,9 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
 - クローンのパス(`$HOME/ibid-fleet-config`)とノードフィルタ(`tags: rancher`)は `generate-jobs.py` の
   `REPO_PATH`・`NODE_FILTER`。別ホストへ持っていくときはそこを変えて再生成する
 - ロック(`.git/ibid-pipeline.lock`)はクローンごと。別の人のジョブ同士は排他しないが、同じジョブの
-  同時実行はRundeck(`multipleExecutions: false`)が止める
+  同時実行はRundeck(`multipleExecutions: false`)が止める。例外として、stagingへサイトを置く処理(上限4サイトの確認から
+  置くPRのマージまで)は、比較の基準の置き場所の `staging-capacity.lock` で全員の間で1つずつにする
+  (別の人が同時に置いて上限を超えないように。`wordpress-pipeline.sh` の `stg_lock_capacity`)
 - Rundeck本体の設定(プロジェクト・ノード登録・SSH鍵・ACL)はこのリポジトリでは扱わない(下記に必要な設定だけ書く)
 
 ## 実行アカウント
