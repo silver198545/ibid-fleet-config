@@ -187,7 +187,7 @@ h3. オプション
 |@tools/plugin-check@|@sites@ / @notify@|@all@ / @yes@|対象サイトと、結果を Slack へ送るか(手で確認するだけなら @no@)|
 |@1-dev-refresh@|@sites@|(なし)|対象サイト(複数選択可)|
 |@1-dev-refresh@・@2-staging@|@fresh_backup@|@yes@|本番のバックアップを今すぐ取るか。*オペレータは本番の権限が無いので、@yes@ でも自動で最新の日次バックアップ(毎日 3:00)を使います*|
-|@2-staging@・@2a@・@4@|@site@|(なし)|対象サイト(例: @abc@。英語版は @abc-en@ を別に選ぶ)|
+|@2-staging@・@2a@・@4@|@sites@|(なし)|対象サイト。複数選べる(例: @abc@ と英語版の @abc-en@ を一緒に選ぶ)。1サイトずつ順に処理し、失敗したサイトがあっても残りは続けて最後に「成功:」「失敗:」を表示する|
 |@2-staging@|@upgrade@|@yes@|続けて dev の構成に切り替えて比べる。@no@ なら本番のコピーを置くところまで|
 |@3-production-promote@|@sites@|@all@|昇格するサイト。@all@ は staging に載っている、本番にある全サイトのうち差分のあるもの|
 |@3-production-promote@|@merge_wait_minutes@|@240@|本番 PR の承認・マージを待つ時間(分)|
@@ -230,8 +230,9 @@ h3. A. 開発環境のコンテンツを本番と同じにする(@1-dev-refresh@
 h3. B. staging で本番データを使って確認する(@2-staging@)
 
 本番に出すサイトは、毎回ここで確認します。*staging に同時に置けるのは4サイトまで*です。
+複数のサイトを選ぶと、全サイトを staging に置いてから、全サイトを切り替えて比べます(置くところで失敗したサイトがあると切り替えには進まないので、置けたサイトは @2a-staging-upgrade@ で続けます)。
 
-# @2-staging@ を開き、@site@(例: @web@)を選んで「Run Job Now」(@upgrade=yes@ のまま)
+# @2-staging@ を開き、@sites@(例: @web@。英語版も確認するなら @web-en@ も)を選んで「Run Job Now」(@upgrade=yes@ のまま)
 # ジョブが次を順に行う(サイトの大きさによって数十分以上かかる)
 #* 本番と同じ構成で、サイトを staging に置く(PR は自動でマージされる)
 #* 本番のバックアップを戻し、*比較の基準*(各ページの応答、WordPress・プラグインの版)を記録する
@@ -259,7 +260,7 @@ staging に無いサイトを選ぶと、「stagingに <site> がありません
 
 h3. D. staging を片付ける(@4-staging-cleanup@)
 
-本番へ昇格したら、*必ず* 同じ @site@ で @4-staging-cleanup@ を実行します(本番データのコピーを消し、staging の空きを作る)。
+本番へ昇格したら、*必ず* 同じ @sites@ で @4-staging-cleanup@ を実行します(本番データのコピーを消し、staging の空きを作る)。
 昇格をやめた場合も実行します。
 
 h2. 動作の仕組み
