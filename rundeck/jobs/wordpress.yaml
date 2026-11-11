@@ -216,7 +216,7 @@
   executionEnabled: true
   scheduleEnabled: true
   multipleExecutions: false
-  timeout: 6h
+  timeout: 24h
   nodefilters:
     filter: 'tags: rancher'
   nodesSelectedByDefault: true
@@ -333,7 +333,7 @@
   executionEnabled: true
   scheduleEnabled: true
   multipleExecutions: false
-  timeout: 3h
+  timeout: 12h
   nodefilters:
     filter: 'tags: rancher'
   nodesSelectedByDefault: true
@@ -530,7 +530,7 @@
   executionEnabled: true
   scheduleEnabled: true
   multipleExecutions: false
-  timeout: 1h
+  timeout: 4h
   nodefilters:
     filter: 'tags: rancher'
   nodesSelectedByDefault: true
