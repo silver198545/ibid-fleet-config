@@ -337,9 +337,9 @@ def wordpress_jobs(dev_sites):
     group = "wordpress"
     both = every = dev_sites
 
-    def sites_opt(values, description, default=None, multi=True):
-        return opt("sites" if multi else "site", description, value=default, values=values,
-                   required=True, enforced=True, multivalued=multi)
+    def sites_opt(values, description, default=None):
+        return opt("sites", description, value=default, values=values,
+                   required=True, enforced=True, multivalued=True)
 
     fresh = yes_no("fresh_backup",
                    "yes: 本番のバックアップを今すぐ取ってそれを使う(本番の権限が無いオペレータは自動でnoと同じになる) / no: 最新の日次バックアップ(JST 3:00)を使う",
@@ -392,20 +392,24 @@ upgrade=yes なら続けてdevの構成(昇格予定の helm.version・plugins)�
 (auto-merge)、プラグイン同期Job・DB更新(wp core update-db)の所要時間、MariaDBのアップグレード、
 ページの表示、PHPエラーを基準と比べて報告する。本番にまだ無い新規サイトはdevの構成で置くだけ。
 
+複数のサイト(英語版 <site>-en など)を選ぶと、全サイトをstagingに置いてから、全サイトを切り替えて比べる
+(1サイトずつ順に処理する。置くところで失敗したサイトがあると切り替えには進まないので、置けたサイトは
+「2a-staging-upgrade」で続ける)。
+
 本番へはstagingを通して昇格する(docs/operations-flow.md「stagingでの確認」)。staging1のメモリの都合で
-同時に4サイトまで。結果は昇格PRに書き、本番へ昇格したら「4-staging-cleanup」で必ず削除する。
+同時に4サイトまで(既に置いてあるサイトも数える)。結果は昇格PRに書き、本番へ昇格したら「4-staging-cleanup」で必ず削除する。
 """, [
-            sites_opt(both, "stagingで確認するサイト", multi=False),
+            sites_opt(both, "stagingで確認するサイト(複数選択可。stagingに置いてあるサイトと合わせて4サイトまで)"),
             fresh,
             yes_no("upgrade", "yes: 続けてdevの構成へ切り替えて確認する / no: 本番のコピーを置くところまで", "yes"),
         ], [
             SYNC_MAIN,
             step("stagingへ追加 → 本番データのリストア → 基準の記録",
                  fresh_env + " STAGING_PROJECT_ID='" + STAGING_PROJECT_ID + "'"
-                 " scripts/wordpress-pipeline.sh staging-start '@option.site@'"),
+                 " scripts/wordpress-pipeline.sh staging-start @option.sites@"),
             step("devの構成へ切り替え → 基準と比較(upgrade=yesのとき)",
                  "if [ '@option.upgrade@' = yes ]; then\n"
-                 "  scripts/wordpress-pipeline.sh staging-upgrade '@option.site@'\n"
+                 "  scripts/wordpress-pipeline.sh staging-upgrade @option.sites@\n"
                  "else\n"
                  "  echo 'upgrade=no のため切り替えません。あとで 2a-staging-upgrade を実行できます。'\n"
                  "fi"),
@@ -415,11 +419,11 @@ upgrade=yes なら続けてdevの構成(昇格予定の helm.version・plugins)�
 【stagingで確認する: 切り替えのやり直し】
 
 stagingにあるサイトを、devの現在の構成へ切り替えて基準と比べ、QA(本番との比較)を行う。stagingで見つかった問題を
-devで直したあとや、2-staging を upgrade=no で実行したあとに使う。
-""", [sites_opt(both, "stagingで確認中のサイト", multi=False)], [
+devで直したあとや、2-staging を upgrade=no で実行したあとに使う。複数選ぶと1サイトずつ順に行う。
+""", [sites_opt(both, "stagingで確認中のサイト(複数選択可)")], [
             SYNC_MAIN,
             step("devの構成へ切り替え → 基準と比較",
-                 "scripts/wordpress-pipeline.sh staging-upgrade '@option.site@'"),
+                 "scripts/wordpress-pipeline.sh staging-upgrade @option.sites@"),
         ], "3h"),
 
         job(group, "3-production-promote", """
@@ -451,11 +455,11 @@ stagingと本番で差分のあるサイトをstagingでQAし(通らなければ
 
 サイトをstagingのGitから削除するPRを作ってauto-mergeし、マージ後にstaging1の wordpress-<site>
 namespace(本番データのコピー)を削除する。本番へまだ昇格していなければ注意を出す。
-harvesterのPVがReleasedで残ったら警告を出す。
-""", [sites_opt(both, "stagingから削除するサイト", multi=False)], [
+harvesterのPVがReleasedで残ったら警告を出す。複数選ぶと1サイトずつ順に行う。
+""", [sites_opt(both, "stagingから削除するサイト(複数選択可)")], [
             SYNC_MAIN,
             step("Gitから削除 → namespace削除",
-                 "scripts/wordpress-pipeline.sh staging-cleanup '@option.site@'"),
+                 "scripts/wordpress-pipeline.sh staging-cleanup @option.sites@"),
         ], "1h"),
 
         job(group + "/tools", "backup", """

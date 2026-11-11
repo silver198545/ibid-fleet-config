@@ -13,13 +13,15 @@
 #   dev-refresh <site>...            本番の最新コンテンツでdevの同名サイトを上書きする。
 #                                    本番のバックアップを今すぐ取る → devの現状をバックアップ →
 #                                    リストア → URL置換 → 確認。gitは触らない
-#   staging-start <site>             <site>を本番と同じ構成でstagingに置き(stagingだけのPRなのでauto-merge)、
+#   staging-start <site>...          <site>を本番と同じ構成でstagingに置き(stagingだけのPRなのでauto-merge)、
 #                                    本番の最新コンテンツを入れて、比較の基準(各ページのHTTPステータス・版)を記録する。
 #                                    本番にまだ無い新規サイトはdevの構成で置く(本番データは入れない)
-#   staging-upgrade <site>           stagingの<site>をdevの構成(昇格予定の変更)へ切り替え(promoteワークフロー、
+#   staging-upgrade <site>...        stagingの<site>をdevの構成(昇格予定の変更)へ切り替え(promoteワークフロー、
 #                                    auto-merge)、プラグイン同期Job・DB更新・MariaDBアップグレード・表示を基準と比べ、
 #                                    QA(scripts/qa.sh。本番と比べる)を行う
-#   staging-cleanup <site>           stagingの<site>をGitから消し(auto-merge)、namespaceを削除する
+#   staging-cleanup <site>...        stagingの<site>をGitから消し(auto-merge)、namespaceを削除する
+#                                    staging-* に複数のサイトを指定すると1サイトずつ順に処理する(失敗したサイトが
+#                                    あっても残りを続け、最後にまとめて報告する)
 #   promote-production <site...|all> stagingのQAに通ったら、stagingから本番への昇格PRを作り、対象サイトの本番バックアップを取ってから
 #                                    人がPRをマージするのを待ち(このスクリプトはマージしない)、
 #                                    反映後に本番を確認する。all はstagingに載っている、本番にある全サイト
@@ -541,8 +543,48 @@ wait_automerged() {
   esac
 }
 
+# staging-start/upgrade/cleanup に複数のサイトを指定されたとき、1サイトずつこのスクリプトを呼び直す
+# (dieで全体が止まらないよう別プロセスにする)。失敗したサイトがあっても残りを続け、最後に報告する。
+# 引数: <subcommand> <site...>
+stg_run_each() {
+  local sub="$1" s
+  shift
+  local -a ok=() failed=() new=() current=()
+  for s in "$@"; do
+    check_site_name "$s"
+  done
+  if [[ "$sub" == staging-start ]]; then
+    # 途中で上限に当たって半端に終わらないよう、先に全体で数を確かめる
+    mapfile -t current < <(staging_sites)
+    for s in "$@"; do
+      [[ -d "envs/staging/sites/$s" ]] || new+=("$s")
+    done
+    if (( ${#current[@]} + ${#new[@]} > STAGING_MAX_SITES )); then
+      die "stagingには既に ${#current[@]} サイトあります(${current[*]:-なし})。新たに ${#new[@]} サイト(${new[*]})を置くと、staging1のメモリの都合で同時に置ける${STAGING_MAX_SITES}サイトを超えます。
+確認の終わったサイトを staging-cleanup するか、サイトを減らしてください。"
+    fi
+  fi
+  for s in "$@"; do
+    echo ""
+    echo "################ ${sub} ${s} ################"
+    if "$SCRIPT_DIR/wordpress-pipeline.sh" "$sub" "$s"; then
+      ok+=("$s")
+    else
+      failed+=("$s")
+    fi
+  done
+  echo ""
+  echo "=== ${sub} の結果 ==="
+  echo "成功: ${ok[*]:-なし}"
+  echo "失敗: ${failed[*]:-なし}"
+  if [[ ${#failed[@]} -gt 0 ]]; then
+    die "${sub} が失敗したサイトがあります: ${failed[*]}(各サイトの出力を確認してください)"
+  fi
+}
+
 cmd_staging_start() {
-  [[ $# -eq 1 ]] || usage
+  [[ $# -ge 1 ]] || usage
+  [[ $# -eq 1 ]] || { stg_run_each staging-start "$@"; return; }
   local site="$1" ts from
   check_site_name "$site"
   [[ -d "envs/dev/sites/$site" ]] || die "envs/dev/sites/${site} がありません(変更は必ずdevから入れる)。"
@@ -618,7 +660,8 @@ EOF
 }
 
 cmd_staging_upgrade() {
-  [[ $# -eq 1 ]] || usage
+  [[ $# -ge 1 ]] || usage
+  [[ $# -eq 1 ]] || { stg_run_each staging-upgrade "$@"; return; }
   local site="$1" dir before_rev merged_at job_line job_created job failed=0 secs
   check_site_name "$site"
   stg_require_state_root
@@ -717,7 +760,8 @@ cmd_staging_upgrade() {
 }
 
 cmd_staging_cleanup() {
-  [[ $# -eq 1 ]] || usage
+  [[ $# -ge 1 ]] || usage
+  [[ $# -eq 1 ]] || { stg_run_each staging-cleanup "$@"; return; }
   local site="$1" paths=()
   check_site_name "$site"
 

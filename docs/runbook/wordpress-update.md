@@ -8,7 +8,7 @@ devに入れるのは、WordPress本体・MariaDBは自動。プラグインは�
 
 Rundeck(プロジェクト `WordPressControl`)では、手順Aのプラグインの取り込みが `0-dev-plugin-capture`、手順B(staging)がジョブ `2-staging`、
 手順C(バックアップ → 昇格PR → 人がマージ → 本番の確認)が `3-production-promote`、
-手順D(stagingから削除)が `4-staging-cleanup` で1回ずつになる。
+手順D(stagingから削除)が `4-staging-cleanup` で1回ずつになる(どのジョブも複数のサイトをまとめて選べる)。
 devのサイトに本番のコンテンツを入れ直したいときは `1-dev-refresh`([manual-rundeck.md](../manual-rundeck.md))。
 
 ## A. devへの反映(どれか)
@@ -92,8 +92,8 @@ kubectl --context dev1 get pods -A | grep wordpress- | grep -v -E 'Running|Compl
 基準と比べる。手順の説明: [operations-flow.md](../operations-flow.md)「stagingでの確認」
 
 ```bash
-scripts/wordpress-pipeline.sh staging-start <site>     # stagingへ追加 → 本番データをリストア → 基準を記録
-scripts/wordpress-pipeline.sh staging-upgrade <site>   # devの構成へ切り替え → 基準と比較 → QA
+scripts/wordpress-pipeline.sh staging-start <site>...  # stagingへ追加 → 本番データをリストア → 基準を記録
+scripts/wordpress-pipeline.sh staging-upgrade <site>...  # devの構成へ切り替え → 基準と比較 → QA
 ```
 
 - 出力の「HTTPステータスが変わったページ」「PHPエラー」「QA」(本番とタイトル・サイト名が一致するか等。
@@ -130,7 +130,7 @@ stagingに載っている内容を本番へ昇格する。
 本番へ昇格したら必ず削除する(本番データのコピーを残さない。staging1のメモリを空ける):
 
 ```bash
-scripts/wordpress-pipeline.sh staging-cleanup <site>
+scripts/wordpress-pipeline.sh staging-cleanup <site>...
 ```
 
 問題があったら: [troubleshooting.md](troubleshooting.md)
