@@ -114,6 +114,28 @@ GitHub の Actions で失敗した実行を開き、赤くなったステップ�
 
 使われていないと判断したものは、`qa/vuln-policy.yaml` の `ignore` に理由と期限を書いて除く。
 
+## kubectl が `system:unauthenticated` で拒否される(Rancherのトークンの期限切れ)
+
+`kubectl` やRundeckのジョブが次のエラーで止まる:
+
+```
+Error from server (Forbidden): ... clusters.management.cattle.io "c-m-…" is forbidden:
+User "system:unauthenticated" cannot get resource "clusters" in API group "management.cattle.io"
+```
+
+`~/.kube/config` のトークン(Rancherの「Download KubeConfig」で発行、**期限30日**)が切れている。
+全コンテキストで同じトークンを使っているので、dev1・staging1・prod1・local が同時に使えなくなる
+(`local` だけは `You must be logged in to the server` と出る)。
+
+```bash
+kubectl --context dev1 get ns     # どのコンテキストでも同じエラーなら期限切れ
+```
+
+対処: Rancherにログインし、各クラスタの「Download KubeConfig」で取り直して `~/.kube/config`(600)にまとめ直す
+([manual-tooling-setup.md](../manual-tooling-setup.md)「kubeconfigの準備」)。Rundeckのジョブが反映の確認
+(`rollout status` の後など)で止まった場合、反映自体は済んでいることが多い。ジョブはやり直さず、
+`check-production` 等の確認だけを流す。取り直した日から30日後を予定に入れておく。
+
 ## GitHubのトークンの期限切れ(要予定管理)
 
 | トークン | 使い道 | 期限 | 切れると |
