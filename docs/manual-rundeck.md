@@ -197,7 +197,10 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
    コンテキスト名はRancherのクラスタ名(`dev1`・`staging1`・`prod1`)になるので、そのまま使える
    ([manual-tooling-setup.md](manual-tooling-setup.md))。クラスタで何ができるかは、担当のグループに付けた
    Rancherの権限で決まる。**トークンの有効期限は30日**(Rancherの `kubeconfig-default-token-ttl-minutes`=43200)
-   なので、切れたら同じ手順で取り直す(ジョブが `Unauthorized` で止まる)
+   なので、切れたら同じ手順で取り直す。切れるとジョブの `kubectl` が
+   `Forbidden ... User "system:unauthenticated" cannot get resource "clusters"` で止まる
+   (`Unauthorized` ではない。2026-11-12にproduction反映ジョブの途中で発生、反映自体は済んでいた)。
+   1つのトークンを全コンテキストで共有しているので、全クラスタ同時に使えなくなる。取り直した日から30日後を予定に入れておく
 6. **Rundeck**: ログイン名 `<op>` のユーザーを作り、Rundeck用のSSH鍵を作って公開鍵を `~<op>/.ssh/authorized_keys` に、
    秘密鍵をKey Storageの `keys/users/<op>/<op>_ed25519` に登録する
 7. **Rundeckの権限**: 担当のプロジェクトのジョブだけを実行できるようにする(プロジェクトのACLとシステム側のACLは
