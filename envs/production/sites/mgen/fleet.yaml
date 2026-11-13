@@ -12,7 +12,7 @@ helm:
   # 全サイト共通デフォルトを内包したラッパーチャート(charts/ibid-wordpress)。
   # バージョンを上げる=このサイトへの変更適用。環境ごとに段階的に昇格させる。
   chart: oci://ghcr.io/silver198545/charts/ibid-wordpress
-  version: "0.7.4"
+  version: "0.7.7"
   # BitnamiのmariadbサブチャートはHelmアップグレード時、existingSecretを
   # 使っていてもauth.rootPassword/auth.passwordの明示指定を要求してくる
   # (PASSWORDS ERROR)。Gitにパスワードを書かないよう、
@@ -29,9 +29,33 @@ helm:
     # このサイトが必要とするプラグイン(宣言的)。適用のたびにwp-cliのJobが
     # インストール(バージョン固定)・有効化する。再現性のためversion明示を推奨。
     # 一覧から消しても自動削除はしない(削除は手動)。docs/manual-wordpress.md参照。
-    # plugins:
-    #   - name: advanced-custom-fields
-    #     version: "6.8.4"
+    plugins:
+      - name: authorizer
+        version: "3.16.0"
+      - name: classic-editor
+        version: "1.7.0"
+      - name: classic-visual-editor-options
+        version: "1.0.5"
+      - name: classic-widgets
+        version: "0.3"
+      - name: content-views-query-and-display-post-page
+        version: "4.5.1.2"
+      - name: duplicate-post
+        version: "4.7"
+      - name: siteorigin-panels
+        version: "2.38.0"
+      - name: so-widgets-bundle
+        version: "1.76.0"
+      - name: tinymce-advanced
+        version: "5.10.1"
+      - name: wp-file-manager
+        version: "8.0.7"
+      - name: wp-multibyte-patch
+        version: "2.9.4"
+      - name: wp-revisions-control
+        version: "1.4.4"
+      - name: wp-seopress
+        version: "10.4"
     # 同じホスト名の /ja と /en を別々のWordPress(mgen と mgen-en)で運用する。
     # このサイトは日本語版で /ja に置く(チャートのsitePath。docs/manual-wordpress-restore.md 6b)。
     # 公開ドメイン(外部nginx)は環境ごとに違うので下の targetCustomizations の publicHost に書く。
@@ -70,15 +94,6 @@ helm:
 # 適用先クラスタの env ラベルに一致するエントリが1つ選ばれ、helm.values へ深くマージされる。
 # ingressのホスト名は上の values 内でクラスタラベルから展開している(${ .ClusterLabels.env })。
 targetCustomizations:
-  - name: dev
-    clusterSelector:
-      matchLabels:
-        env: dev
-    helm:
-      values:
-        # 外部nginx(RIKEN側)で公開するドメイン。nginxはHostを内部名で送るため、
-        # WordPressにはこのドメインでのアクセスとして扱わせる(チャートのpublicHost)
-        publicHost: wpdev1.brc.riken.jp
   - name: production
     clusterSelector:
       matchLabels:
