@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: jmc-web
+  namespace: jmc-web
+  annotations:
+    cert-manager.io/cluster-issuer: freeipa-acme
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - jmc-web.dev.ibid.lan
+      secretName: jmc-web-tls
+  rules:
+    - host: jmc-web.dev.ibid.lan
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: jmc-web
+                port:
+                  number: 80
