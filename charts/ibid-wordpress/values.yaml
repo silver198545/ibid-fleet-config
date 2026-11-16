@@ -154,7 +154,7 @@ wordpress:
     registry: docker.io
     repository: bitnami/wordpress
     tag: latest
-    digest: sha256:0faa2fe222204875af1d474e42b40e16284d78b3c7e69265f035f9824c4a2345
+    digest: sha256:82ee798ff6a04813bed4136e9219a43056b710c77a122ab1d407504134f1f0ab
 
   # Web層のデフォルトは1レプリカ(dev向け)。production は冗長化のため
   # 各サイトのfleet.yamlの targetCustomizations で replicaCount: 2 +
