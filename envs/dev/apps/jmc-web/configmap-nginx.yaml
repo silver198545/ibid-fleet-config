@@ -1,0 +1,37 @@
+# nginxの設定(公式イメージの /etc/nginx/conf.d/default.conf を置き換える)。
+# 旧jmcenのApacheと同じ振る舞いにする: DirectoryIndex index.html、ディレクトリ一覧なし(Options -Indexes)、
+# X-Frame-Options SAMEORIGIN・X-Content-Type-Options nosniff(conf.d/security.conf)。
+# charsetは付けない(旧ApacheもAddDefaultCharset無し。Shift_JIS/EUC-JPのページはmeta charsetで表示される)。
+# **変更したら deployment.yaml の jmc-web/nginx-conf-rev を上げる**(ConfigMapの変更だけではPodが再起動しない)。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jmc-web-nginx
+  namespace: jmc-web
+data:
+  default.conf: |
+    server {
+        listen 8080;
+        server_name _;
+        root /usr/share/nginx/html;
+        index index.html;
+        autoindex off;
+        server_tokens off;
+        # 非rootのnginxは8080で動くため、/mouse_clinic のような末尾スラッシュ無しの
+        # リダイレクトが http://<host>:8080/... にならないよう、相対のLocationにする
+        absolute_redirect off;
+
+        add_header X-Frame-Options SAMEORIGIN always;
+        add_header X-Content-Type-Options nosniff always;
+
+        location / {
+            try_files $uri $uri/ =404;
+        }
+
+        # livenessProbe用(NFSを見ない)。NFSが遅いだけでPodを再起動させないため
+        location = /healthz {
+            access_log off;
+            default_type text/plain;
+            return 200 "ok\n";
+        }
+    }

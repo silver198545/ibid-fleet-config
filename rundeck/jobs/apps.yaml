@@ -1076,6 +1076,309 @@
         export RUNDECK_EXEC_URL='@job.url@'
         scripts/update-app-image.sh check-@option.env@ brc-cross-search-xsearch
       scriptInterpreter: /bin/bash
+- name: 2-staging-update
+  group: jmc-web
+  uuid: edc75dda-acb5-53bb-86e6-0560ce15914d
+  description: |
+    【staging更新パイプライン】jmc-web
+
+    envs/staging/apps/jmc-web を dev と同じ内容にする昇格PRを promote ワークフロー(to=staging)で作り、
+    auto-mergeを待って(stagingだけのPRなので承認不要)、stagingのrollout・WEB疎通とQAを確認する。
+    devとstagingに差分が無ければPRは作らず、確認だけ行う。
+
+    stagingでブラウザ確認したら「3-production-update」で本番へ。本番へは必ずstagingを通す。
+    stagingにまだ無いアプリはエラーになる(初回は「4-first-promote-prepare」を env=staging で)。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 1h
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options: []
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: staging昇格PR作成 → auto-merge → stagingの確認
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        scripts/update-app-image.sh staging-update jmc-web
+      scriptInterpreter: /bin/bash
+- name: 3-production-update
+  group: jmc-web
+  uuid: c652a9cf-fd94-54cb-b505-db2ae22a8f0f
+  description: |
+    【本番環境更新パイプライン】jmc-web
+
+    stagingでQAし(通らなければPRを作らない)、
+    envs/production/apps/jmc-web を staging と同じ内容にする昇格PRを promote ワークフロー(to=production)で作り、
+    **人がPRをレビュー・マージするのを待つ(このジョブはマージしない)**。マージされたら
+    mainを取り込み、Fleetの適用を待って本番のrollout・WEB疎通を確認する。
+    stagingと本番に差分が無ければPRは作らず、確認だけ行う。
+
+    PRのdiffはイメージタグに限らずstagingに入っている変更すべて。内容を見てからマージすること。
+    マージ待ちの間、クローンのロックは手放すので他のジョブは動ける。
+    本番にまだ無いアプリはエラーになる(初回は「4-first-promote-prepare」を env=production で)。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 10h
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: merge_wait_minutes
+    description: 本番PRのレビュー・マージを待つ時間(分)。過ぎたらジョブは失敗で終わる(PRはそのまま残る)
+    required: true
+    value: '240'
+    values:
+    - '60'
+    - '120'
+    - '240'
+    - '480'
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: 昇格PR作成 → 人のマージ待ち → 本番の確認
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        MERGE_WAIT_MINUTES='@option.merge_wait_minutes@' scripts/update-app-image.sh release-production jmc-web
+      scriptInterpreter: /bin/bash
+- name: 4-first-promote-prepare
+  group: jmc-web
+  uuid: 8f78371a-ec5f-5419-87c0-67b4712bb75d
+  description: |
+    【初回昇格 1/2】jmc-web(昇格先にまだ無いときだけ。既にあれば「2-staging-update」「3-production-update」を使う)
+
+    昇格元(staging ならdev、production ならstaging)の jmc-web を昇格先へコピーするブランチを作る(コミットはしない)。
+    出力に表示されるkubesealコマンド(PATを扱うためジョブ化しない)を踏み台端末で人が実行し、
+    envs/<env>/secrets/jmc-web.yaml を作ってから「5-first-promote-finish」を同じ env で実行する。
+
+    **finishまでの間、クローンは未コミットのまま残る**。他のジョブは「mainを最新化」で止まる。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 30m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: env
+    description: '初回昇格する先(staging: dev→staging / production: staging→production。必ずstagingが先)'
+    required: true
+    value: staging
+    values:
+    - staging
+    - production
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: 昇格先へのコピー(コミットしない)
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        scripts/update-app-image.sh promote-@option.env@ jmc-web
+      scriptInterpreter: /bin/bash
+- name: 5-first-promote-finish
+  group: jmc-web
+  uuid: bf117bf9-dca5-5740-a047-7d0b44644986
+  description: |
+    【初回昇格 2/2】jmc-web
+
+    kubesealでSealedSecretを作った後に、prepareと同じ env で実行。コミット・PR作成まで行う。
+    stagingはauto-mergeしてstagingの確認まで続ける。productionのPRはレビューのうえ人がマージし、
+    マージ後に「9-check」(env=production)で確認する。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 30m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: env
+    description: '初回昇格する先(staging: dev→staging / production: staging→production。必ずstagingが先)'
+    required: true
+    value: staging
+    values:
+    - staging
+    - production
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: コミット・PR作成
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        scripts/update-app-image.sh promote-@option.env@-finish jmc-web
+      scriptInterpreter: /bin/bash
+- name: 8-qa
+  group: jmc-web
+  uuid: 11bdbd8a-c7f1-5d2b-b1b9-e1ff4e357a25
+  description: |
+    jmc-web のQA(反映の確認と qa/checks.yaml のチェック。docs/operations-flow.md「QAゲート」)。
+    env=staging では結果をGitHubに記録し、本番への昇格PRの qa-gate がそれを見る
+    (通ると、失敗していた qa-gate をやり直させる)。「2-staging-update」「3-production-update」も
+    同じQAを自動で行うので、これは直した後の再確認や、本番PRのqa-gateが落ちたとき用。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 30m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: env
+    description: QAする環境(結果を記録するのはstagingだけ)
+    required: true
+    value: staging
+    values:
+    - staging
+    - dev
+    - production
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: mainを最新化
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        exec 9>"$(git rev-parse --git-dir)/ibid-pipeline.lock"
+        flock -w 3600 9
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "エラー: 作業ツリーに未コミットの変更があります(初回昇格の途中など)。確認してから再実行してください。" >&2
+          git status --short >&2
+          exit 1
+        fi
+        git checkout -q main
+        git pull -q --ff-only origin main
+        echo "main: $(git log -1 --format='%h %s')"
+      scriptInterpreter: /bin/bash
+    - description: QA
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        scripts/qa.sh '@option.env@' apps jmc-web
+      scriptInterpreter: /bin/bash
+- name: 9-check
+  group: jmc-web
+  uuid: bfb0e3f4-27b8-5905-a660-f72d2d916dd6
+  description: |
+    jmc-web のrollout状況とWEB疎通(readinessProbeのpathで200か)を確認する(読み取りのみ)。
+  loglevel: INFO
+  executionEnabled: true
+  scheduleEnabled: true
+  multipleExecutions: false
+  timeout: 10m
+  nodefilters:
+    filter: 'tags: rancher'
+  nodesSelectedByDefault: true
+  options:
+  - name: env
+    description: 確認する環境
+    required: true
+    value: dev
+    values:
+    - dev
+    - staging
+    - production
+    valuesListDelimiter: ','
+    enforced: true
+  sequence:
+    keepgoing: false
+    strategy: node-first
+    commands:
+    - description: 確認
+      script: |
+        set -euo pipefail
+        cd "$HOME/ibid-fleet-config"
+        export PIPELINE_ACTOR='@job.username@'
+        export RUNDECK_EXEC_URL='@job.url@'
+        scripts/update-app-image.sh check-@option.env@ jmc-web
+      scriptInterpreter: /bin/bash
 - name: 1-dev-update
   group: member-gateway
   uuid: ef9fbe7b-da38-5f7c-ae6b-9cfdd9ff61a3
@@ -2546,6 +2849,7 @@
     - brc-advanced-search
     - brc-cross-search-resource
     - brc-cross-search-xsearch
+    - jmc-web
     - member-gateway
     - metadatabase-v2
     - riken-diips
