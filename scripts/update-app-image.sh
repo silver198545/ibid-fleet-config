@@ -133,6 +133,7 @@ upstream_repo_for() {
     metadatabase-v2) echo "silver198545/metadatabase-v2" ;;
     brc-cross-search-xsearch|brc-cross-search-resource) echo "d-usuda/brc-cross-search" ;;
     member-gateway) echo "silver198545/member-gateway" ;;
+    jmc-web) echo "エラー: jmc-webは独自イメージを持たない(公式nginxイメージ+NFS上の静的ファイル)ため、イメージ更新の対象外です。nginxの更新はdeployment.yamlのタグ・digestを書き換えます(docs/manual-apps.md「jmc-web 固有のメモ」)。" >&2; exit 1 ;;
     *) echo "エラー: ${1} の取り込み元リポジトリが未登録です(このスクリプトの upstream_repo_for/upstream_branch_for に追記してください)。" >&2; exit 1 ;;
   esac
 }
@@ -157,8 +158,17 @@ upstream_branch_for() {
 ghcr_secret_needed_for() {
   case "$1" in
     brc-advanced-search|riken-diips|metadatabase-v2|brc-cross-search-xsearch|brc-cross-search-resource|member-gateway) echo yes ;;
-    sparqlist) echo no ;;
+    sparqlist|jmc-web) echo no ;;
     *) echo "エラー: ${1} のGHCR pull secret要否が未登録です(このスクリプトの ghcr_secret_needed_for に追記してください)。" >&2; exit 1 ;;
+  esac
+}
+
+# 環境ごとのSealedSecret(envs/<env>/secrets/<app>.yaml)を1つも持たないアプリ。
+# 初回昇格(promote-<env>-finish)でSecretファイルを求めない。
+no_secret_app() {
+  case "$1" in
+    jmc-web) return 0 ;;
+    *) return 1 ;;
   esac
 }
 
@@ -662,7 +672,11 @@ kubectl create secret generic member-gateway-kintone \\
 EOF
     fi
   else
-    echo "${APP}のGHCRイメージは公開設定のため、pull用SealedSecretは不要です。"
+    if no_secret_app "$APP"; then
+      echo "${APP}はSecretを使わないため、SealedSecretの作成は不要です。"
+    else
+      echo "${APP}のGHCRイメージは公開設定のため、pull用SealedSecretは不要です。"
+    fi
     if [[ "$APP" == "sparqlist" ]]; then
       echo ""
       echo "=== 次に、ADMIN_PASSWORD用SealedSecretを作成してください(${to_env}向けに新規生成) ==="
@@ -673,7 +687,11 @@ EOF
   echo "DNSは環境ごとのワイルドカード(*.${to_env}.ibid.lan)なので、$(hostname_for_env "$to_env") の登録は不要です"
   echo "(docs/manual-cert-manager-freeipa-acme.md「サイトホスト名のDNS」)。"
   echo ""
-  echo "SealedSecret作成後、次を実行してください:"
+  if no_secret_app "$APP"; then
+    echo "次を実行してください:"
+  else
+    echo "SealedSecret作成後、次を実行してください:"
+  fi
   echo "  scripts/update-app-image.sh promote-${to_env}-finish ${APP}"
 }
 
@@ -692,7 +710,9 @@ cmd_promote_finish() {
       ;;
   esac
   [[ -d "$to_dir" ]] || { echo "エラー: ${to_dir} がありません。先に promote-${to_env} を実行してください。" >&2; exit 1; }
-  [[ -f "$secret_file" ]] || { echo "エラー: ${secret_file} がありません。SealedSecretを先に作成してください。" >&2; exit 1; }
+  if ! no_secret_app "$APP"; then
+    [[ -f "$secret_file" ]] || { echo "エラー: ${secret_file} がありません。SealedSecretを先に作成してください。" >&2; exit 1; }
+  fi
 
   if [[ "$APP" == "metadatabase-v2" && ! -f "envs/${to_env}/secrets/${APP}-admin.yaml" ]]; then
     echo "エラー: envs/${to_env}/secrets/${APP}-admin.yaml がありません。promote-${to_env}の表示どおり作成してください。" >&2
@@ -703,7 +723,10 @@ cmd_promote_finish() {
     exit 1
   fi
 
-  git add "$to_dir" "$secret_file"
+  git add "$to_dir"
+  if [[ -f "$secret_file" ]]; then
+    git add "$secret_file"
+  fi
   # アプリ用の追加Secret(例: metadatabase-v2-admin.yaml)があれば一緒に含める。
   local extra
   for extra in "envs/${to_env}/secrets/${APP}"-*.yaml; do
@@ -713,7 +736,9 @@ cmd_promote_finish() {
   done
 
   local secret_line
-  if [[ "$(ghcr_secret_needed_for "$APP")" == "yes" ]]; then
+  if no_secret_app "$APP"; then
+    secret_line="- Secretは使わない(SealedSecretの作成なし)"
+  elif [[ "$(ghcr_secret_needed_for "$APP")" == "yes" ]]; then
     secret_line="- GHCR pull用SealedSecretを \`$(context_for_env "$to_env")\` 向けに作り直し"
   else
     secret_line="- ADMIN_PASSWORD等のアプリ用SealedSecretを \`$(context_for_env "$to_env")\` 向けに新規生成(GHCRイメージは公開設定のためpull用Secretは無し)"

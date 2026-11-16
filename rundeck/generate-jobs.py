@@ -215,10 +215,7 @@ def persistent_data_apps():
 # 自作アプリ(apps/<app>)
 # ---------------------------------------------------------------------------
 
-def app_jobs(app, has_data):
-    group = "apps/" + app
-    jobs = []
-
+def dev_update_job(app, group, has_data):
     dev_options = [
         opt("src_ref", "取り込み元のコミットSHA。空欄なら取り込み元ブランチの最新を使う"
             "(現在のimages/" + app + "/SRC_REFと同じなら、イメージは更新せずdevの確認だけ行う)",
@@ -243,7 +240,7 @@ def app_jobs(app, has_data):
             "else\n"
             "  echo 'sync_prod_data=no のためスキップします。'\n"
             "fi"))
-    jobs.append(job(group, "1-dev-update", f"""
+    return job(group, "1-dev-update", f"""
 【開発環境更新パイプライン】{app}
 
 取り込み元の最新コミット(または指定したsrc_ref)でイメージを作り直し、devへ反映して確認する。
@@ -251,7 +248,16 @@ def app_jobs(app, has_data):
 devのrollout・WEB疎通確認、までを1回で行う(devだけのPRなので承認なしでマージされる)。
 
 devでブラウザ確認したら「2-staging-update」でstagingへ。
-""", dev_options, dev_steps, "90m"))
+""", dev_options, dev_steps, "90m")
+
+
+def app_jobs(app, has_data):
+    group = "apps/" + app
+    jobs = []
+    # images/<app>/ が無いアプリ(jmc-web: 公式nginxイメージ+NFSの静的ファイル)はイメージ更新が無いので、
+    # devの更新ジョブを作らない(nginxの更新はdeployment.yamlを直接書き換えるPRで行う)
+    if (REPO / "images" / app).is_dir():
+        jobs.append(dev_update_job(app, group, has_data))
 
     jobs.append(job(group, "2-staging-update", f"""
 【staging更新パイプライン】{app}

@@ -648,3 +648,52 @@ devとproductionで同じNFSディレクトリを共有しているためコピ�
   (外部nginxのIP)と外部nginxの`X-Forwarded-For`設定で実際のクライアントIPを渡す。
 - 本家の`compose.yaml`と同じく、読み取り専用のルートファイルシステム・非root(`node`)で動かす
   (`readOnlyRootFilesystem: true`)。probeは`GET /`(入力ページ。照会回数の制限の対象外)。
+
+## jmc-web 固有のメモ
+
+- 日本マウスクリニックの静的サイト(旧`jmcen`のApache、DocumentRoot `/var/www/html`)。
+  HTML・画像・PDFだけで、`.htaccess`・SSI・PHP/CGI・VirtualHost・userdirは使っていない(2026-11-04確認)。
+  約730MB(`mouse_clinic/` 575M・`shirpa/` 158M)。
+- **他のアプリと違い独自イメージを持たない**(`images/jmc-web/`もビルドワークフローも無い)。
+  公式nginxの非root版(`docker.io/nginxinc/nginx-unprivileged`、stable系のalpine)をdigestで固定し、
+  設定は`configmap-nginx.yaml`で渡す。そのため`update-app-image.sh`の`set-image`/`dev-update`は
+  使えず、Rundeckにも`1-dev-update`ジョブが無い(`generate-jobs.py`は`images/<app>/`が無いアプリでは
+  作らない)。昇格(`deploy-staging`・`deploy-production`・初回の`promote-<env>`)と確認(`check-<env>`)は
+  他のアプリと同じ。Secretは使わない(`no_secret_app`に登録済み。初回昇格でSealedSecretを求めない)。
+- **nginxの更新**: `deployment.yaml`のタグとdigestを書き換えるPRをdevへ出し、他のアプリと同じく
+  staging→productionへ昇格する。digestはmulti-archのindexのもの:
+  ```bash
+  tok=$(curl -s "https://auth.docker.io/token?service=registry.docker.io&scope=repository:nginxinc/nginx-unprivileged:pull" | jq -r .token)
+  curl -sI -H "Authorization: Bearer $tok" \
+    -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json" \
+    https://registry-1.docker.io/v2/nginxinc/nginx-unprivileged/manifests/<タグ> | grep -i docker-content-digest
+  ```
+  nginxの設定(`configmap-nginx.yaml`)を変えたら、同じPRで`deployment.yaml`の
+  `jmc-web/nginx-conf-rev`を上げる(ConfigMapの変更だけではPodが作り直されない)。
+- **旧Apacheとの対応**: `DirectoryIndex index.html`、`Options -Indexes`(一覧なし)、
+  `X-Frame-Options SAMEORIGIN`・`X-Content-Type-Options nosniff`を同じにしてある。charsetは
+  旧Apacheと同じく付けない(Shift_JIS/EUC-JPのページはmeta charsetで表示される。meta charsetの無いページも
+  あるため、nginx側でcharsetを足さないこと)。非rootのnginxは8080で動くので、末尾スラッシュ無しの
+  ディレクトリへのリダイレクトが`:8080`付きにならないよう`absolute_redirect off`にしている。
+- **中身はNFSの共有ディレクトリ`192.168.1.1:/data/nfs/jmc-web/html`**
+  (静的PV/PVC `jmc-web-content`、`pv-nfs-content.yaml`)。**dev/staging/productionの全環境が同じ
+  ディレクトリを読み取り専用でマウントする**(Podは書き込まない)。中身の更新はGitの昇格を通らず、
+  NFS上のファイルを書き換えれば全環境に即反映される。バックアップはNFSサーバー側(Bacula。
+  本リポジトリの管理外)。
+- **編集はjmcenでNFSをマウントして行う**(今までの`/var/www/html`と同じ感覚で編集できるように)。
+  NFSサーバー側でjmcenへのexportを許可し、jmcenでの編集ユーザー(`uchida`・グループ`mouse_clinic`)の
+  UID/GIDがそのまま書けるようにしておく(NFSサーバーの設定は本リポジトリの管理外)。
+  ファイルはothers(nginxのUID 101)に読み取り権限があればよい(新規ファイルもumask 002/022で作る)。
+- **初回の移行**(devへのマージより先に行う。ディレクトリが無いとPodがContainerCreatingのまま止まる):
+  1. NFSをマウントしたホスト(`N`は`192.168.1.1:/data/nfs`のマウント先)でディレクトリを作る:
+     `install -d -m 2775 $N/jmc-web/html`
+  2. jmcenから中身をコピーする(所有者・パーミッションを保つ):
+     `rsync -aH --numeric-ids /var/www/html/ <NFSをマウントしたホスト>:$N/jmc-web/html/`
+     (jmcenで直接マウントできるならjmcen上で`rsync -aH /var/www/html/ /mnt/jmc-web/`)
+  3. devのバンドルをマージし、`scripts/update-app-image.sh check-dev jmc-web`と
+     [devcon](manual-devcon.md)から`https://jmc-web.dev.ibid.lan/`の表示を確かめる
+  4. staging・productionへは他のアプリと同じ初回昇格(`promote-staging`→`promote-staging-finish`、
+     `promote-production`→`promote-production-finish`。Secretの作成は無い)
+  5. jmcenの`/var/www/html`をNFSのマウントに置き換え(旧ディレクトリは退避して残す)、
+     外向きのNginxの振り先をjmcenからproductionのIngress(`jmc-web.production.ibid.lan`)へ切り替える。
+     jmcenのApacheはしばらく止めずに残し、問題が無ければ停止する
