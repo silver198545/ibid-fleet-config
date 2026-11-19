@@ -1,0 +1,27 @@
+# 検証用UI(検索・チューニング・管理画面)。管理画面・管理APIには認証が無い(本家の docs/operations.md)。
+# devの *.dev.ibid.lan は内部名(devconから見る)のため、そのまま出している。
+# 本番に出す前に管理APIの扱いを決めること(docs/manual-apps.md「bioresource-search 固有のメモ」)。
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bioresource-search
+  namespace: bioresource-search
+  annotations:
+    cert-manager.io/cluster-issuer: freeipa-acme
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - bioresource-search.dev.ibid.lan
+      secretName: bioresource-search-tls
+  rules:
+    - host: bioresource-search.dev.ibid.lan
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: bioresource-search-frontend
+                port:
+                  number: 80

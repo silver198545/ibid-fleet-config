@@ -245,6 +245,12 @@ helm:
               - role: service
             relabel_configs:
               # namespace → probeするパスの対応表
+              # bioresource-searchは名前がhttpのポートを持つService(api・frontend)の両方を /readyz で見る
+              # (ESの公開中のエイリアスまで確かめる。frontendはapiへ中継する)
+              - source_labels: [__meta_kubernetes_namespace]
+                regex: bioresource-search
+                target_label: __tmp_probe_path
+                replacement: /readyz
               - source_labels: [__meta_kubernetes_namespace]
                 regex: brc-advanced-search
                 target_label: __tmp_probe_path

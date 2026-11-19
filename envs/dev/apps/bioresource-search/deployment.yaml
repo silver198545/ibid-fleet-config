@@ -1,0 +1,249 @@
+# bioresource-search の3つのワークロード。イメージはすべて build-bioresource-search-image.yaml が
+# 同じタグで公開する(update-app-image.sh deploy-dev が3つの image 行をまとめて書き換える)。
+# 先頭のDeploymentはアプリ名と同じ名前にしておくこと(qa.sh・update-app-image.sh check が
+# deploy/<app> の rollout と最初の image 行・最初の readinessProbe のパスを見る)。
+#
+# メモリは本家のサーバでの実測(2026-11-17、平常時の合計約3.1GB)から決めた。
+#   ES: ヒープ1g(使用は約256MB)。limitを超えた分はOSのファイルキャッシュが捨てられるだけ
+#   worker: 取込時の最大1.55GiB / api: 最大0.70GiB
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bioresource-search
+  namespace: bioresource-search
+spec:
+  # ジョブDB(SQLite)とステージングを置くPVCがRWOのため1レプリカ。更新時は古いPodを止めてから
+  # 新しいPodを作る(同じPVCを2つのPodが同時に掴まないように)。
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: bioresource-search
+      component: api
+  template:
+    metadata:
+      labels:
+        app: bioresource-search
+        component: api
+    spec:
+      imagePullSecrets:
+        - name: ghcr-bioresource-search
+      # イメージの app ユーザー(10001)。PVCのファイルもこのグループで書けるようにする
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      # worker は停止の合図で実行中の取込ジョブにキャンセルを要求し、区切りまで待つ
+      # (本家 compose.yaml の stop_grace_period: 60s)
+      terminationGracePeriodSeconds: 90
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: bioresource-search-data
+      containers:
+        # 検索API(GET /api/v1/search など)と管理API(/api/v1/admin/*)
+        - name: api
+          image: ghcr.io/silver198545/bioresource-search:0.1.0-r0
+          args: ["serve", "--host", "0.0.0.0", "--port", "8000"]
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: ES_URL
+              value: http://bioresource-search-es:9200
+            - name: STAGING_DIR
+              value: /data/staging
+            - name: JOBS_DB_URL
+              value: sqlite:////data/jobs/jobs.db
+            - name: HOME
+              value: /tmp
+          volumeMounts:
+            - name: data
+              mountPath: /data/staging
+              subPath: staging
+            - name: data
+              mountPath: /data/jobs
+              subPath: jobs
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 1Gi
+          # /readyz はESの公開中のエイリアスまで確かめるため、初回の取込前は503になる。
+          # それでServiceから外れると管理画面から取込を始められないので、Podの判定には /healthz を使う
+          # (検索できるかどうかは死活監視(blackbox)とQAが /readyz で見る)。
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+        # 取込のworker。待ちのジョブを実行し、INGEST_SCHEDULE_CRON の時刻に定期実行する
+        # (devでは定期実行しない。取込は管理画面から手動で始める。docs/manual-apps.md)。
+        # 取込では knowledge.brc.riken.jp のSPARQLを大量に読む(全件で約44分)。
+        - name: worker
+          image: ghcr.io/silver198545/bioresource-search:0.1.0-r0
+          args: ["worker"]
+          env:
+            - name: ES_URL
+              value: http://bioresource-search-es:9200
+            - name: STAGING_DIR
+              value: /data/staging
+            - name: JOBS_DB_URL
+              value: sqlite:////data/jobs/jobs.db
+            - name: HOME
+              value: /tmp
+          volumeMounts:
+            - name: data
+              mountPath: /data/staging
+              subPath: staging
+            - name: data
+              mountPath: /data/jobs
+              subPath: jobs
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              memory: 2Gi
+---
+# 検証用UI(検索・チューニング・管理)。nginxで画面を配信し、/api・/healthz・/readyz は
+# Service bioresource-search-api へ中継する(images/bioresource-search/frontend-nginx.conf)。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bioresource-search-frontend
+  namespace: bioresource-search
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bioresource-search
+      component: frontend
+  template:
+    metadata:
+      labels:
+        app: bioresource-search
+        component: frontend
+    spec:
+      imagePullSecrets:
+        - name: ghcr-bioresource-search
+      containers:
+        - name: frontend
+          image: ghcr.io/silver198545/bioresource-search-frontend:0.1.0-r0
+          ports:
+            - name: http
+              containerPort: 80
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+---
+# Elasticsearch(1ノード)。本家 compose.yaml の es と同じ設定で、認証なし(xpack.security無効)。
+# ServiceはヘッドレスでこのnamespaceのPodからだけ使う(networkpolicy.yaml)。
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: bioresource-search-es
+  namespace: bioresource-search
+spec:
+  serviceName: bioresource-search-es
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bioresource-search
+      component: es
+  template:
+    metadata:
+      labels:
+        app: bioresource-search
+        component: es
+    spec:
+      imagePullSecrets:
+        - name: ghcr-bioresource-search
+      # ESのイメージはグループ0なら任意のUIDで動く(本家 compose.yaml の user: "<uid>:0")。
+      # データのPVCはfsGroupで書けるようにする。
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 0
+        fsGroup: 1000
+      terminationGracePeriodSeconds: 120
+      containers:
+        - name: es
+          image: ghcr.io/silver198545/bioresource-search-es:0.1.0-r0
+          ports:
+            - name: rest
+              containerPort: 9200
+          env:
+            - name: discovery.type
+              value: single-node
+            - name: xpack.security.enabled
+              value: "false"
+            - name: ES_JAVA_OPTS
+              value: -Xms1g -Xmx1g
+            # ノードの vm.max_map_count(既定65530)に頼らないよう mmap を使わない。
+            # インデックスは1世代約3.1GBで検索も軽い(平均24ms)ため、性能への影響は小さい。
+            # ノード側のsysctl変更(User Data)が要らなくなる。
+            - name: node.store.allow_mmap
+              value: "false"
+            # 機械学習は使わない。ネイティブのプロセスとメモリを使わないよう止める
+            - name: xpack.ml.enabled
+              value: "false"
+          volumeMounts:
+            - name: data
+              mountPath: /usr/share/elasticsearch/data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 2Gi
+            limits:
+              memory: 3Gi
+          readinessProbe:
+            httpGet:
+              path: /_cluster/health?local=true
+              port: 9200
+            periodSeconds: 10
+            timeoutSeconds: 5
+          # 起動(インデックスの読み込み)に時間がかかってもKillしない
+          startupProbe:
+            httpGet:
+              path: /_cluster/health?local=true
+              port: 9200
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            tcpSocket:
+              port: 9200
+            periodSeconds: 20
+            failureThreshold: 6
+  # データはSSD側の harvester StorageClass に置く(ゲストLonghornはワーカーがHDDでI/Oが重い。
+  # Prometheusと同じ理由)。1世代約3.1GB×保持3世代+取込中の新しい世代+増加分を見込んで30Gi。
+  # volumeClaimTemplatesのPVCはStatefulSetを消しても残る。
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: harvester
+        resources:
+          requests:
+            storage: 30Gi

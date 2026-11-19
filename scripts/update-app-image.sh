@@ -133,6 +133,7 @@ upstream_repo_for() {
     metadatabase-v2) echo "silver198545/metadatabase-v2" ;;
     brc-cross-search-xsearch|brc-cross-search-resource) echo "d-usuda/brc-cross-search" ;;
     member-gateway) echo "silver198545/member-gateway" ;;
+    bioresource-search) echo "d-usuda/elasticBioresourceSearch" ;;
     jmc-web) echo "エラー: jmc-webは独自イメージを持たない(公式nginxイメージ+NFS上の静的ファイル)ため、イメージ更新の対象外です。nginxの更新はdeployment.yamlのタグ・digestを書き換えます(docs/manual-apps.md「jmc-web 固有のメモ」)。" >&2; exit 1 ;;
     *) echo "エラー: ${1} の取り込み元リポジトリが未登録です(このスクリプトの upstream_repo_for/upstream_branch_for に追記してください)。" >&2; exit 1 ;;
   esac
@@ -148,6 +149,7 @@ upstream_branch_for() {
     # 2026-10-15にmainへマージされ(取り込み元PR #3)ブランチが削除されたためmainに切り替えた。
     brc-cross-search-xsearch|brc-cross-search-resource) echo "main" ;;
     member-gateway) echo "main" ;;
+    bioresource-search) echo "main" ;;
     *) echo "エラー: ${1} の取り込み元ブランチが未登録です。" >&2; exit 1 ;;
   esac
 }
@@ -157,7 +159,7 @@ upstream_branch_for() {
 # 新規アプリ追加時は必ずどちらかに登録すること。
 ghcr_secret_needed_for() {
   case "$1" in
-    brc-advanced-search|riken-diips|metadatabase-v2|brc-cross-search-xsearch|brc-cross-search-resource|member-gateway) echo yes ;;
+    brc-advanced-search|riken-diips|metadatabase-v2|brc-cross-search-xsearch|brc-cross-search-resource|member-gateway|bioresource-search) echo yes ;;
     sparqlist|jmc-web) echo no ;;
     *) echo "エラー: ${1} のGHCR pull secret要否が未登録です(このスクリプトの ghcr_secret_needed_for に追記してください)。" >&2; exit 1 ;;
   esac

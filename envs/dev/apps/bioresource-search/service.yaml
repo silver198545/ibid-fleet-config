@@ -1,0 +1,48 @@
+# 検索API。frontend(nginx)の中継先で、brc-cross-search(xsearch)からもクラスタ内でこのServiceを呼ぶ
+# (http://bioresource-search-api.bioresource-search.svc:8000/api/v1/search。brc-cross-searchの
+# 環境変数 SEARCH_API_ENDPOINT)。ポート名 http はblackboxの死活監視の対象になる(/readyz)。
+apiVersion: v1
+kind: Service
+metadata:
+  name: bioresource-search-api
+  namespace: bioresource-search
+spec:
+  selector:
+    app: bioresource-search
+    component: api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+---
+# 検証用UI(Ingressの向き先)。
+apiVersion: v1
+kind: Service
+metadata:
+  name: bioresource-search-frontend
+  namespace: bioresource-search
+spec:
+  selector:
+    app: bioresource-search
+    component: frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+---
+# Elasticsearch(StatefulSetのserviceName。ヘッドレス)。ポート名は http にしない
+# (blackboxの死活監視は名前が http のポートだけを見る。ESの /readyz は無い)。
+apiVersion: v1
+kind: Service
+metadata:
+  name: bioresource-search-es
+  namespace: bioresource-search
+spec:
+  clusterIP: None
+  selector:
+    app: bioresource-search
+    component: es
+  ports:
+    - name: rest
+      port: 9200
+      targetPort: 9200

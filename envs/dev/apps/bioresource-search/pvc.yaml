@@ -1,0 +1,16 @@
+# api・workerが共有するジョブDB(SQLite、jobs/)と取込のステージング(staging/)。
+# 本家のサーバでは合わせて5MB未満。取込中のステージングの増加を見込んで余裕を持たせる。
+# SQLiteをNFSに置くとロックが効かないため、RWOのブロックボリューム(harvester)にする。
+# 管理画面で変えた検索項目・取込項目の設定もここ(ジョブDB)に残るため、消さないこと
+# (fleet.yaml の keepResources: true でバンドルを消しても残る)。
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bioresource-search-data
+  namespace: bioresource-search
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: harvester
+  resources:
+    requests:
+      storage: 5Gi

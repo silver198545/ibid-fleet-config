@@ -1,0 +1,21 @@
+# ESは認証なし(本家と同じ xpack.security 無効)で、届けば誰でも読み書き・削除できる。
+# このnamespaceのapi・worker(component: api のPod)からだけ受け付ける。
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bioresource-search-es
+  namespace: bioresource-search
+spec:
+  podSelector:
+    matchLabels:
+      app: bioresource-search
+      component: es
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: bioresource-search
+              component: api
+      ports:
+        - port: 9200

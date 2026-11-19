@@ -1,0 +1,81 @@
+# images/bioresource-search/ 配下の変更がmainにマージされたら、
+# elasticBioresourceSearch(d-usuda/elasticBioresourceSearch、mainブランチ)から
+# bioresource-search の3つのイメージをビルドしてGHCRへ公開する(タグはすべて同じ):
+#   ghcr.io/<owner>/bioresource-search:<TAG>           検索API・管理API・取込worker(backend/Dockerfile の runtime ステージ)
+#   ghcr.io/<owner>/bioresource-search-es:<TAG>        Elasticsearch + kuromoji・icu(backend/es/Dockerfile)
+#   ghcr.io/<owner>/bioresource-search-frontend:<TAG>  検証用UI(frontend/Dockerfile。nginx.confはk8s向けに差し替え)
+# タグは images/bioresource-search/TAG、取り込むアプリ側のコミットは images/bioresource-search/SRC_REF。
+# 3つとも同じソース・同じコミットから作るので、TAG・SRC_REFも1組にしている。
+# 公開後、envs/<env>/apps/bioresource-search/deployment.yaml の3つの image タグを切り替える
+# (update-app-image.sh deploy-dev がまとめて書き換える。docs/manual-apps.md参照)。
+#
+# Dockerfileはアプリ本家のものをそのまま使う(このリポジトリには置かない)。差し替えるのは
+# frontend の nginx.conf だけ(images/bioresource-search/frontend-nginx.conf の冒頭参照)。
+#
+# elasticBioresourceSearch はd-usudaアカウント所有のプライベートリポジトリ(silver198545はcollaborator)。
+# ソース取得には brc-cross-search と同じ BRC_CROSS_SEARCH_ACCESS_TOKEN(silver198545の`repo`スコープの
+# Personal access token(classic))を使う。classic PATはcollaboratorになっている全リポジトリを読めるため
+# 新しいトークンは要らない(トークンを作り直すときは、このワークフローでも使っていることに注意)。
+# 認証情報をイメージに残さないよう、cloneはDockerfile内ではなくactions/checkoutで行う。
+# PATでコミットSHAを直接fetchすると403になるため、ブランチ名でfetchしてからローカルでSRC_REFをcheckoutする。
+#
+# GHCR上のパッケージは非公開のまま運用する(ソースが非公開のため)。クラスタからのpullには
+# GHCR pull用SealedSecret(ghcr-bioresource-search)が必要(docs/manual-apps.md参照)。
+
+name: build-bioresource-search-image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "images/bioresource-search/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: SRC_REFを読み込む
+        id: src_ref
+        run: echo "ref=$(tr -d '[:space:]' < images/bioresource-search/SRC_REF)" >> "$GITHUB_OUTPUT"
+
+      - name: アプリ本体(プライベートリポジトリ)をブランチで取得
+        uses: actions/checkout@v7
+        with:
+          repository: d-usuda/elasticBioresourceSearch
+          ref: main
+          token: ${{ secrets.BRC_CROSS_SEARCH_ACCESS_TOKEN }}
+          persist-credentials: false
+          fetch-depth: 0
+          path: images/bioresource-search/app
+
+      - name: SRC_REFのコミットへローカルで固定
+        working-directory: images/bioresource-search/app
+        run: git checkout "${{ steps.src_ref.outputs.ref }}"
+
+      - name: frontendのnginx.confをk8s向けに差し替える
+        run: cp images/bioresource-search/frontend-nginx.conf images/bioresource-search/app/frontend/nginx.conf
+
+      - name: イメージをビルドしてGHCRへpush
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # 本家のDockerfileはRUN --mount=type=cache を使うのでBuildKitでビルドする
+          DOCKER_BUILDKIT: "1"
+        run: |
+          TAG="$(tr -d '[:space:]' < images/bioresource-search/TAG)"
+          BASE="ghcr.io/${{ github.repository_owner }}/bioresource-search"
+          SRC=images/bioresource-search/app
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker build --target runtime -t "$BASE:$TAG" "$SRC/backend"
+          docker build -t "$BASE-es:$TAG" "$SRC/backend/es"
+          docker build -t "$BASE-frontend:$TAG" "$SRC/frontend"
+          for image in "$BASE:$TAG" "$BASE-es:$TAG" "$BASE-frontend:$TAG"; do
+            docker push "$image"
+            echo "公開しました: $image"
+          done

@@ -1,0 +1,17 @@
+# production固有: ホスト名(<app>.production.ibid.lan)。リストは丸ごと置き換わるため全体を書く。
+spec:
+  tls:
+    - hosts:
+        - bioresource-search.production.ibid.lan
+      secretName: bioresource-search-tls
+  rules:
+    - host: bioresource-search.production.ibid.lan
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: bioresource-search-frontend
+                port:
+                  number: 80

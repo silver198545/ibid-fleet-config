@@ -34,6 +34,20 @@ forbidden:
   - "Traceback (most recent call last)"
 
 apps:
+  bioresource-search:
+    # 検証用UIのnginxが /readyz・/api をapiへ中継する。/readyz はESの公開中のエイリアスまで確かめる
+    # (初回の取込前は503)。件数の下限は本家のサーバでの値(2026-11-17、82万件)から低めにした
+    - path: /readyz
+      json: true
+      contains: ['"status":"ok"']
+    - path: /api/v1/search?q=Pax6&item=gene
+      json: true
+      min_number: {pattern: '"total":(\d+)', min: 1}
+    - path: /api/v1/search-items
+      json: true
+    - path: /
+      contains: ['<div id="root">']
+
   brc-advanced-search:
     - path: /advanced/ja/
       contains: ['class="title-view"', "Advanced Search"]
