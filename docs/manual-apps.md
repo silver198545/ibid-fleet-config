@@ -30,6 +30,12 @@ DBなし。外部のSPARQLエンドポイントを参照するのみ)はriken-di
 入力されたメールアドレスをkintoneに照会して会員状態を判定するAPIサーバー。kintoneのAPIトークンを
 環境ごとのSealedSecretで渡す点以外はmetadatabase-v2と同じ構成。詳細は下記「member-gateway 固有のメモ」参照。
 
+[elasticBioresourceSearch](https://github.com/d-usuda/elasticBioresourceSearch)(FastAPI製の検索APIと取込worker、
+Elasticsearch 9、検証用UI)は、brc-cross-searchが呼ぶ検索API(`GET /api/v1/search`)の提供元。
+`bioresource-search` として1つのnamespaceにES(StatefulSet)・api+worker・frontendを置く。
+ESのデータとジョブDBをPVCに持ち、1つのソースから3つのイメージを作る点が他のアプリと異なる。
+詳細は下記「bioresource-search 固有のメモ」参照。
+
 ## 構成
 
 - `images/<app>/`: アプリのビルド定義。アプリ本体は別リポジトリにあるため、
@@ -648,6 +654,74 @@ devとproductionで同じNFSディレクトリを共有しているためコピ�
   (外部nginxのIP)と外部nginxの`X-Forwarded-For`設定で実際のクライアントIPを渡す。
 - 本家の`compose.yaml`と同じく、読み取り専用のルートファイルシステム・非root(`node`)で動かす
   (`readOnlyRootFilesystem: true`)。probeは`GET /`(入力ページ。照会回数の制限の対象外)。
+
+## bioresource-search 固有のメモ
+
+- ソースは[d-usuda/elasticBioresourceSearch](https://github.com/d-usuda/elasticBioresourceSearch)の
+  `main`ブランチ。本家の`compose.yaml`(es・api・worker・frontend)をそのままk8sに移した構成
+  (2026-11-19にdevへ導入)。Dockerfileは本家のものを使い、`images/bioresource-search/`には
+  `TAG`・`SRC_REF`と、frontendのnginx設定(`frontend-nginx.conf`)だけを置く。
+- **1つのソースから3つのイメージ**を同じタグで公開する(`build-bioresource-search-image.yaml`):
+  `bioresource-search`(api・worker共通)、`bioresource-search-es`(ES + kuromoji・icu)、
+  `bioresource-search-frontend`。`update-app-image.sh deploy-dev`の書き換えは
+  `ghcr.io/silver198545/<app>(-<接尾辞>)?:`に一致するので、3つの`image`行がまとめて上がる。
+- **ソースリポジトリはd-usudaアカウント所有のプライベートリポジトリ**。brc-cross-searchと同じ
+  `BRC_CROSS_SEARCH_ACCESS_TOKEN`(silver198545のclassic PAT、`repo`スコープ)で取得する
+  (collaboratorになっているリポジトリはすべて読めるため、新しいトークンは作っていない)。
+  GHCRイメージも非公開。pullには`ghcr-bioresource-search`(`envs/<env>/secrets/bioresource-search.yaml`)が要る。
+- 構成(`envs/<env>/apps/bioresource-search/`):
+
+  | 部品 | 種類 | 中身 |
+  |---|---|---|
+  | `bioresource-search` | Deployment(1レプリカ、Recreate) | `api`(検索API・管理API、8000番)と`worker`(取込)の2コンテナ |
+  | `bioresource-search-es` | StatefulSet(1ノード) | ES 9。PVC 30Gi(`harvester`) |
+  | `bioresource-search-frontend` | Deployment | 検証用UI(nginx)。Ingressの向き先 |
+  | `bioresource-search-data` | PVC 5Gi(`harvester`、RWO) | ジョブDB(SQLite)と取込のステージング。api・workerで共有 |
+
+  - api・workerはジョブDB(SQLite)を共有するため同じPodに入れる。SQLiteはNFSではロックが
+    効かないのでRWOのブロックボリュームに置き、`strategy: Recreate`で同時に2つのPodが掴まないようにする。
+  - **ジョブDBには管理画面で変えた検索項目・取込項目の設定と履歴も入る**。PVCを消すと戻らない。
+  - ESのデータは`harvester`(SSD)。ゲストLonghornはワーカーがHDDでI/Oが重い(Prometheusと同じ理由)。
+    1世代約3.1GB(82万件、2026-11-17)× 保持3世代(`INDEX_KEEP_GENERATIONS`)+ 取込中の新しい世代。
+- **ESは認証なし**(本家と同じ`xpack.security.enabled=false`)。Serviceはヘッドレスで外に出さず、
+  NetworkPolicy(`networkpolicy.yaml`)でこのnamespaceのapi・workerのPodからだけ受け付ける。
+  ECK(Elastic公式オペレーター)はセキュリティを無効にできず、APIのESクライアントが認証を
+  扱わない(`ES_URL`だけ)ため使っていない。
+- ESは`node.store.allow_mmap=false`で動かす。ノードの`vm.max_map_count`(既定65530)を
+  上げずに済む(User Dataの変更が要らない)。検索は軽い(平均24ms/件)ので性能への影響は小さい。
+  機械学習(`xpack.ml`)も止めている。
+- メモリ(本家のサーバでの実測、2026-11-17)から決めた値:
+
+  | コンテナ | request | limit | 実測 |
+  |---|---|---|---|
+  | es(ヒープ1g) | 2Gi | 3Gi | 平常2.78GiB(多くはOSのファイルキャッシュ)、ヒープ使用256MB |
+  | worker | 256Mi | 2Gi | 平常212MiB、取込時最大1.55GiB |
+  | api | 128Mi | 1Gi | 平常111MiB、最大0.70GiB |
+  | frontend | 16Mi | 64Mi | 8MiB |
+
+  ESのlimitを超える分はファイルキャッシュが捨てられるだけで、OOMにはならない。
+- **apiのreadinessProbeは`/healthz`**。`/readyz`はESの公開中のエイリアスまで確かめるため、
+  初回の取込前は503になり、Serviceから外れると管理画面から取込を始められなくなる。
+  検索できるかどうかは死活監視(blackbox、api・frontendの両Serviceを`/readyz`)とQAで見る。
+- **取込**: devでは定期実行していない(`INGEST_SCHEDULE_CRON`未設定)。新しく作った環境は
+  インデックスが空なので、`https://bioresource-search.dev.ibid.lan/admin`(devcon)から取込を始める
+  (全件で約44分。`knowledge.brc.riken.jp`のSPARQLを大量に読む)。CLIで始める場合:
+  ```bash
+  kubectl --context dev1 -n bioresource-search exec deploy/bioresource-search -c worker -- \
+    python -c "import urllib.request as u; print(u.urlopen(u.Request('http://localhost:8000/api/v1/admin/ingest-jobs', data=b'{}', headers={'Content-Type': 'application/json'})).read().decode())"
+  ```
+  操作の詳細は本家の`docs/operations.md`。
+- **brc-cross-searchからの接続**: クラスタ内のService
+  `http://bioresource-search-api.bioresource-search.svc:8000/api/v1/search`を、
+  brc-cross-search(xsearch)の環境変数`SEARCH_API_ENDPOINT`で渡す(本家の設定JSONに書かれた
+  `10.3.105.40:18000`より優先される)。検索APIを使う一覧は brc-cross-search の
+  `feature/search-api-list`ブランチにある(2026-11-19時点で`main`には未マージ)。
+- **本番に出す前に決めること**: 管理API(`/api/v1/admin/*`)と管理画面には認証が無い(本家の
+  `docs/operations.md`)。devの`*.dev.ibid.lan`は内部名のためそのまま出しているが、stagingや本番では
+  `ADMIN_API_ENABLED=false`にするか、管理画面をIngressに出さないかを決める。あわせて
+  `SEARCH_DEBUG_ENABLED=false`(公開環境では無効にする設定)、定期取込の時刻、本番のESのヒープ(2g程度)も決める。
+- 本家の`frontend/nginx.conf`が変わったら`images/bioresource-search/frontend-nginx.conf`にも反映する
+  (違いは中継先をDockerのDNSから同じnamespaceのService`bioresource-search-api`へ変えた点だけ)。
 
 ## jmc-web 固有のメモ
 

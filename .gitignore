@@ -23,6 +23,9 @@
 # CI(build-member-gateway-image.yaml)がプライベートリポジトリ
 # (silver198545/member-gateway)のソースを展開する場所。同上の理由で無視する。
 /images/member-gateway/app/
+# CI(build-bioresource-search-image.yaml)がプライベートリポジトリ
+# (d-usuda/elasticBioresourceSearch)のソースを展開する場所。同上の理由で無視する。
+/images/bioresource-search/app/
 
 # scripts/lib/*.py を import する処理(plugin-check.sh・capture-plugins.sh など)が作るPythonのキャッシュ。
 # Rundeckのジョブは作業ツリーがクリーンでないと止まるため、無視する(2026-11-09)。
