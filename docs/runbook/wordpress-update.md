@@ -4,7 +4,7 @@
 
 更新は「devに入れる → devで確認 → stagingで本番データを使って確認 → 本番へ昇格 → stagingから削除」の順。
 devに入れるのは、WordPress本体・MariaDBは自動。プラグインはサイトの管理者がdevの管理画面で更新して確かめ、RundeckでGitに取り込む。
-本番へは必ずstagingを通す(stagingに同時に置けるのは4サイトまで)。
+本番へは必ずstagingを通す(stagingに同時に置けるのは8サイトまで)。
 
 Rundeck(プロジェクト `WordPressControl`)では、手順Aのプラグインの取り込みが `0-dev-plugin-capture`、手順B(staging)がジョブ `2-staging`、
 手順C(バックアップ → 昇格PR → 人がマージ → 本番の確認)が `3-production-promote`、
@@ -100,7 +100,7 @@ scripts/wordpress-pipeline.sh staging-upgrade <site>...  # devの構成へ切り
   [operations-flow.md](../operations-flow.md)「QAゲート」)を見て、stagingのサイト(`https://<site>.staging.ibid.lan/ja/`)を
   ブラウザでも確認する。問題があればdevで直して `staging-upgrade` をやり直す
 - WordPress本体のメジャーリリース(7.0→7.1 など)、MariaDBのメジャー更新、プラグインの大きな更新のときは特に念入りに
-- 全サイトを更新するときは、4サイトずつ B → C → D を繰り返す
+- 全サイトを更新するときは、8サイトずつ B → C → D を繰り返す
 
 ## C. 本番へ昇格する
 

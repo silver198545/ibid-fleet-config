@@ -72,7 +72,7 @@ Rundeckのプロジェクトは担当ごとに分けている(2026-10-17から)�
 - クローンのパス(`$HOME/ibid-fleet-config`)とノードフィルタ(`tags: rancher`)は `generate-jobs.py` の
   `REPO_PATH`・`NODE_FILTER`。別ホストへ持っていくときはそこを変えて再生成する
 - ロック(`.git/ibid-pipeline.lock`)はクローンごと。別の人のジョブ同士は排他しないが、同じジョブの
-  同時実行はRundeck(`multipleExecutions: false`)が止める。例外として、stagingへサイトを置く処理(上限4サイトの確認から
+  同時実行はRundeck(`multipleExecutions: false`)が止める。例外として、stagingへサイトを置く処理(上限8サイトの確認から
   置くPRのマージまで)は、比較の基準の置き場所の `staging-capacity.lock` で全員の間で1つずつにする
   (別の人が同時に置いて上限を超えないように。`wordpress-pipeline.sh` の `stg_lock_capacity`)
 - Rundeck本体の設定(プロジェクト・ノード登録・SSH鍵・ACL)はこのリポジトリでは扱わない(下記に必要な設定だけ書く)
@@ -511,7 +511,7 @@ devとstagingの構成に差分が無ければ、3.は何もせず終わる。HT
 プラグイン同期Jobの失敗・QAの失敗があるとジョブは失敗になる。結果(所要時間・気づいた点)は本番への昇格PRに書く。
 ブラウザでの確認(`https://<site>.staging.ibid.lan/ja/`。記事表示・管理画面・プラグイン固有の画面)も行うこと。
 
-- staging1のメモリの都合で、**stagingに同時に置けるサイトは4つまで**(`STAGING_MAX_SITES`。超えると止まる)
+- staging1のメモリの都合で、**stagingに同時に置けるサイトは8つまで**(`STAGING_MAX_SITES`。超えると止まる)
 - 比較の基準は `/var/lib/ibid-fleet-config/rehearsal/staging-<site>/` に置く(パスはリハーサルサイト時代のまま)
 - 問題があればdevで直し、`2a-staging-upgrade` で切り替えからやり直す
   (`2-staging` を `upgrade=no` で実行した場合もこれで続ける)
