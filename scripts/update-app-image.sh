@@ -147,7 +147,10 @@ upstream_branch_for() {
     metadatabase-v2) echo "main" ;;
     # Docker対応(APP_MODE)の作業ブランチ feature/docker-app-mode を追っていたが、
     # 2026-10-15にmainへマージされ(取り込み元PR #3)ブランチが削除されたためmainに切り替えた。
-    brc-cross-search-xsearch|brc-cross-search-resource) echo "main" ;;
+    # 2026-11-20からxsearchだけ検索API(bioresource-search)の作業ブランチをdevで確かめている。
+    # 取り込み元でmainへマージされたらmainに戻す(build-brc-cross-search-xsearch-image.yaml の ref も)。
+    brc-cross-search-xsearch) echo "feature/search-api-list" ;;
+    brc-cross-search-resource) echo "main" ;;
     member-gateway) echo "main" ;;
     bioresource-search) echo "main" ;;
     *) echo "エラー: ${1} の取り込み元ブランチが未登録です。" >&2; exit 1 ;;

@@ -33,6 +33,12 @@ spec:
             # ドメイン全体を指定する(productionモードでは検査自体が無く効かない)。
             - name: PERMITTED_HOSTS
               value: ".ibid.lan"
+            # 検索API(bioresource-search)。設定JSONに api を書いた一覧(feature/search-api-list の
+            # config/page_xsearch/dev/catalog_api/。developmentモードでだけ /xsearch/dev/catalog_api/ として出る)が呼ぶ。
+            # 設定JSONに書かれた旧サーバ(10.3.105.40:18000)より優先される。同じnamespace名・Service名で
+            # 各環境のクラスタ内を指すので環境に依存しない(bioresource-searchの無い環境では使われない)。
+            - name: SEARCH_API_ENDPOINT
+              value: "http://bioresource-search-api.bioresource-search.svc:8000/api/v1/search"
             # Pumaのworker数と、PumaWorkerKillerがworkerを再起動するメモリ上限(MB)。
             # 上限はlimits.memoryと揃える(images/brc-cross-search-xsearch/puma.rb参照)。
             - name: WEB_CONCURRENCY

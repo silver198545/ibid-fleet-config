@@ -484,6 +484,15 @@ devとproductionで同じNFSディレクトリを共有しているためコピ�
 
 ## brc-cross-search-xsearch / brc-cross-search-resource 固有のメモ
 
+- **2026-11-20から、xsearchだけ作業ブランチ`feature/search-api-list`をdevで確かめている**。
+  一覧の件数・並び順・絞り込み・統計グラフを検索API(bioresource-search、下記「bioresource-search 固有のメモ」)
+  から取るページ(`config/page_xsearch/dev/catalog_api/`、developmentモードでだけ`/xsearch/dev/catalog_api/`として出る)が入っている。
+  ビルド元は`build-brc-cross-search-xsearch-image.yaml`の`ref`と`update-app-image.sh`の`upstream_branch_for`で切り替えている
+  (resourceは`main`のまま)。devの`deployment.yaml`で`SEARCH_API_ENDPOINT`にクラスタ内の検索APIを渡す。
+  - **この間はxsearchをstaging・本番へ昇格しない**(本番は`main`のコミットのイメージのまま)。
+  - 取り込み元で`main`へマージされたら、両方を`main`に戻し、マージ後の`main`のコミットで`set-image`し直す。
+    stagingや本番へ出すのは、bioresource-searchを先にその環境へ出してから。
+
 - ソースは[d-usuda/brc-cross-search](https://github.com/d-usuda/brc-cross-search)の
   `main`ブランチ(Sinatra + Puma、DBなし。外部のSPARQLエンドポイント
   `https://knowledge.brc.riken.jp/sparql`を参照するのみ)。Docker対応(`APP_MODE`・
