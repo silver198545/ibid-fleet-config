@@ -48,7 +48,11 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: d-usuda/brc-cross-search
-          ref: main
+          # 2026-11-20から検索API(bioresource-search)を使う作業ブランチ feature/search-api-list を
+          # devで確かめている。取り込み元でmainへマージされたら main に戻す(scripts/update-app-image.sh の
+          # upstream_branch_for も一緒に。docs/manual-apps.md「brc-cross-search-xsearch / brc-cross-search-resource 固有のメモ」)。
+          # brc-cross-search-resource は main のまま。
+          ref: feature/search-api-list
           token: ${{ secrets.BRC_CROSS_SEARCH_ACCESS_TOKEN }}
           persist-credentials: false
           fetch-depth: 0
