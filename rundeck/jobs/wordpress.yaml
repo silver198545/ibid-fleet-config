@@ -211,18 +211,18 @@
     「2a-staging-upgrade」で続ける)。
 
     本番へはstagingを通して昇格する(docs/operations-flow.md「stagingでの確認」)。staging1のメモリの都合で
-    同時に4サイトまで(既に置いてあるサイトも数える)。結果は昇格PRに書き、本番へ昇格したら「4-staging-cleanup」で必ず削除する。
+    同時に8サイトまで(既に置いてあるサイトも数える)。結果は昇格PRに書き、本番へ昇格したら「4-staging-cleanup」で必ず削除する。
   loglevel: INFO
   executionEnabled: true
   scheduleEnabled: true
   multipleExecutions: false
-  timeout: 24h
+  timeout: 48h
   nodefilters:
     filter: 'tags: rancher'
   nodesSelectedByDefault: true
   options:
   - name: sites
-    description: stagingで確認するサイト(複数選択可。stagingに置いてあるサイトと合わせて4サイトまで)
+    description: stagingで確認するサイト(複数選択可。stagingに置いてあるサイトと合わせて8サイトまで)
     required: true
     values:
     - abc
@@ -333,7 +333,7 @@
   executionEnabled: true
   scheduleEnabled: true
   multipleExecutions: false
-  timeout: 12h
+  timeout: 24h
   nodefilters:
     filter: 'tags: rancher'
   nodesSelectedByDefault: true
@@ -530,7 +530,7 @@
   executionEnabled: true
   scheduleEnabled: true
   multipleExecutions: false
-  timeout: 4h
+  timeout: 8h
   nodefilters:
     filter: 'tags: rancher'
   nodesSelectedByDefault: true

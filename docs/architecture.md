@@ -92,7 +92,7 @@ flowchart TB
 | | dev1(`env=dev`) | staging1(`env=staging`) | prod1(`env=production`) |
 |---|---|---|---|
 | 役割 | 更新の互換性テスト | 本番へ出す前の、本番データでの確認 | staging で確かめた変更の反映だけ |
-| WordPressサイト | 34(17サイト × 日本語版・英語版) | 確認中のものだけ(同時に4つまで) | 34(同じ) |
+| WordPressサイト | 34(17サイト × 日本語版・英語版) | 確認中のものだけ(同時に8つまで) | 34(同じ) |
 | 自作アプリ | 7 | 確認中のものだけ | 6 |
 | 入口(Traefik)のIP | `192.168.1.33` | `192.168.1.50` | `192.168.1.99` |
 | ホスト名 | `*.dev.ibid.lan` | `*.staging.ibid.lan` | `*.production.ibid.lan` |

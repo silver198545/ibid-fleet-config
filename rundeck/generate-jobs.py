@@ -37,9 +37,9 @@ UUID_NS = uuid.UUID("6f1c0d7e-3b51-4f6a-9a51-6f1b8a2c9d40")
 MERGE_WAIT_VALUES = ["60", "120", "240", "480"]
 
 # stagingのジョブ(2-staging・2a・4)のタイムアウト。複数のサイトを1つずつ順に処理するので、
-# 1サイト分の時間(start+upgrade 6h、upgrade 3h、cleanup 1h)× stagingに置ける上限(4サイト。
+# 1サイト分の時間(start+upgrade 6h、upgrade 3h、cleanup 1h)× stagingに置ける上限(8サイト。
 # wordpress-pipeline.sh の STAGING_MAX_SITES)にする
-STAGING_TIMEOUTS = {"start": "24h", "upgrade": "12h", "cleanup": "4h"}
+STAGING_TIMEOUTS = {"start": "48h", "upgrade": "24h", "cleanup": "8h"}
 
 # staging1でWordPressのオペレータ(wpadmins)が触れるRancherのプロジェクト(<クラスタID>:<プロジェクトID>)。
 # staging-startが作るnamespaceにこの注釈を付ける。空ならプロジェクトの外に作られ、管理者しか触れない
@@ -408,9 +408,9 @@ upgrade=yes なら続けてdevの構成(昇格予定の helm.version・plugins)�
 「2a-staging-upgrade」で続ける)。
 
 本番へはstagingを通して昇格する(docs/operations-flow.md「stagingでの確認」)。staging1のメモリの都合で
-同時に4サイトまで(既に置いてあるサイトも数える)。結果は昇格PRに書き、本番へ昇格したら「4-staging-cleanup」で必ず削除する。
+同時に8サイトまで(既に置いてあるサイトも数える)。結果は昇格PRに書き、本番へ昇格したら「4-staging-cleanup」で必ず削除する。
 """, [
-            sites_opt(both, "stagingで確認するサイト(複数選択可。stagingに置いてあるサイトと合わせて4サイトまで)"),
+            sites_opt(both, "stagingで確認するサイト(複数選択可。stagingに置いてあるサイトと合わせて8サイトまで)"),
             fresh,
             yes_no("upgrade", "yes: 続けてdevの構成へ切り替えて確認する / no: 本番のコピーを置くところまで", "yes"),
         ], [

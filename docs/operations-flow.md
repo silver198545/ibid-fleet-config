@@ -17,7 +17,7 @@ dev → staging → production の3環境でどうテストし、どう本番へ
 
 stagingは2026-10-08に一度廃止し(HWリソースの制約。その間はdev1上の一時的なリハーサルサイト
 `<site>-rh` で代替していた)、2026-10-25にSSDを使ったstaging1で再導入した(経緯は [roadmap.md](roadmap.md))。
-staging1は小さい(8GiBのノード3台)ため常駐させるものは無く、**同時に置けるWordPressサイトは4つまで**。
+staging1は小さい(8GiBのノード6台)ため常駐させるものは無く、**同時に置けるWordPressサイトは8つまで**。
 
 ## 基本サイクル: 変更はバッチにまとめて一方向に流す
 
@@ -100,8 +100,8 @@ devのサイトは新品DB(またはテスト用コンテンツ)のため、**�
 
 - 本番コンテンツをstagingに置くのは**確認の間だけ**。本番へ昇格したら必ず削除する
   (stagingのStorageClassは`Delete`なので、namespaceを消すとNFS上のwp-content・バックアップも消える)
-- staging1はメモリに余裕がないため、**同時に置くサイトは4つまで**(`STAGING_MAX_SITES`)。
-  一斉更新(チャートの更新等)は4サイトずつ回す
+- staging1はメモリに余裕がないため、**同時に置くサイトは8つまで**(`STAGING_MAX_SITES`)。
+  一斉更新(チャートの更新等)は8サイトずつ回す
 - stagingのサイトもFleet管理(Git経由)。名前はdev・本番と同じ(`wordpress-<site>`)で、
   ホスト名は`<site>.staging.ibid.lan`(DNSのワイルドカード`*.staging.ibid.lan`)。
   Secretはstaging用に毎回新しいパスワードで封印し、片付けで消す

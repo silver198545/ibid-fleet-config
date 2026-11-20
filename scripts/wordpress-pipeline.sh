@@ -34,7 +34,7 @@
 #   FRESH_BACKUP=0            dev-refresh/staging-start で本番のバックアップを新たに取らず、
 #                             最新の日次バックアップ(JST 3:00)を使う
 #   MERGE_WAIT_MINUTES=<分>   promote-production で人のマージを待つ時間(既定240)
-#   STAGING_MAX_SITES=<数>    stagingに同時に置けるサイト数(既定4。staging1のメモリの都合)
+#   STAGING_MAX_SITES=<数>    stagingに同時に置けるサイト数(既定8。staging1のメモリの都合)
 #   STAGING_PROJECT_ID=<クラスタID>:<プロジェクトID> staging-start で作るnamespaceを置く、staging1のRancherの
 #                             プロジェクト(オペレータが触れるようにする。空ならプロジェクトの外)
 #   SEALED_SECRETS_CERT_STAGING=<pem> staging-start で、staging1のSealed Secretsの証明書を取りに行けないとき
@@ -60,7 +60,7 @@ NFS_BACKUP_ROOT="${NFS_BACKUP_ROOT:-/mnt/ibid-nfs/backup}"
 FRESH_BACKUP="${FRESH_BACKUP:-1}"
 MERGE_WAIT_MINUTES="${MERGE_WAIT_MINUTES:-240}"
 WP_PATH="/opt/bitnami/wordpress"
-STAGING_MAX_SITES="${STAGING_MAX_SITES:-4}"
+STAGING_MAX_SITES="${STAGING_MAX_SITES:-8}"
 # stagingでの比較の基準。始めた人と続きを実行する人が違ってもよいよう、ユーザー間で共有する
 # (FreeIPAのグループ wpadmins で書けるsetgidディレクトリ。docs/manual-rundeck.md「実行アカウント」)。
 # パスはdev1のリハーサルサイト時代(〜2026-10-25)のものをそのまま使う
@@ -508,7 +508,7 @@ stg_unlock_capacity() {
   flock -u 8 2>/dev/null || true
 }
 
-# staging1のメモリの都合で、同時に載せるサイト数に上限を設ける(既定4。STAGING_MAX_SITES)
+# staging1のメモリの都合で、同時に載せるサイト数に上限を設ける(既定8。STAGING_MAX_SITES)
 stg_require_capacity() {
   local -a current
   mapfile -t current < <(staging_sites)

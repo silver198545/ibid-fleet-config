@@ -50,8 +50,8 @@ pass/fail only, and scans run on the bastion, not in Actions. See `docs/manual-v
 - **Staging holds only what is being verified** (reintroduced 2026-10-25; replaces the former dev1 rehearsal
   sites `<site>-rh`). A site is put on staging with production's config, production data is restored into it,
   dev's config is promoted onto it and compared (`wordpress-pipeline.sh staging-start` / `staging-upgrade`),
-  then staging → production, then it is removed from staging (`staging-cleanup`). staging1 is small (3 × 8GiB):
-  at most 4 WordPress sites at once (`STAGING_MAX_SITES`). Staging infra is a light version (no Longhorn,
+  then staging → production, then it is removed from staging (`staging-cleanup`). staging1 is small (6 × 8GiB since 2026-11-20):
+  at most 8 WordPress sites at once (`STAGING_MAX_SITES`). Staging infra is a light version (no Longhorn,
   `reclaimPolicy: Delete` StorageClasses, small Prometheus). Staging Secrets are sealed fresh per stay with
   staging1's key. PRs touching only `envs/staging/` (no CODEOWNERS) auto-merge. Apps get `overlays/staging/`
   (production-like, 1 replica, shared NFS read-only; never point staging at production data/services —

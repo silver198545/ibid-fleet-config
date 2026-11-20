@@ -295,7 +295,7 @@ WordPressコア/プラグインのイメージはdigest固定(= セキュリテ�
 1. **WordPressコア・プラグインの確認**: コアのdevへの更新は毎週の `auto-update` が済ませ、プラグインは
    サイトの管理者がdevの管理画面で更新し `0-dev-plugin-capture` でGitに取り込んでいる。その間のPR(Actionsの実行履歴)とdevの状態を確認し、
    問題なければstagingで確認してからproductionへ昇格する
-   (4サイトずつ。[runbook/wordpress-update.md](runbook/wordpress-update.md))。`auto-update` が失敗していないかも見る。
+   (8サイトずつ。[runbook/wordpress-update.md](runbook/wordpress-update.md))。`auto-update` が失敗していないかも見る。
    毎週の `tools/plugin-check` の通知で、脆弱性のある版(:rotating_light:)が残っていればサイトの管理者に更新を促す。
    上げられないプラグイン(WordPress.orgで公開停止、新しいWordPressが必要等。
    通知・実行ログに出る)は個別に判断する。
@@ -588,10 +588,11 @@ dev1のリハーサルサイト(`<site>-rh`)はstagingで置き換えた。
 - **役割**: 本番へ出す前の本番データでの確認。確認中のサイト・アプリだけを一時的に置き、本番へ昇格したら消す。
   本番へは必ずstagingを通す(promoteワークフローの本番への昇格元はstaging)
 - **staging1**: 3台(control-plane/etcd/worker兼任、4CPU・8GiB・60GB、SSDイメージ、anti-affinity)。
+  2026-11-20にノード数を倍(6台)にし、WordPressの同時サイト数の上限を4から8へ上げた。2026-11-20に倍の6台へ増設(WordPressの同時8サイト化のため)。
   クラスタID `c-m-qqhsg9c2`、IPPool `pool2`(`.50-.60`、Traefikは `192.168.1.50`)、DNS `*.staging.ibid.lan`
 - **infraは軽量版**: Longhornを置かない。StorageClassは`reclaimPolicy: Delete`(NFS上は `wordpress|apps|backup/staging/`)。
   監視はPrometheusを短期保存(3日)・小メモリにしたもの。infraだけでノードのメモリを43〜59%使うため、
-  **WordPressサイトは同時に4つまで**
+  **WordPressサイトは同時に8つまで**
 - **stagingだけに触れるPRはauto-merge**(CODEOWNERSは `/envs/production/` だけ)
 
 Git管理外の作業(実施したら[x]にする):
